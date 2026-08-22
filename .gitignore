@@ -8,6 +8,7 @@ env/
 sessions/
 logs/
 *.log
+.tui_history
 
 # Python
 __pycache__/

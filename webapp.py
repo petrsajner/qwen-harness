@@ -197,8 +197,7 @@ def build_ui() -> gr.Blocks:
                     btn_stop = gr.Button("⏹ Stop", size="sm")
                     btn_refresh = gr.Button("🔄", size="sm")
 
-        chat = gr.Chatbot(type="messages", height=480, label="Konverzace",
-                          render_markdown=True)
+        chat = gr.Chatbot(height=480, label="Konverzace", render_markdown=True)
 
         with gr.Row(visible=True) as input_row:
             with gr.Column(scale=5):
@@ -252,10 +251,10 @@ def build_ui() -> gr.Blocks:
 
 
 if __name__ == "__main__":
+    import os
     build_ui().launch(
         server_name=cfg.web["host"],
         server_port=int(cfg.web["port"]),
-        show_api=False,
-        inbrowser=True,
+        inbrowser=not os.environ.get("QWEN_NO_BROWSER"),
         allowed_paths=[str(cfg.path("paths.sessions_dir"))],
     )

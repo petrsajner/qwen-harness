@@ -23,6 +23,13 @@ class AssistantResult:
         return bool(self.tool_calls)
 
 
+def _template_kwargs(cfg: Config) -> dict:
+    """Vypnutí thinking režimu přes chat template (Qwen3.8)."""
+    if not cfg.data.get("thinking", True):
+        return {"chat_template_kwargs": {"thinking": False}}
+    return {}
+
+
 class LLMClient:
     def __init__(self, cfg: Config):
         self.cfg = cfg
@@ -46,6 +53,7 @@ class LLMClient:
             "max_tokens": max_tokens,
             **s,
         }
+        params.setdefault("extra_body", {}).update(_template_kwargs(self.cfg))
         if tools:
             params["tools"] = tools
         if extra_body:
@@ -107,6 +115,7 @@ class LLMClient:
             "max_tokens": max_tokens,
             **s,
         }
+        params.setdefault("extra_body", {}).update(_template_kwargs(self.cfg))
         if tools:
             params["tools"] = tools
         if extra_body:

@@ -188,14 +188,22 @@ class TUIApp:
                     console.print("[red]Server se nepodařilo spustit - zkus /server start později.[/red]")
             console.print()
 
-        from prompt_toolkit import PromptSession
-        from prompt_toolkit.history import FileHistory
-        history = FileHistory(str(ROOT / ".tui_history"))
-        pt = PromptSession(history=history)
+        # vstup: prompt_toolkit (historie, editace), fallback na input() mimo TTY
+        try:
+            from prompt_toolkit import PromptSession
+            from prompt_toolkit.history import FileHistory
+            history = FileHistory(str(ROOT / ".tui_history"))
+            pt = PromptSession(history=history)
+
+            def read_line() -> str:
+                return pt.prompt("› ")
+        except Exception:
+            def read_line() -> str:
+                return input("› ")
 
         while True:
             try:
-                line = pt.prompt("› ", complete_while_typing=True)
+                line = read_line()
             except (KeyboardInterrupt, EOFError):
                 console.print("\n[dim]Nashledanou![/dim]")
                 break
