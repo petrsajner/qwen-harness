@@ -104,9 +104,12 @@ class RunCommandTool(Tool):
             argv = [bash, "-lc", command]
 
         try:
+            import sys as _sys
             proc = subprocess.run(
                 argv, cwd=workdir, capture_output=True, text=True,
                 encoding="utf-8", errors="replace", timeout=timeout,
+                # bez konzole - pythonw rodic by jinak blikal černým CMD oknem
+                creationflags=0x08000000 if _sys.platform == "win32" else 0,
             )
         except subprocess.TimeoutExpired:
             return f"ERROR: Command timed out after {timeout}s: {command}"

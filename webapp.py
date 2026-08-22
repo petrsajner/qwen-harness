@@ -1110,6 +1110,7 @@ def pick_directory_dialog() -> str | None:
         out = subprocess.run(
             ["powershell", "-NoProfile", "-STA", "-Command", _PS_FOLDER_DIALOG],
             capture_output=True, text=True, timeout=600,
+            creationflags=0x08000000,  # bez blikání černého okna
         )
         p = (out.stdout or "").strip().strip('"')
         if p and Path(p).is_dir():

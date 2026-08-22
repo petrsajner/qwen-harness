@@ -208,6 +208,41 @@ def _close_splash() -> None:
         _splash_done.set()
 
 
+def _write_loading_page(web_port: int):
+    """Interní 'načítám' stránka - okno se otevře okamžitě; stránka sama
+    přeskočí na UI ve chvíli, kdy webapp naslouchá (fetch probe)."""
+    import pathlib
+    d = ROOT / "runtime"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / ".loading.html"
+    p.write_text(f"""<!doctype html><html><head><meta charset="utf-8">
+<title>Qwen3.8-27B Harness</title>
+<style>
+body{{background:#0b0e14;color:#e6edf3;font-family:'Segoe UI',system-ui,sans-serif;
+display:flex;align-items:center;justify-content:center;height:100vh;margin:0;
+flex-direction:column;gap:20px}}
+.r{{width:56px;height:56px;border:4px solid rgba(45,212,191,.18);
+border-top-color:#2dd4bf;border-radius:50%;animation:s 1s linear infinite}}
+@keyframes s{{to{{transform:rotate(360deg)}}}}
+h1{{font-size:21px;font-weight:600;margin:0}} h1 b{{color:#2dd4bf}}
+small{{color:#8b949e}}
+</style></head><body>
+<div class="r"></div>
+<h1><b>Qwen</b>3.8-27B Harness</h1>
+<small id="s">startuji rozhraní… (první spuštění chvíli trvá)</small>
+<script>
+const APP='http://127.0.0.1:{web_port}/';
+const t0=Date.now();
+(async function probe(){{
+  try{{ await fetch(APP+'config',{{mode:'no-cors'}}); location.replace(APP); return; }}catch(e){{}}
+  if(Date.now()-t0>20000)
+    document.getElementById('s').textContent='stále startuje… (detaily: runtime/launcher.log)';
+  setTimeout(probe,400);
+}})();
+</script></body></html>""", encoding="utf-8")
+    return p
+
+
 def main() -> int:
     smoke = "--smoke" in sys.argv
     srv_port, web_port = _cfg_ports()
@@ -253,12 +288,22 @@ def main() -> int:
         webapp_proc = subprocess.Popen(
             [str(VENV_PYW), "webapp.py"], cwd=str(ROOT), env=env,
             creationflags=0x08000000)
-        for _ in range(120):
-            if _http_ok(f"{base_web}/config"):
-                break
-            time.sleep(0.5)
-    url = base_web
-    _log(f"Web UI připraveno: {url}")
+        if not smoke:
+            # okno otevřeme HNED s loading stránkou (sama přeskočí na UI,
+            # až bude server ready) - uživatel nekouká 10 s na splash
+            loading = _write_loading_page(web_port)
+            url = loading.as_uri()
+            _log(f"Okno otevřeno hned (loading) → {base_web}")
+        else:
+            for _ in range(120):
+                if _http_ok(f"{base_web}/config"):
+                    break
+                time.sleep(0.5)
+            url = base_web
+    else:
+        url = base_web
+    if not (webapp_proc is not None and not smoke):
+        _log(f"Web UI připraveno: {url}")
 
     # ---- 3) cleanup (zavření okna = stop všeho + uvolnění VRAM) ---------------
     cleaned = {"done": False}
