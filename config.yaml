@@ -44,6 +44,7 @@ sampling:
     presence_penalty: 1.5
 thinking: true             # režim uvažování modelu
 reasoning_effort: xhigh    # hloubka uvažování: xhigh | medium | low (jen při thinking: true)
+work_mode: development     # discussion | research | writing | development | computer
 
 # Agent
 agent:
@@ -70,6 +71,7 @@ web:
   backend: google     # google / auto / bing (backend knihovny ddgs)
   timeout: 10         # s na jeden požadavek
   max_chars: 12000    # max délka textu z web_fetch
+  research_source_max_chars: 200000  # technický strop uloženého textu jednoho zdroje
   search_results: 5   # výchozí počet výsledků hledání
 
 # Cesty (relativně ke kořenu projektu, pokud nejsou absolutní)

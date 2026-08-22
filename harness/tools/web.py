@@ -139,6 +139,8 @@ class WebSearchTool(Tool):
             return f"ERROR: web search failed: {type(e).__name__}: {e}"
         if not items:
             return "(žádné výsledky - zkus jiný dotaz)"
+        if getattr(ctx, "research", None):
+            ctx.research.record_query(query.strip(), items[:want])
         out = []
         for i, (title, url, snip) in enumerate(items[:want]):
             out.append(f"{i + 1}. {title or '(bez titulku)'}\n   {url}\n   {snip[:300]}")
@@ -206,8 +208,17 @@ class WebFetchTool(Tool):
         ctype = r.headers.get("content-type", "")
         if "html" in ctype or "xml" in ctype or ctype.startswith("text/"):
             text = _strip_tags(r.text)
+            title_match = re.search(r"<title[^>]*>(.*?)</title>", r.text, re.S | re.I)
+            title = _strip_tags(title_match.group(1)) if title_match else r.url
         else:
             text = f"(binary/unsupported content-type: {ctype or 'neznámý'})"
+            title = r.url
+        if getattr(ctx, "research", None):
+            max_source = int(_web_cfg(ctx).get("research_source_max_chars", 200_000))
+            ctx.research.record_source(
+                r.url, title, text, ctype or "unknown", requested_url=url,
+                max_chars=max_source,
+            )
         limit = int(max_chars or _web_cfg(ctx).get("max_chars", 12000))
         return truncate(text, limit, "web_fetch")
 

@@ -15,8 +15,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from harness.agent import build_registry
+from harness.changes import ChangeJournal, file_sha256
 from harness.config import Config, load_config
 from harness.llm import parse_tool_arguments
+from harness.processes import ProcessManager
 from harness.safety import Risk, SafetyPolicy
 from harness.session import Session
 from harness.tools.base import AgentContext, ToolRegistry
@@ -45,6 +47,13 @@ def test_config() -> None:
     check(abs(s["temperature"] - 1.0) < 1e-9, "thinking sampling t=1.0")
     s2 = cfg.sampling(thinking=False)
     check(abs(s2["temperature"] - 0.7) < 1e-9, "non-thinking sampling t=0.7")
+    from harness.prompts import build_system_prompt
+    discussion_prompt = build_system_prompt("chat", cfg, ROOT, "discussion")
+    research_prompt = build_system_prompt("chat", cfg, ROOT, "research")
+    check("DISCUSSION mode" in discussion_prompt and "coding agent" not in discussion_prompt,
+          "Diskuze nemá coding system prompt")
+    check("Never filter" in research_prompt and "adult user" in research_prompt,
+          "Výzkum zakazuje filtrování zdrojů podle důvěryhodnosti")
 
 
 def test_safety() -> None:
@@ -97,6 +106,18 @@ def test_session() -> None:
         check(len(img_msg) == 1 and any(p["type"] == "image_url" for p in img_msg[0]["content"]),
               "obrázek renderován jako image_url data URL")
 
+        pinned = tmp / "pinned.txt"
+        pinned.write_text("DŮLEŽITÝ PŘIPNUTÝ KONTEXT", encoding="utf-8")
+        check(s.pin_context_file(pinned), "soubor lze připnout do kontextu")
+        api_with_pin = s.to_api_messages()
+        check(any("DŮLEŽITÝ PŘIPNUTÝ KONTEXT" in str(m.get("content", ""))
+                  for m in api_with_pin), "připnutý soubor je v API pohledu modelu")
+        breakdown = s.context_breakdown()
+        check(breakdown["pinned_files"] == [str(pinned.resolve())],
+              "context inspector eviduje připnutý soubor")
+        check(s.unpin_context_file(pinned) and not s.context_breakdown()["pinned_files"],
+              "připnutý soubor lze odepnout")
+
         original_data_url = Session.__dict__["_data_url"]
         try:
             Session._data_url = staticmethod(lambda _path: (_ for _ in ()).throw(
@@ -114,6 +135,7 @@ def test_session() -> None:
 
 def test_tools_fs_shell() -> None:
     print("[tools]")
+    import time
     tmp = Path(tempfile.mkdtemp())
     try:
         data = load_config().data
@@ -121,6 +143,9 @@ def test_tools_fs_shell() -> None:
         cfg = Config(data, root=ROOT)
         session = Session(cfg, session_id="tool-test")
         ctx = AgentContext(cfg=cfg, session=session, workspace=tmp)
+        ctx.changes = ChangeJournal(session, tmp)
+        ctx.processes = ProcessManager()
+        ctx.changes.begin_task("test změn")
 
         reg = ToolRegistry()
         from harness.tools import fs, shell
@@ -143,11 +168,66 @@ def test_tools_fs_shell() -> None:
         r = reg.execute("search_files", {"query": "qwen_marker", "path": "."}, ctx)
         check("data.py:2" in r, "search_files case-insensitive nalezení")
 
+        data_file = tmp / "sub" / "data.py"
+        original_data = data_file.read_text(encoding="utf-8")
+        r = reg.execute("apply_patch", {
+            "path": "sub/data.py",
+            "edits": [{"old": "NEEXISTUJE", "new": "x"}],
+        }, ctx)
+        check(r.startswith("ERROR") and data_file.read_text(encoding="utf-8") == original_data,
+              "neplatný patch nezmění soubor")
+        r = reg.execute("apply_patch", {
+            "path": "sub/data.py",
+            "expected_sha256": file_sha256(data_file),
+            "edits": [{"old": "x = 1", "new": "x = 2"}],
+        }, ctx)
+        check(r.startswith("OK") and "x = 2" in data_file.read_text(encoding="utf-8"),
+              "apply_patch provede přesnou atomickou změnu")
+        changes = reg.execute("list_task_changes", {}, ctx)
+        check("data.py" in changes and "new.md" in changes,
+              "journal eviduje upravený i vytvořený soubor")
+        undo = reg.execute("undo_task_changes", {}, ctx)
+        check("errors\": []" in undo and data_file.read_text(encoding="utf-8") == original_data
+              and not (tmp / "sub" / "new.md").exists(),
+              "rollback obnoví původní stav celé úlohy")
+        check(not any(item["changed"] for item in ctx.changes.summary()["files"]),
+              "journal je po rollbacku znovu čistý")
+
         r = reg.execute("run_command", {"command": "echo hello-$((40+2))", "shell": "bash"}, ctx)
         check("hello-42" in r and "exit code: 0" in r, f"run_command bash funguje: {r[:60]}")
 
         r = reg.execute("run_command", {"command": "Write-Output 'ps-works'"}, ctx)
         check("ps-works" in r, f"run_command powershell funguje")
+
+        started = time.monotonic()
+        launched = json.loads(reg.execute("start_command", {
+            "command": "Write-Output one; Start-Sleep -Milliseconds 200; Write-Output two",
+            "shell": "powershell", "timeout": 5,
+        }, ctx))
+        check(time.monotonic() - started < 1 and launched["status"] == "running",
+              "start_command vrátí okamžitě process_id")
+        cursor = 0
+        streamed = ""
+        for _ in range(50):
+            poll = json.loads(reg.execute("poll_command", {
+                "process_id": launched["process_id"], "cursor": cursor,
+            }, ctx))
+            streamed += poll["output"]
+            cursor = poll["cursor"]
+            if poll["status"] == "finished":
+                break
+            time.sleep(0.05)
+        check("one" in streamed and "two" in streamed and poll["exit_code"] == 0,
+              "poll_command streamuje přírůstkový výstup do dokončení")
+
+        sleeper = json.loads(reg.execute("start_command", {
+            "command": "Start-Sleep -Seconds 30", "shell": "powershell", "timeout": 60,
+        }, ctx))
+        stopped = json.loads(reg.execute("terminate_command", {
+            "process_id": sleeper["process_id"],
+        }, ctx))
+        check(stopped.get("terminated") is True,
+              "terminate_command ukončí dlouhý process tree")
 
         r = reg.execute("run_command", {"command": "format c: /x"}, ctx)
         check("blocked" in r.lower(), "nebezpečný příkaz zablokován")
@@ -156,8 +236,8 @@ def test_tools_fs_shell() -> None:
         check(r.startswith("ERROR"), "chyba čtení vrací ERROR text")
 
         schemas = reg.schemas()
-        check(all(s["function"]["name"] for s in schemas) and len(schemas) == 5,
-              f"schemas pro 5 nástrojů ({len(schemas)})")
+        check(all(s["function"]["name"] for s in schemas) and len(schemas) == 12,
+              f"schemas pro 12 nástrojů ({len(schemas)})")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -167,16 +247,33 @@ def test_registry_modes() -> None:
     chat = build_registry("chat")
     agent = build_registry("agent")
     computer = build_registry("computer")
-    check(set(chat.names()) == {"read_memory", "save_memory", "web_search", "web_fetch"},
-          f"chat režim: jen memory + web nástroje ({chat.names()})")
+    check(set(chat.names()) == {"read_memory", "save_memory", "web_search", "web_fetch",
+                                "context_status", "pin_context_file", "unpin_context_file",
+                                "repo_overview", "list_project_documents",
+                                "read_project_document"},
+          f"chat režim: memory + web + context nástroje ({chat.names()})")
     check({"list_dir", "run_command", "view_image"} <= set(agent.names()),
-          f"agent režim: fs+shell+vision ({len(agent.names())})")
+          f"agent režim: fs+patch+shell+vision ({len(agent.names())})")
     check({"screenshot", "click", "type_text", "press_key"} <= set(computer.names()),
           f"computer režim: + GUI nástroje ({len(computer.names())})")
     click = computer.get("click")
     check(click.risk == Risk.WRITE, "click je WRITE risk")
     shot = computer.get("screenshot")
     check(shot.risk == Risk.SAFE, "screenshot je SAFE risk")
+
+    discussion = build_registry("chat", "discussion")
+    research = build_registry("chat", "research")
+    writing = build_registry("agent", "writing")
+    development = build_registry("agent", "development")
+    check("apply_patch" not in discussion.names() and "git_commit" not in discussion.names(),
+          "Diskuze nemá coding nástroje")
+    check(set(research.names()) == set(discussion.names()),
+          "Výzkum má web/context nástroje bez coding sady")
+    check("apply_patch" in writing.names() and "git_commit" not in writing.names()
+          and "run_command" not in writing.names(),
+          "Psaní má dokumentové editace bez Git a shellu")
+    check({"apply_patch", "git_commit", "run_command", "start_project_check"}
+          <= set(development.names()), "Vývoj má kompletní coding sadu")
 
 
 def test_parse_args() -> None:
@@ -195,7 +292,7 @@ def test_workspace() -> None:
     cfg = Config(data, root=ROOT)
     tmp = Path(tempfile.mkdtemp())
     try:
-        session = Session(cfg, session_id="ws-test")
+        session = Session(cfg, session_id="ws-test", system_prompt="SYS")
         from harness.safety import SafetyPolicy
         agent = Agent(cfg, LLMStub(), session, build_registry("agent"),
                       SafetyPolicy("supervised"), mode="agent")
@@ -207,6 +304,7 @@ def test_workspace() -> None:
         # soubor -> nadřazený adresář
         f = tmp / "soubor.txt"
         f.write_text("x", encoding="utf-8")
+        (tmp / "module.py").write_text("def project_symbol():\n    return 1\n", encoding="utf-8")
         p2 = agent.set_workspace(str(f))
         check(p2 == tmp.resolve(), "soubor -> nadřazený adresář")
         # uvozovky kolem cesty
@@ -222,6 +320,17 @@ def test_workspace() -> None:
         from harness.tools.base import AgentContext
         r = build_registry("agent").execute("read_file", {"path": "soubor.txt"}, agent.ctx)
         check("soubor.txt" in r and "1| x" in r, "read_file řeší cestu od workspace")
+        agent.new_task("prozkoumej projekt")
+        check("AUTOMATIC PROJECT SNAPSHOT" in session.messages[0]["content"]
+              and "project_symbol" in session.messages[0]["content"],
+              "repo snapshot se automaticky přidá do system promptu")
+        overview = build_registry("agent").execute("repo_overview", {}, agent.ctx)
+        check("module.py" in overview and "project_symbol" in overview,
+              "repo_overview vrací klíčové symboly workspace")
+        (tmp / "module.py").write_text("def refreshed_symbol():\n    return 2\n", encoding="utf-8")
+        refreshed = build_registry("agent").execute("repo_overview", {}, agent.ctx)
+        check("refreshed_symbol" in refreshed and "project_symbol" not in refreshed,
+              "repo snapshot invaliduje cache po změně souboru")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -444,6 +553,230 @@ def test_streaming_bridge() -> None:
           "worker bridge vrátí výsledek agent.step")
 
 
+def test_git_tools() -> None:
+    print("[git tools]")
+    import subprocess
+    from harness.tools import fs as fs_tools, git as git_tools
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        def git(*args):
+            return subprocess.run(["git", *args], cwd=tmp, check=True,
+                                  capture_output=True, text=True, encoding="utf-8")
+
+        git("init", "-q")
+        git("config", "user.email", "qwen-test@example.invalid")
+        git("config", "user.name", "Qwen Test")
+        tracked = tmp / "tracked.txt"
+        tracked.write_text("before\n", encoding="utf-8")
+        git("add", "tracked.txt")
+        git("commit", "-q", "-m", "baseline")
+
+        data = load_config().data
+        data["paths"]["sessions_dir"] = str(tmp / "sessions")
+        cfg = Config(data, root=ROOT)
+        session = Session(cfg, session_id="git-test")
+        ctx = AgentContext(cfg=cfg, session=session, workspace=tmp)
+        ctx.changes = ChangeJournal(session, tmp)
+        ctx.changes.begin_task("git test")
+        reg = ToolRegistry()
+        fs_tools.register_fs_tools(reg)
+        git_tools.register_git_tools(reg)
+
+        patched = reg.execute("apply_patch", {
+            "path": "tracked.txt",
+            "edits": [{"old": "before", "new": "after"}],
+        }, ctx)
+        check(patched.startswith("OK"), "git test změna vznikla přes apply_patch")
+        check("tracked.txt" in reg.execute("git_status", {}, ctx),
+              "git_status vrací změněný soubor")
+        check("-before" in reg.execute("git_diff", {"path": "tracked.txt"}, ctx),
+              "git_diff vrací obsah změny")
+        committed = reg.execute("git_commit", {"message": "task change"}, ctx)
+        check("exit code: 0" in committed and git("log", "-1", "--pretty=%s").stdout.strip() == "task change",
+              "git_commit commitne pouze journalované změny")
+        check(git("status", "--porcelain", "--untracked-files=no").stdout.strip() == "",
+              "tracked změny jsou po commitu čisté")
+        check("sessions/" in git("status", "--porcelain").stdout,
+              "git_commit nepřibere nesouvisející journal artefakty")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_automatic_project_check() -> None:
+    print("[automatic project check]")
+    import time
+    from harness.tools import context as context_tools
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        (tmp / "tests").mkdir()
+        (tmp / "tests" / "test_core.py").write_text(
+            "print('PROJECT-CHECK-OK')\n", encoding="utf-8")
+        data = load_config().data
+        data["paths"]["sessions_dir"] = str(tmp / ".sessions")
+        cfg = Config(data, root=ROOT)
+        session = Session(cfg, session_id="check-test")
+        ctx = AgentContext(cfg=cfg, session=session, workspace=tmp,
+                           processes=ProcessManager())
+        reg = ToolRegistry()
+        context_tools.register_coding_context_tools(reg)
+        started = json.loads(reg.execute("start_project_check", {"timeout": 10}, ctx))
+        cursor = 0
+        output = ""
+        for _ in range(100):
+            result = ctx.processes.poll(started["process_id"], cursor)
+            output += result["output"]
+            cursor = result["cursor"]
+            if result["status"] == "finished":
+                break
+            time.sleep(0.05)
+        check("PROJECT-CHECK-OK" in output and result["exit_code"] == 0,
+              "detekovaný project check doběhne v background procesu")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_research_ledger_and_synthesis() -> None:
+    print("[research ledger + synthesis]")
+    from harness.llm import AssistantResult
+    from harness.research import ResearchLedger, synthesize_research
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        data = load_config().data
+        data["paths"]["sessions_dir"] = str(tmp / "sessions")
+        cfg = Config(data, root=ROOT)
+        session = Session(cfg, session_id="research-test", system_prompt="SYS",
+                          work_mode="research")
+        ledger = ResearchLedger(session)
+        ledger.begin("Jaké jsou dvě protichůdné interpretace?")
+        ledger.record_query("první hledání", [
+            ("Zdroj A", "https://example.test/a", "tvrdí A"),
+            ("Zdroj B", "https://example.test/b", "tvrdí B"),
+        ])
+        ledger.record_source("https://example.test/a", "Zdroj A",
+                             "Interpretace A říká ano.")
+        ledger.record_source("https://example.test/b", "Zdroj B",
+                             "Interpretace B říká ne.")
+        run = ledger.current()
+        check(len(run["candidates"]) == 2 and len(run["sources"]) == 2,
+              "ledger zachová všechny kandidáty i načtené zdroje")
+        check(all("credibility" not in source and "trust" not in source
+                  for source in run["sources"]),
+              "ledger neobsahuje trust scoring ani filtr důvěryhodnosti")
+
+        class ResearchLLM:
+            def __init__(self):
+                self.cfg = cfg
+                self.prompts: list[str] = []
+
+            def ask(self, messages, **_kwargs):
+                prompt = str(messages[-1]["content"])
+                self.prompts.append(prompt)
+                if "Chybějící zdroje" in prompt:
+                    return AssistantResult(content="Opravená syntéza zahrnuje [S1] i [S2].")
+                if "Vytvoř přehlednou závěrečnou syntézu" in prompt:
+                    return AssistantResult(content="První syntéza obsahuje pouze [S1].")
+                return AssistantResult(content="Dílčí loss-aware poznámky [S1] [S2].")
+
+            def stream(self, _messages, **_kwargs):
+                return AssistantResult(content="Pracovní draft před syntézou")
+
+        fake = ResearchLLM()
+        synthesis = synthesize_research(fake, run)
+        check("[S1]" in synthesis and "[S2]" in synthesis,
+              "coverage kontrola doplní každý zpracovaný source ID")
+        final_prompt = next(prompt for prompt in fake.prompts
+                            if "Vytvoř přehlednou závěrečnou syntézu" in prompt)
+        check("Interpretace A" in final_prompt and "Interpretace B" in final_prompt
+              and "Nehodnoť ani nefiltruj" in final_prompt,
+              "syntéza dostane protichůdná data bez trust filtru")
+        ledger.complete(synthesis)
+        check(ledger.status()["status"] == "complete" and ledger.path.is_file(),
+              "research ledger je persistentní a označí hotovou syntézu")
+
+        from harness.agent import Agent, Status
+        from harness.safety import SafetyPolicy
+        integrated_session = Session(
+            cfg, session_id="research-agent", system_prompt="SYS", work_mode="research")
+        integrated_llm = ResearchLLM()
+        agent = Agent(
+            cfg, integrated_llm, integrated_session,
+            build_registry("chat", "research"), SafetyPolicy("auto"),
+            mode="chat", work_mode="research",
+        )
+        agent.new_task("Integrovaná research otázka")
+        agent.ctx.research.record_source("https://example.test/a", "A", "Ano [S1]")
+        agent.ctx.research.record_source("https://example.test/b", "B", "Ne [S2]")
+        result = agent.step()
+        check(result.status is Status.FINAL and "[S1]" in result.text and "[S2]" in result.text
+              and "Pracovní draft" not in result.text,
+              "research Agent nahradí draft povinnou coverage syntézou")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_project_document_library() -> None:
+    print("[project document library]")
+    from docx import Document
+    from harness.agent import Agent
+    from harness.repo_index import RepoIndex
+    from harness.safety import SafetyPolicy
+    from pypdf import PdfWriter
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        (tmp / "film.md").write_text("# Film Aurora\nHrdinka se jmenuje Klára.\n", encoding="utf-8")
+        (tmp / "code.py").write_text("SECRET_CODE = 1\n", encoding="utf-8")
+        document = Document()
+        document.add_paragraph("DOCX podklad o postavě Klára")
+        document.save(tmp / "postava.docx")
+        writer = PdfWriter()
+        writer.add_blank_page(width=200, height=200)
+        with open(tmp / "reference.pdf", "wb") as handle:
+            writer.write(handle)
+        data = load_config().data
+        data["paths"]["sessions_dir"] = str(tmp / "sessions")
+        cfg = Config(data, root=ROOT)
+
+        discussion_session = Session(
+            cfg, session_id="discussion-docs", system_prompt="SYS",
+            workspace=str(tmp), work_mode="discussion")
+        discussion_agent = Agent(
+            cfg, LLMStub(), discussion_session, build_registry("chat", "discussion"),
+            SafetyPolicy("auto"), mode="chat", work_mode="discussion")
+        discussion_agent.set_workspace(tmp)
+        discussion_agent.new_task("Pověz mi o filmu")
+        prompt = discussion_session.messages[0]["content"]
+        check("PROJECT DOCUMENT LIBRARY" in prompt and "film.md" in prompt
+              and "AUTOMATIC PROJECT SNAPSHOT" not in prompt and "code.py" not in prompt,
+              "Diskuze vidí dokumentovou knihovnu bez coding repo snapshotu")
+
+        research_session = Session(
+            cfg, session_id="research-docs", system_prompt="SYS",
+            workspace=str(tmp), work_mode="research")
+        research_agent = Agent(
+            cfg, LLMStub(), research_session, build_registry("chat", "research"),
+            SafetyPolicy("auto"), mode="chat", work_mode="research")
+        research_agent.set_workspace(tmp)
+        research_agent.new_task("Kdo je hrdinka?")
+        content = research_agent.registry.execute(
+            "read_project_document", {"path": "film.md"}, research_agent.ctx)
+        sources = research_agent.ctx.research.current()["sources"]
+        check("Klára" in content and len(sources) == 1
+              and sources[0]["url"].startswith("file://"),
+              "lokální dokument se ve Výzkumu uloží jako ledger source")
+        library = RepoIndex(tmp)
+        _, docx_text = library.read_document("postava.docx")
+        pdf_path, pdf_text = library.read_document("reference.pdf")
+        check("DOCX podklad" in docx_text, "projektová knihovna čte skutečný DOCX")
+        check(pdf_path.suffix == ".pdf" and isinstance(pdf_text, str),
+              "projektová knihovna načte validní PDF")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_async_model_switch() -> None:
     print("[async model switch]")
     import threading
@@ -513,6 +846,64 @@ def test_session_meta() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_chat_rewind_and_fork() -> None:
+    print("[chat retry/undo/fork]")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        data = load_config().data
+        data["paths"]["sessions_dir"] = str(tmp / "sessions")
+        cfg = Config(data, root=ROOT)
+        session = Session(cfg, session_id="original", system_prompt="SYS", workspace=str(tmp),
+                          work_mode="writing")
+        session.add("user", "první dotaz")
+        session.add("assistant", "první odpověď")
+        image = tmp / "source.png"
+        image.write_bytes(b"image-data")
+        session.add("user", "druhý dotaz", images=[image])
+        session.add("user", "[TASK PROTOCOL - internal]")
+        session.add("assistant", "druhá odpověď")
+        original_count = len(session.messages)
+
+        markdown = session.export_markdown()
+        jsonl = session.export_jsonl()
+        check(markdown.is_file() and "druhý dotaz" in markdown.read_text(encoding="utf-8"),
+              "chat lze exportovat do čitelného Markdownu")
+        imported = Session.import_jsonl(cfg, jsonl, "IMPORTED SYS", workspace=str(tmp))
+        check(imported.id != session.id and imported.messages[0]["content"] == "IMPORTED SYS"
+              and imported.last_user_index() is not None,
+              "JSONL import vytvoří novou session a obnoví system prompt")
+        found = Session.search_sessions(cfg, "druhý dotaz")
+        check(any(item["id"] == session.id and "druhý dotaz" in item["snippet"]
+                  and "sessions" not in item["snippet"] for item in found),
+              "fulltextové hledání najde dotaz v historii")
+
+        fork = session.fork_at_last_user("FORK SYS")
+        check(fork is not None and len(session.messages) == original_count and fork.id != session.id,
+              "fork vytvoří novou session bez změny originálu")
+        check(fork.meta["work_mode"] == "writing", "fork zachová pracovní režim session")
+        fork_index = fork.last_user_index()
+        fork_user = fork.messages[fork_index] if fork_index is not None else {}
+        copied_images = fork_user.get("images", [])
+        check(fork_user.get("content") == "druhý dotaz" and copied_images
+              and Path(copied_images[0]).exists() and copied_images[0] != session.messages[3]["images"][0],
+              "fork končí posledním dotazem a kopíruje jeho přílohy")
+
+        session.compression = {"cut": 2, "summary": "old"}
+        session._save_compression()
+        prompt = session.rewind_last_turn(keep_user=True)
+        check(prompt == "druhý dotaz" and session.messages[-1]["content"] == "druhý dotaz"
+              and session.compression is None,
+              "retry ponechá dotaz a odstraní odpověď i starou kompresi")
+
+        session.add("assistant", "nová odpověď")
+        removed = session.rewind_last_turn(keep_user=False)
+        check(removed == "druhý dotaz" and session.last_user_index() is not None
+              and session.messages[session.last_user_index()]["content"] == "první dotaz",
+              "undo odstraní celé poslední kolo")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_transient_session() -> None:
     print("[transient session - lazy zápis na disk]")
     tmp = Path(tempfile.mkdtemp())
@@ -559,6 +950,56 @@ def test_web_tools() -> None:
     out = reg.execute("web_fetch", {"url": "ftp://neplatne.cz"}, ctx)
     check(out.startswith("ERROR"), "web_fetch odmítne non-http url")
 
+    import requests
+    from harness.research import ResearchLedger
+    tmp = Path(tempfile.mkdtemp())
+    original_ensure = webt._ensure_ddgs
+    original_bing = webt.WebSearchTool._bing
+    original_ddg = webt.WebSearchTool._ddg
+    original_get = requests.get
+    try:
+        data = load_config().data
+        data["paths"]["sessions_dir"] = str(tmp / "sessions")
+        cfg = Config(data, root=ROOT)
+        session = Session(cfg, session_id="web-research", system_prompt="SYS",
+                          work_mode="research")
+        ledger = ResearchLedger(session)
+        ledger.begin("test internetového ledgeru")
+        research_ctx = type("RC", (), {"cfg": cfg, "research": ledger})()
+        webt._ensure_ddgs = lambda: False
+        webt.WebSearchTool._bing = staticmethod(lambda *_args: [
+            ("A", "https://example.test/a", "ano"),
+            ("B", "https://example.test/b", "ne"),
+        ])
+        webt.WebSearchTool._ddg = staticmethod(lambda *_args: [])
+        webt.WebSearchTool().run(research_ctx, "protiklad", 2)
+        check(len(ledger.current()["candidates"]) == 2,
+              "web_search uloží všechny nalezené kandidáty do ledgeru")
+
+        class Response:
+            url = "https://example.test/a"
+            headers = {"content-type": "text/html"}
+            text = "<html><title>Zdroj A</title><body>Obsah tvrdí ano i ne.</body></html>"
+            status_code = 200
+
+            @staticmethod
+            def raise_for_status():
+                return None
+
+        requests.get = lambda *_args, **_kwargs: Response()
+        fetched = webt.WebFetchTool().run(research_ctx, "https://example.test/a")
+        source = ledger.current()["sources"][0]
+        check("Obsah tvrdí ano i ne" in fetched and "ano i ne" in source["content"],
+              "web_fetch uloží plný čitelný obsah zdroje do ledgeru")
+        check("credibility" not in source and "trust" not in source,
+              "web integrace nepřidává hodnocení důvěryhodnosti")
+    finally:
+        webt._ensure_ddgs = original_ensure
+        webt.WebSearchTool._bing = original_bing
+        webt.WebSearchTool._ddg = original_ddg
+        requests.get = original_get
+        shutil.rmtree(tmp, ignore_errors=True)
+
 
 def test_projects() -> None:
     print("[projekty]")
@@ -567,11 +1008,13 @@ def test_projects() -> None:
     try:
         data = load_config().data
         data["projects"] = {"root_dir": "projects"}
+        data["work_mode"] = "writing"
         cfg = Config(data, root=tmp)
         pj = Projects(cfg)
         # nový projekt - složka v projects rootu
         p1 = pj.create_new("Můj-Test:Projekt")  # nebezpečné znaky → sanitizace
         check((tmp / "projects" / p1["name"]).is_dir(), f"složka vytvořena ({p1['name']})")
+        check(p1["work_mode"] == "writing", "projekt uloží výchozí pracovní režim")
         check(p1["name"] != "Můj-Test:Projekt" or True, "název sanitizován")
         # duplicita jmen → -2
         p2 = pj.create_new(p1["name"])
@@ -582,6 +1025,9 @@ def test_projects() -> None:
         a1 = pj.attach_folder(str(ext))
         a2 = pj.attach_folder(str(ext))
         check(a1["name"] == "Existujici" and a1["id"] == a2["id"], "attach idempotentní")
+        pj.set_work_mode(str(ext.resolve()), "research")
+        check(pj.by_path(str(ext.resolve()))["work_mode"] == "research",
+              "výchozí režim projektu lze změnit")
         # registr vrátí vše
         names = [p["name"] for p in pj.list_all()]
         check(len(names) == 3, f"3 projekty v registru ({names})")
@@ -643,6 +1089,10 @@ def test_communication_protocol() -> None:
         agent.new_task("dalsi ukol")
         notes = [m for m in session.messages if "[TASK PROTOCOL" in str(m.get("content"))]
         check(len(notes) == 1, "stará poznámka nahrazena (ne hromadí se)")
+        reloaded = Session.load(cfg, session.id)
+        persisted_notes = [m for m in reloaded.messages
+                           if "[TASK PROTOCOL" in str(m.get("content"))]
+        check(len(persisted_notes) == 1, "protokol se nehromadí ani po reloadu JSONL")
 
         # 2) progress nudge po 4 tool-krocích bez slov
         script = [AssistantResult(tool_calls=[_tc("list_dir", '{"path": "."}')]) for _ in range(4)]
@@ -733,10 +1183,15 @@ if __name__ == "__main__":
     test_reasoning_effort_kwargs()
     test_runtime_lifecycle_helpers()
     test_streaming_bridge()
+    test_git_tools()
+    test_automatic_project_check()
+    test_research_ledger_and_synthesis()
+    test_project_document_library()
     test_async_model_switch()
     test_shell_readonly()
     test_workspace()
     test_session_meta()
+    test_chat_rewind_and_fork()
     test_transient_session()
     test_web_tools()
     test_projects()

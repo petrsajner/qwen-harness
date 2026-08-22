@@ -14,6 +14,7 @@ import uuid
 from pathlib import Path
 
 from harness.config import Config
+from harness.work_modes import normalize_work_mode
 
 
 def _safe_name(name: str) -> str:
@@ -60,7 +61,9 @@ class Projects:
             i += 1
         folder.mkdir(parents=True, exist_ok=True)
         proj = {"id": uuid.uuid4().hex[:8], "name": folder.name,
-                "path": str(folder), "created": time.time()}
+                "path": str(folder), "created": time.time(),
+                "work_mode": normalize_work_mode(self.cfg.data.get("work_mode"),
+                                                   self.cfg.agent.get("mode"))}
         items = self._load()
         items.append(proj)
         self._save(items)
@@ -75,7 +78,9 @@ class Projects:
         if existing:
             return existing
         proj = {"id": uuid.uuid4().hex[:8], "name": p.name,
-                "path": str(p), "created": time.time()}
+                "path": str(p), "created": time.time(),
+                "work_mode": normalize_work_mode(self.cfg.data.get("work_mode"),
+                                                   self.cfg.agent.get("mode"))}
         items = self._load()
         items.append(proj)
         self._save(items)
@@ -89,3 +94,11 @@ class Projects:
             return self.attach_folder(path)
         except ValueError:
             return None
+
+    def set_work_mode(self, path: str, work_mode: str) -> None:
+        items = self._load()
+        for item in items:
+            if item.get("path") == path:
+                item["work_mode"] = normalize_work_mode(work_mode)
+                self._save(items)
+                return

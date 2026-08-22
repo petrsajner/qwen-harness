@@ -17,6 +17,11 @@ Harness pro lokální práci s modelem **Qwen3.8-27B** (Apache 2.0) na **RTX 509
 - 🖥️ **Dvě UI** — terminál (TUI) + webové rozhraní (Gradio, jen 127.0.0.1)
   — WUI: Ctrl+Enter odesílá, chyby zobrazuje jako zprávy v chatu
 - 💾 **Session historie** — JSONL perzistence, obrázky uložené na disk
+- ↩️ **Obnovovací bod každé úlohy** — atomické patchování, přehled změn a návrat všech souborů jedním tlačítkem
+- ⏱️ **Dlouhé operace na pozadí** — průběžný výstup, timeout, stdin a zastavení process tree
+- 🧭 **Automatický přehled projektu a kontextu** — repo snapshot, připnuté soubory a viditelné využití kontextu
+- 🌿 **Práce s chatem** — retry, úprava posledního dotazu, undo kola, větve, hledání a export/import
+- 🎛️ **Oddělené pracovní režimy** — Diskuze, Výzkum, Psaní, Vývoj a Počítač s vlastními prompty a nástroji
 
 ## Architektura
 
@@ -105,11 +110,24 @@ installer/build_installer.bat     # vytvoří dist/QwenHarness-Setup-<verze>.exe
 
 ## Režimy práce
 
-| Režim | Nástroje | Využití |
+| Pracovní režim | Nástroje | Využití |
 |---|---|---|
-| `chat` | žádné | obecný chat, dotazy, analýza obrázků |
-| `agent` | list_dir, read/write_file, search_files, run_command, view_image | coding, správa souborů |
-| `computer` | + screenshot, click, type_text, press_key, scroll, move_mouse | ovládání počítače |
+| `discussion` | paměť, internet, projektové dokumenty | běžný chat, nápady a diskuze bez coding pravidel |
+| `research` | internet, dokumenty, research ledger | rešerše se všemi zdroji a povinnou závěrečnou syntézou |
+| `writing` | dokumenty, patch, checkpoint a rollback | scénáře, články, reporty a textové revize |
+| `development` | patch, Git, shell, testy, repo snapshot | coding agent |
+| `computer` | development + screenshot a GUI nástroje | ovládání počítače |
+
+Každá konverzace si ukládá vlastní pracovní režim. Projekt může obsahovat libovolný počet
+konverzací v různých režimech a pamatuje si svůj výchozí režim pro nové chaty.
+
+### Výzkumný režim
+
+- `web_search`, `web_fetch` a lokální dokumenty se zapisují do persistentního `research.json`.
+- Zdroje se nefiltrují ani nehodnotí podle původu či domnělé důvěryhodnosti.
+- Protichůdná, negativní, nejistá a menšinová tvrzení musí zůstat v syntéze viditelná.
+- Coverage kontrola ověří, že každý načtený source ID je v závěru uveden.
+- Kompletní ledger lze exportovat ze sidebaru.
 
 ## Autonomie a bezpečnost
 
@@ -136,9 +154,20 @@ TTFT ~1–2 s. Vlastní benchmark: `.venv/Scripts/python scripts/bench.py [--mod
 ## Testy
 
 ```bash
-.venv/Scripts/python tests/test_core.py     # unit testy jádra (36, bez GPU)
+.venv/Scripts/python tests/test_core.py     # unit testy jádra (bez GPU)
 .venv/Scripts/python tests/e2e_smoke.py     # E2E: chat + tool calling + vision (GPU)
+.venv/Scripts/python tests/e2e_model_switch.py      # E2E: Q4 → Q5 background switch
+.venv/Scripts/python tests/e2e_coding_workflow.py   # E2E: patch → test → rollback
+.venv/Scripts/python tests/e2e_research_workflow.py # E2E: protichůdné zdroje → syntéza
 ```
+
+## Coding workflow
+
+- Existující soubory agent mění přes `apply_patch`; před první změnou vznikne persistentní checkpoint.
+- Sidebar ukazuje pouze lidský seznam vytvořených/upravených souborů a nabízí návrat celé úlohy.
+- `start_project_check` automaticky najde hlavní testovací příkaz a spustí ho jako dlouhou operaci.
+- Strukturované Git nástroje pracují pouze se soubory aktuální úlohy, pokud nejsou cesty zadány výslovně.
+- Technický diff, procesní výstup a repo mapa jsou dostupné agentovi; hlavní uživatelské UI zůstává chatové.
 
 ## Konfigurace (`config.yaml`)
 

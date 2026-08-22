@@ -21,11 +21,16 @@ from pathlib import Path
 from typing import Callable, Generator
 
 from harness.config import Config
+from harness.changes import ChangeJournal
 from harness.llm import LLMClient, parse_tool_arguments
+from harness.processes import ProcessManager
+from harness.repo_index import RepoIndex
+from harness.research import ResearchLedger, synthesize_research
 from harness.prompts import system_prompt
 from harness.safety import Risk, SafetyPolicy
 from harness.session import Session
 from harness.tools.base import AgentContext, ToolRegistry
+from harness.work_modes import WORK_MODES, normalize_work_mode
 
 
 class Status(str, enum.Enum):
@@ -62,6 +67,13 @@ TASK_PROTOCOL_NOTE = (
     "📋 Next steps - concrete suggested follow-up; "
     "⏸️ Postponed - what was deliberately left out and why."
 )
+WRITING_PROTOCOL_NOTE = (
+    "[WRITING PROTOCOL - follow for this task] "
+    "Before editing, briefly confirm the writing goal, intended audience, tone, and constraints. "
+    "Preserve all requested meaning and continuity. During longer work give short progress updates. "
+    "Finish with a clear human summary: what was written or revised, important choices, and any "
+    "open questions. Do not introduce coding, Git, build, or test terminology unless relevant."
+)
 PROGRESS_NOTE = (
     "[PROGRESS UPDATE REQUIRED] Before or together with your next tool call, give the user "
     "a ONE-sentence status update in their language: what you found/did so far and what you "
@@ -73,7 +85,12 @@ SUMMARY_NOTE = (
     "✅ Done/Changed (exact files + what changed) · 🔍 Found (read-only findings) · "
     "📋 Next steps (concrete) · ⏸️ Postponed (why)."
 )
-_PROTOCOL_MARKS = ("[TASK PROTOCOL", "[PROGRESS UPDATE", "[FINAL SUMMARY")
+WRITING_SUMMARY_NOTE = (
+    "[WRITING SUMMARY REQUIRED] Briefly summarize what was written or revised, the important "
+    "creative/editorial choices, and any open questions. Use the user's language."
+)
+_PROTOCOL_MARKS = ("[TASK PROTOCOL", "[WRITING PROTOCOL", "[PROGRESS UPDATE",
+                   "[FINAL SUMMARY", "[WRITING SUMMARY")
 TOOL_STEPS_BEFORE_UPDATE = 4   # tool-kroky bez slov k uživateli → vnutit status
 MIN_TOOLS_FOR_SUMMARY = 3      # úloha s ≥N nástroji musí skončit strukturovaným souhrnem
 COMPRESS_AT = 0.85             # auto-komprese při 85 % kontextu
@@ -93,19 +110,26 @@ def _looks_structured(text: str) -> bool:
 class Agent:
     def __init__(self, cfg: Config, llm: LLMClient, session: Session, registry: ToolRegistry,
                  safety: SafetyPolicy, mode: str = "agent", on_event: EventCb | None = None,
-                 abort_flag: threading.Event | None = None):
+                 abort_flag: threading.Event | None = None,
+                 process_manager: ProcessManager | None = None,
+                 work_mode: str | None = None):
         self.cfg = cfg
         self.llm = llm
         self.session = session
         self.registry = registry
         self.safety = safety
-        self.mode = mode
+        self.work_mode = normalize_work_mode(work_mode, mode)
+        self.mode = WORK_MODES[self.work_mode].agent_mode
         self.on_event = on_event
         self.abort_flag = abort_flag or threading.Event()
         self.ctx = AgentContext(
             cfg=cfg, session=session,
             workspace=Path(cfg.agent.get("workspace") or Path.cwd()).resolve(),
         )
+        self.ctx.changes = ChangeJournal(session, self.ctx.workspace)
+        self.ctx.processes = process_manager or ProcessManager()
+        self.ctx.repo_index = RepoIndex(self.ctx.workspace)
+        self.ctx.research = ResearchLedger(session)
         self._steps = 0
         self._pending: list[dict] = []          # tool_calls čekající na potvrzení
         self._tools_used_this_task = 0
@@ -124,6 +148,11 @@ class Agent:
         if mode not in ("chat", "agent", "computer"):
             raise ValueError(f"Neznámý režim: {mode}")
         self.mode = mode
+        self.work_mode = normalize_work_mode(None, mode)
+
+    def set_work_mode(self, work_mode: str) -> None:
+        self.work_mode = normalize_work_mode(work_mode, self.mode)
+        self.mode = WORK_MODES[self.work_mode].agent_mode
 
     def set_workspace(self, path: str | Path) -> Path:
         """Nastaví pracovní adresář (workspace) pro nástroje.
@@ -138,6 +167,8 @@ class Agent:
         if not p.is_dir():
             raise ValueError(f"Adresář neexistuje: {p}")
         self.ctx.workspace = p
+        self.ctx.changes.set_workspace(p)
+        self.ctx.repo_index.set_workspace(p)
         return p
 
     @property
@@ -146,7 +177,7 @@ class Agent:
 
     @property
     def tools_enabled(self) -> bool:
-        return self.mode != "chat"
+        return WORK_MODES[self.work_mode].task_protocol
 
     # ------------------------------------------------------------------
     def refresh_system_prompt(self) -> None:
@@ -157,8 +188,13 @@ class Agent:
         """
         from harness.prompts import build_system_prompt
         if self.session.messages and self.session.messages[0]["role"] == "system":
-            self.session.messages[0]["content"] = build_system_prompt(
-                self.mode, self.cfg, self.ctx.workspace)
+            prompt = build_system_prompt(
+                self.mode, self.cfg, self.ctx.workspace, self.work_mode)
+            if self.ctx.repo_index and WORK_MODES[self.work_mode].repo_snapshot:
+                prompt += "\n\n## AUTOMATIC PROJECT SNAPSHOT\n" + self.ctx.repo_index.summary()
+            elif self.ctx.repo_index:
+                prompt += "\n\n## PROJECT DOCUMENT LIBRARY\n" + self.ctx.repo_index.document_catalog()
+            self.session.messages[0]["content"] = prompt
 
     def new_task(self, text: str, images: list[Path] | None = None) -> None:
         """Zaloguje uživatelský vstup a resetuje počítadla."""
@@ -170,16 +206,46 @@ class Agent:
         self._overflow_retried = False
         self.safety.new_task()
         self.session.add("user", text, images=images)
+        self.ctx.changes.begin_task(text)
+        if self.work_mode == "research":
+            self.ctx.research.begin(text)
         # 🧠 paměť do system promptu (start úlohy)
         self.refresh_system_prompt()
         if self.tools_enabled:
             # jsou-staré protokolové poznámky → jedna čerstvá
             # (poznámky jdou jako user-role: Qwen šablona zakazuje system uprostřed konverzace)
+            before = len(self.session.messages)
             self.session.messages = [
                 m for m in self.session.messages
                 if not any(str(m.get("content", "")).startswith(mark) for mark in _PROTOCOL_MARKS)
             ]
-            self.session.add("user", TASK_PROTOCOL_NOTE)
+            if len(self.session.messages) != before and not self.session.transient:
+                self.session._rewrite_jsonl()
+            note = WRITING_PROTOCOL_NOTE if self.work_mode == "writing" else TASK_PROTOCOL_NOTE
+            self.session.add("user", note)
+
+    def resume_task(self, label: str) -> None:
+        """Resetuje agentní stav nad již existující poslední user zprávou (retry/fork)."""
+        self._steps = 0
+        self._pending = []
+        self._tools_used_this_task = 0
+        self._tool_steps_since_update = 0
+        self._summary_requested = False
+        self._overflow_retried = False
+        self.safety.new_task()
+        self.ctx.changes.begin_task(label)
+        self.refresh_system_prompt()
+        if self.tools_enabled:
+            before = len(self.session.messages)
+            self.session.messages = [
+                message for message in self.session.messages
+                if not any(str(message.get("content", "")).startswith(mark)
+                           for mark in _PROTOCOL_MARKS)
+            ]
+            if len(self.session.messages) != before and not self.session.transient:
+                self.session._rewrite_jsonl()
+            note = WRITING_PROTOCOL_NOTE if self.work_mode == "writing" else TASK_PROTOCOL_NOTE
+            self.session.add("user", note)
 
     def _check_abort(self) -> StepResult | None:
         if self.abort_flag.is_set():
@@ -388,13 +454,26 @@ class Agent:
             return StepResult(Status.CONTINUE, tool_trace=trace, reasoning=res.reasoning)
 
         # 5) finální odpověď (+ 📋 vynucení strukturovaného souhrnu)
+        if self.work_mode == "research":
+            run = self.ctx.research.current()
+            if run and run.get("status") == "collecting" and run.get("sources"):
+                self.emit("info", "Sestavuji závěrečnou syntézu ze všech načtených zdrojů...")
+                try:
+                    res.content = synthesize_research(self.llm, run)
+                    self.ctx.research.complete(res.content)
+                except Exception as exc:
+                    return StepResult(
+                        Status.ERROR,
+                        text=f"Výzkumná syntéza selhala: {type(exc).__name__}: {exc}",
+                    )
         if (self.tools_enabled
                 and self._tools_used_this_task >= MIN_TOOLS_FOR_SUMMARY
                 and not self._summary_requested
                 and not _looks_structured(res.content or "")):
             self._summary_requested = True
             self.session.add("assistant", res.content)
-            self.session.add("user", SUMMARY_NOTE)
+            note = WRITING_SUMMARY_NOTE if self.work_mode == "writing" else SUMMARY_NOTE
+            self.session.add("user", note)
             return StepResult(Status.CONTINUE, text=res.content, reasoning=res.reasoning)
         self.session.add("assistant", res.content)
         return StepResult(Status.FINAL, text=res.content, reasoning=res.reasoning)
@@ -420,17 +499,23 @@ class Agent:
                 return
 
 
-def build_registry(mode: str) -> ToolRegistry:
-    """Postav registry nástrojů podle režimu (memory nástroje ve všech režimech)."""
-    from harness.tools import computer, fs, memory, shell, vision, web
+def build_registry(mode: str, work_mode: str | None = None) -> ToolRegistry:
+    """Postav registry podle jednotného pracovního režimu."""
+    from harness.tools import computer, context, fs, git, memory, shell, vision, web
+    selected = normalize_work_mode(work_mode, mode)
     reg = ToolRegistry()
     memory.register_memory_tools(reg)  # chat má alespoň paměť
     web.register_web_tools(reg)        # internet: web_search + web_fetch (všude)
-    if mode == "chat":
+    context.register_context_tools(reg)
+    if selected in ("discussion", "research"):
         return reg
     fs.register_fs_tools(reg)
-    shell.register_shell_tools(reg)
     vision.register_vision_tools(reg)
-    if mode == "computer":
+    if selected == "writing":
+        return reg
+    context.register_coding_context_tools(reg)
+    git.register_git_tools(reg)
+    shell.register_shell_tools(reg)
+    if selected == "computer":
         computer.register_computer_tools(reg)
     return reg

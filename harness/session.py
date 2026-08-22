@@ -6,6 +6,7 @@ pro API volání se renderují do OpenAI formátu včetně base64 data URL.
 from __future__ import annotations
 
 import base64
+import copy
 import json
 import mimetypes
 import shutil
@@ -22,7 +23,8 @@ IMG_MIMES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", "
 
 class Session:
     def __init__(self, cfg: Config, session_id: str | None = None, system_prompt: str | None = None,
-                 workspace: str | None = None, transient: bool = False):
+                 workspace: str | None = None, transient: bool = False,
+                 work_mode: str | None = None):
         self.cfg = cfg
         self.id = session_id or time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
         self.dir = cfg.path("paths.sessions_dir") / self.id
@@ -33,7 +35,8 @@ class Session:
         self.compression: dict[str, Any] | None = None  # {"cut": int, "summary": str}
         self.compression_rev = 0  # inkrement při každé změně (pro UI marker)
         self.meta: dict[str, Any] = {"workspace": workspace, "title": None,
-                                     "created": time.time(), "updated": time.time()}
+                                     "created": time.time(), "updated": time.time(),
+                                     "pinned_files": [], "work_mode": work_mode}
         # transient = nový neuložený chat: žije jen v paměti, na disk se zapíše
         # až s první uživatelskou zprávou (persist()) - neplní se prázdné chatty
         self.transient = transient
@@ -80,6 +83,10 @@ class Session:
     # -- render pro API ----------------------------------------------------
     SUMMARY_PREFIX = ("[SESSION HISTORY SUMMARY - older conversation was auto-compressed. "
                       "Use it as context, do not re-ask the user about these facts:]\n\n")
+    INTERNAL_USER_PREFIXES = (
+        "[TASK PROTOCOL", "[PROGRESS UPDATE", "[FINAL SUMMARY",
+        "[The following image", "[Interrupted by user]",
+    )
 
     def _view_messages(self) -> list[dict]:
         """Zprávy, které VIDÍ MODEL (po aplikaci komprese)."""
@@ -113,6 +120,10 @@ class Session:
                 parts.append({"type": "image_url", "image_url": {"url": self._data_url(p)}})
             m2["content"] = parts
             out.append(m2)
+        pinned = self.pinned_context_block()
+        if pinned:
+            insert_at = 1 if out and out[0].get("role") == "system" else 0
+            out.insert(insert_at, {"role": "user", "content": pinned})
         return out
 
     @staticmethod
@@ -153,8 +164,64 @@ class Session:
             total += sum(1 for p in m.get("images", []) if p in recent) * self.IMAGE_TOKENS * 4
             if m.get("tool_calls"):
                 total += len(_json.dumps(m["tool_calls"], ensure_ascii=False))
+        total += len(self.pinned_context_block())
         # ~3.6 znaku na token (mix češtiny, kódu, JSON)
         return total * 10 // 36
+
+    def pin_context_file(self, path: Path) -> bool:
+        resolved = str(path.resolve())
+        pins = list(self.meta.get("pinned_files") or [])
+        if resolved in pins:
+            return False
+        pins.append(resolved)
+        self.meta["pinned_files"] = pins[-10:]
+        self._save_meta()
+        return True
+
+    def unpin_context_file(self, path: Path) -> bool:
+        resolved = str(path.resolve())
+        pins = list(self.meta.get("pinned_files") or [])
+        if resolved not in pins:
+            return False
+        pins.remove(resolved)
+        self.meta["pinned_files"] = pins
+        self._save_meta()
+        return True
+
+    def pinned_context_block(self, max_chars: int = 40_000) -> str:
+        parts: list[str] = []
+        used = 0
+        for raw in self.meta.get("pinned_files") or []:
+            path = Path(raw)
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            room = max_chars - used
+            if room <= 0:
+                break
+            text = text[:room]
+            parts.append(f"### {path}\n{text}")
+            used += len(text)
+        if not parts:
+            return ""
+        return "[PINNED PROJECT FILES - user-selected persistent context]\n\n" + "\n\n".join(parts)
+
+    def context_breakdown(self) -> dict:
+        import collections as _collections
+        view = self._view_messages()
+        counts = _collections.Counter(m.get("role", "other") for m in view)
+        images = sum(len(m.get("images", [])) for m in view)
+        pins = [raw for raw in self.meta.get("pinned_files") or [] if Path(raw).is_file()]
+        return {
+            "estimated_tokens": self.estimate_context_tokens(),
+            "visible_messages": len(view),
+            "total_messages": len(self.messages),
+            "roles": dict(counts),
+            "images": images,
+            "pinned_files": pins,
+            "compressed": bool(self.compression),
+        }
 
     def _msg_tokens(self, m: dict) -> int:
         """Orientační počet tokenů jedné zprávy (text + obrázky + tool_calls)."""
@@ -270,6 +337,97 @@ class Session:
                 f.write(json.dumps(m, ensure_ascii=False) + "\n")
         tmp.replace(self._jsonl)
 
+    def last_user_index(self) -> int | None:
+        for index in range(len(self.messages) - 1, -1, -1):
+            message = self.messages[index]
+            content = message.get("content")
+            if message.get("role") == "user" and isinstance(content, str) \
+                    and not content.startswith(self.INTERNAL_USER_PREFIXES):
+                return index
+        return None
+
+    def rewind_last_turn(self, keep_user: bool) -> str | None:
+        index = self.last_user_index()
+        if index is None:
+            return None
+        content = str(self.messages[index].get("content") or "")
+        self.messages = self.messages[:index + 1 if keep_user else index]
+        self._clear_compression()
+        self.meta["message_count"] = len(self.messages)
+        self.meta["updated"] = time.time()
+        self._rewrite_jsonl()
+        self._save_meta()
+        return content
+
+    def fork_at_last_user(self, system_prompt: str) -> "Session" | None:
+        index = self.last_user_index()
+        if index is None:
+            return None
+        fork = Session(self.cfg, system_prompt=system_prompt,
+                       workspace=self.meta.get("workspace"), transient=False,
+                       work_mode=self.meta.get("work_mode"))
+        copied: list[dict] = [fork.messages[0]] if fork.messages else []
+        for original in self.messages[1:index + 1]:
+            message = copy.deepcopy(original)
+            if message.get("images"):
+                new_images: list[str] = []
+                for raw in message["images"]:
+                    try:
+                        new_images.append(str(fork._store_image(Path(raw))))
+                    except OSError:
+                        continue
+                message["images"] = new_images
+            copied.append(message)
+        fork.messages = copied
+        title = self.meta.get("title") or "Nová větev"
+        fork.meta.update({
+            "title": f"{title} (větev)"[:100],
+            "message_count": len(copied),
+            "pinned_files": list(self.meta.get("pinned_files") or []),
+            "updated": time.time(),
+        })
+        fork._rewrite_jsonl()
+        fork._save_meta()
+        return fork
+
+    def export_markdown(self) -> Path:
+        export_dir = self.dir / "exports"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        target = export_dir / f"{self.id}.md"
+        lines = [f"# {self.meta.get('title') or 'Qwen chat'}", ""]
+        role_names = {"user": "Uživatel", "assistant": "Asistent", "tool": "Nástroj"}
+        for message in self.messages:
+            role = message.get("role")
+            content = message.get("content")
+            if role == "system" or (role == "user" and isinstance(content, str)
+                                    and content.startswith(self.INTERNAL_USER_PREFIXES)):
+                continue
+            if not content and message.get("tool_calls"):
+                names = ", ".join(call.get("function", {}).get("name", "tool")
+                                  for call in message["tool_calls"])
+                content = f"Volání nástrojů: {names}"
+            lines.extend([f"## {role_names.get(role, str(role))}", "", str(content or ""), ""])
+            for image in message.get("images", []):
+                lines.append(f"Příloha: `{Path(image).name}`\n")
+        atomic = "\n".join(lines)
+        target.write_text(atomic, encoding="utf-8", newline="\n")
+        return target
+
+    def export_jsonl(self) -> Path:
+        export_dir = self.dir / "exports"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        target = export_dir / f"{self.id}.jsonl"
+        with open(target, "w", encoding="utf-8") as handle:
+            for message in self.messages:
+                handle.write(json.dumps(message, ensure_ascii=False) + "\n")
+        return target
+
+    def _clear_compression(self) -> None:
+        if self.compression is not None:
+            self.compression = None
+            self.compression_rev += 1
+        self._compression_file.unlink(missing_ok=True)
+
     @property
     def _compression_file(self) -> Path:
         return self.dir / "compression.json"
@@ -293,6 +451,8 @@ class Session:
             self.meta = json.loads(self._meta_file.read_text(encoding="utf-8"))
             self.meta.setdefault("workspace", None)
             self.meta.setdefault("title", None)
+            self.meta.setdefault("pinned_files", [])
+            self.meta.setdefault("work_mode", None)
         except (OSError, ValueError):
             pass
 
@@ -333,6 +493,47 @@ class Session:
             else:
                 s.messages.insert(0, {"role": "system", "content": system_prompt})
         return s
+
+    @classmethod
+    def import_jsonl(cls, cfg: Config, source: Path, system_prompt: str,
+                     workspace: str | None = None,
+                     work_mode: str | None = None) -> "Session":
+        messages: list[dict] = []
+        for number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                message = json.loads(line)
+            except ValueError as exc:
+                raise ValueError(f"Neplatný JSONL na řádku {number}: {exc}") from exc
+            if not isinstance(message, dict) or message.get("role") not in {
+                    "system", "user", "assistant", "tool"}:
+                raise ValueError(f"Neplatná zpráva na řádku {number}")
+            if message.get("images"):
+                message["images"] = [raw for raw in message["images"] if Path(raw).is_file()]
+            messages.append(message)
+        if not messages:
+            raise ValueError("Importovaný chat neobsahuje žádné zprávy")
+        if messages[0].get("role") == "system":
+            messages[0]["content"] = system_prompt
+        else:
+            messages.insert(0, {"role": "system", "content": system_prompt})
+        session = cls(cfg, system_prompt=system_prompt, workspace=workspace,
+                      work_mode=work_mode)
+        session.messages = messages
+        session.meta["message_count"] = len(messages)
+        session.meta["workspace"] = workspace
+        session.meta["work_mode"] = work_mode
+        session.meta["title"] = next(
+            (str(message.get("content", ""))[:70] for message in messages
+             if message.get("role") == "user"
+             and not str(message.get("content", "")).startswith(cls.INTERNAL_USER_PREFIXES)),
+            "Importovaný chat",
+        )
+        session.meta["updated"] = time.time()
+        session._rewrite_jsonl()
+        session._save_meta()
+        return session
 
     @classmethod
     def delete(cls, cfg: Config, session_id: str) -> bool:
@@ -393,3 +594,38 @@ class Session:
             })
         out.sort(key=lambda s: s["updated"], reverse=True)
         return out[:limit]
+
+    @staticmethod
+    def search_sessions(cfg: Config, query: str, limit: int = 30) -> list[dict]:
+        query = (query or "").strip().lower()
+        if not query:
+            return []
+        results: list[dict] = []
+        for item in Session.list_sessions(cfg, limit=500):
+            path = cfg.path("paths.sessions_dir") / item["id"] / "messages.jsonl"
+            try:
+                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+            snippet = ""
+            for line in lines:
+                try:
+                    message = json.loads(line)
+                except ValueError:
+                    continue
+                content = message.get("content")
+                if message.get("role") not in ("user", "assistant") or not isinstance(content, str):
+                    continue
+                if content.startswith(Session.INTERNAL_USER_PREFIXES):
+                    continue
+                position = content.lower().find(query)
+                if position >= 0:
+                    snippet = content[max(0, position - 50):position + len(query) + 90]
+                    snippet = " ".join(snippet.split())[:140]
+                    break
+            if not snippet and query not in str(item.get("title", "")).lower():
+                continue
+            results.append({**item, "snippet": snippet})
+            if len(results) >= limit:
+                break
+        return results

@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
+from harness.changes import atomic_write_text, file_sha256
 from harness.safety import Risk
 from harness.tools.base import AgentContext, Tool, truncate
 
@@ -83,10 +85,97 @@ class WriteFileTool(Tool):
 
     def run(self, ctx: AgentContext, path: str, content: str) -> str:
         f = ctx.resolve(path)
-        f.parent.mkdir(parents=True, exist_ok=True)
         existed = f.exists()
-        f.write_text(content, encoding="utf-8", newline="\n")
+        if ctx.changes:
+            ctx.changes.record_before(f)
+        atomic_write_text(f, content)
+        if ctx.changes:
+            ctx.changes.record_after(f)
         return f"OK: {'overwritten' if existed else 'created'} {f} ({len(content):,} chars)"
+
+
+class ApplyPatchTool(Tool):
+    name = "apply_patch"
+    description = ("Apply exact text replacements to one file atomically. Each edit must match "
+                   "the expected number of occurrences; no partial change is written on failure.")
+    parameters = {
+        "path": {"type": "string", "description": "Target text file"},
+        "edits": {
+            "type": "array",
+            "description": "Ordered exact replacements",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "old": {"type": "string"},
+                    "new": {"type": "string"},
+                    "expected_count": {"type": "integer", "minimum": 1},
+                },
+                "required": ["old", "new"],
+            },
+        },
+        "expected_sha256": {"type": "string", "description": "Optional precondition hash"},
+    }
+    required = ["path", "edits"]
+    risk = Risk.WRITE
+
+    def run(self, ctx: AgentContext, path: str, edits: list[dict[str, Any]],
+            expected_sha256: str | None = None) -> str:
+        target = ctx.resolve(path)
+        if not target.is_file():
+            return f"ERROR: File not found: {target}"
+        current_hash = file_sha256(target)
+        if expected_sha256 and current_hash != expected_sha256:
+            return f"ERROR: File changed since it was read (expected {expected_sha256}, got {current_hash})"
+        try:
+            text = target.read_text(encoding="utf-8")
+        except OSError as exc:
+            return f"ERROR: Cannot read file: {exc}"
+        if not edits:
+            return "ERROR: edits must not be empty"
+        updated = text
+        for index, edit in enumerate(edits, 1):
+            old = str(edit.get("old", ""))
+            new = str(edit.get("new", ""))
+            expected = int(edit.get("expected_count", 1))
+            if not old:
+                return f"ERROR: edit {index} has empty old text"
+            actual = updated.count(old)
+            if actual != expected:
+                return f"ERROR: edit {index} expected {expected} matches, found {actual}; file unchanged"
+            updated = updated.replace(old, new, expected)
+        if updated == text:
+            return "OK: patch produced no content change"
+        if ctx.changes:
+            ctx.changes.record_before(target)
+        atomic_write_text(target, updated)
+        if ctx.changes:
+            ctx.changes.record_after(target)
+        return f"OK: patched {target} ({len(edits)} edits, sha256={file_sha256(target)})"
+
+
+class ListTaskChangesTool(Tool):
+    name = "list_task_changes"
+    description = "List files changed in the current task checkpoint."
+    parameters = {}
+
+    def run(self, ctx: AgentContext) -> str:
+        import json
+        if not ctx.changes:
+            return "ERROR: change journal unavailable"
+        return json.dumps(ctx.changes.summary(), ensure_ascii=False, indent=2)
+
+
+class UndoTaskChangesTool(Tool):
+    name = "undo_task_changes"
+    description = "Restore every file changed by the current task to its pre-task state."
+    parameters = {}
+    risk = Risk.WRITE
+
+    def run(self, ctx: AgentContext) -> str:
+        import json
+        if not ctx.changes:
+            return "ERROR: change journal unavailable"
+        return json.dumps(ctx.changes.undo(), ensure_ascii=False, indent=2)
 
 
 class SearchFilesTool(Tool):
@@ -138,4 +227,7 @@ def register_fs_tools(registry) -> None:
     registry.register(ListDirTool())
     registry.register(ReadFileTool())
     registry.register(WriteFileTool())
+    registry.register(ApplyPatchTool())
+    registry.register(ListTaskChangesTool())
+    registry.register(UndoTaskChangesTool())
     registry.register(SearchFilesTool())

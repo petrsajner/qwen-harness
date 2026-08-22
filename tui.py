@@ -21,6 +21,7 @@ from harness.llm import LLMClient
 from harness.prompts import system_prompt
 from harness.safety import SafetyPolicy
 from harness.session import Session
+from harness.work_modes import WORK_MODES, normalize_work_mode
 
 console = Console()
 
@@ -33,7 +34,8 @@ BANNER = r"""
 HELP = """[bold]Příkazy:[/bold]
   /memory                zobraz trvalou paměť (globální + projektu)
   /model q4|q5           přepnutí modelu (restart serveru)
-  /mode chat|agent|computer     režim práce
+  /work discussion|research|writing|development|computer   pracovní režim
+  /mode chat|agent|computer     kompatibilní zkratka
   /autonomy supervised|semi|auto   úroveň autonomie
   /thinking xhigh|medium|low|off   hloubka uvažování modelu
   /img <cesta>           přiložit obrázek k další zprávě
@@ -48,7 +50,9 @@ class TUIApp:
     def __init__(self) -> None:
         self.cfg = load_config()
         self.model_key = self.cfg.model_key()
-        self.mode = self.cfg.agent.get("mode", "agent")
+        self.work_mode = normalize_work_mode(
+            self.cfg.data.get("work_mode"), self.cfg.agent.get("mode", "agent"))
+        self.mode = WORK_MODES[self.work_mode].agent_mode
         self.autonomy = self.cfg.agent.get("autonomy", "supervised")
         self.thinking = bool(self.cfg.data.get("thinking", True))
         self.reasoning_effort = self.cfg.data.get("reasoning_effort", "xhigh")
@@ -62,7 +66,9 @@ class TUIApp:
 
     # ------------------------------------------------------------------
     def _new_session(self) -> None:
-        self.session = Session(self.cfg, system_prompt=system_prompt(self.mode))
+        self.session = Session(
+            self.cfg, system_prompt=system_prompt(self.mode, self.work_mode),
+            work_mode=self.work_mode)
         self.abort = threading.Event()
         self.auto_approve = False
         self._rebuild_agent()
@@ -74,16 +80,25 @@ class TUIApp:
             semi_max_steps=int(self.cfg.agent.get("semi_max_steps", 15)),
         )
         self.agent = Agent(
-            self.cfg, self.llm, self.session, build_registry(self.mode),
+            self.cfg, self.llm, self.session, build_registry(self.mode, self.work_mode),
             safety, mode=self.mode, on_event=self._on_event, abort_flag=self.abort,
+            work_mode=self.work_mode,
         )
 
     def _set_mode(self, mode: str) -> None:
-        self.mode = mode
+        self._set_work_mode(normalize_work_mode(None, mode))
+
+    def _set_work_mode(self, work_mode: str) -> None:
+        self.work_mode = normalize_work_mode(work_mode, self.mode)
+        self.mode = WORK_MODES[self.work_mode].agent_mode
+        self.cfg.data["work_mode"] = self.work_mode
+        self.cfg.agent["mode"] = self.mode
+        self.session.meta["work_mode"] = self.work_mode
+        self.session._save_meta()
         self._rebuild_agent()
         # aktualizuj system prompt v session
         if self.session.messages and self.session.messages[0]["role"] == "system":
-            self.session.messages[0]["content"] = system_prompt(mode)
+            self.session.messages[0]["content"] = system_prompt(self.mode, self.work_mode)
         self.auto_approve = False
 
     # ------------------------------------------------------------------
@@ -96,7 +111,8 @@ class TUIApp:
             ctx = f"  [bold]ctx[/bold]=~{est / 1000:.1f}k/{limit // 1000}k"
         except Exception:
             ctx = ""
-        return (f"[bold]model[/bold]={self.model_key}  [bold]režim[/bold]={self.mode}  "
+        return (f"[bold]model[/bold]={self.model_key}  "
+                f"[bold]režim[/bold]={WORK_MODES[self.work_mode].label}  "
                 f"[bold]autonomie[/bold]={self.autonomy}  [bold]thinking[/bold]={think}{ctx}\n"
                 f"[bold]workspace[/bold]={ws}")
 
@@ -241,6 +257,12 @@ class TUIApp:
                             console.print(self.status_line())
                         else:
                             console.print("[red]Použití: /mode chat|agent|computer[/red]")
+                    elif cmd == "/work":
+                        if arg in WORK_MODES:
+                            self._set_work_mode(arg)
+                            console.print(self.status_line())
+                        else:
+                            console.print("[red]Použití: /work discussion|research|writing|development|computer[/red]")
                     elif cmd == "/autonomy":
                         if arg in ("supervised", "semi", "auto"):
                             self.autonomy = arg
@@ -273,7 +295,7 @@ class TUIApp:
                                 if self.session.messages and self.session.messages[0]["role"] == "system":
                                     from harness.prompts import system_prompt as _sp
                                     self.session.messages[0]["content"] = (
-                                        _sp(self.mode) +
+                                        _sp(self.mode, self.work_mode) +
                                         f"\n\nCurrent project workspace: {p}. "
                                         f"Relative paths in tools resolve against it. "
                                         f"The user keeps project sources and documents there.")
@@ -313,8 +335,16 @@ class TUIApp:
                             console.print(f"  {s['id']}  ({s['messages']} zpráv)")
                     elif cmd == "/load":
                         try:
-                            self.session = Session.load(self.cfg, arg, system_prompt(self.mode))
+                            self.session = Session.load(
+                                self.cfg, arg, system_prompt(self.mode, self.work_mode))
+                            saved_mode = self.session.meta.get("work_mode")
+                            if saved_mode in WORK_MODES:
+                                self.work_mode = saved_mode
+                                self.mode = WORK_MODES[saved_mode].agent_mode
                             self._rebuild_agent()
+                            if self.session.messages and self.session.messages[0]["role"] == "system":
+                                self.session.messages[0]["content"] = system_prompt(
+                                    self.mode, self.work_mode)
                             console.print(f"[green]✓ Načteno:[/green] {arg} "
                                           f"({len(self.session.messages)} zpráv)")
                         except FileNotFoundError as e:

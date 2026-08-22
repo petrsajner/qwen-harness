@@ -17,6 +17,10 @@ class AgentContext:
     session: Any                   # harness.session.Session
     workspace: Path = field(default_factory=Path.cwd)
     pending_images: list[Path] = field(default_factory=list)  # obrázky k přiložení do další zprávy
+    changes: Any = None            # harness.changes.ChangeJournal
+    processes: Any = None          # harness.processes.ProcessManager
+    repo_index: Any = None         # harness.repo_index.RepoIndex
+    research: Any = None           # harness.research.ResearchLedger
 
     def resolve(self, path: str) -> Path:
         """Relativní cesty řeší od workspace, absolutní ponechá."""

@@ -172,5 +172,79 @@ class RunCommandTool(Tool):
         return "\n".join(parts)
 
 
+class StartCommandTool(Tool):
+    name = "start_command"
+    description = ("Start a long-running command in the background. Returns process_id immediately; "
+                   "use poll_command for incremental output and terminate_command to stop it.")
+    parameters = {
+        "command": {"type": "string"},
+        "shell": {"type": "string", "enum": ["bash", "powershell", "cmd"]},
+        "cwd": {"type": "string"},
+        "timeout": {"type": "integer", "description": "Hard timeout in seconds (default 900)"},
+    }
+    required = ["command"]
+    risk = Risk.WRITE
+
+    def risk_for(self, args: dict) -> Risk:
+        return Risk.SAFE if is_read_only_command(str(args.get("command", ""))) else Risk.WRITE
+
+    def run(self, ctx: AgentContext, command: str, shell: str = "bash",
+            cwd: str | None = None, timeout: int = 900) -> str:
+        import json
+        if not ctx.processes:
+            return "ERROR: process manager unavailable"
+        try:
+            item = ctx.processes.start(command, shell, ctx.resolve(cwd) if cwd else ctx.workspace,
+                                       max(0, int(timeout)))
+            return json.dumps({"process_id": item.id, "status": "running",
+                               "command": command}, ensure_ascii=False)
+        except (OSError, ValueError) as exc:
+            return f"ERROR: cannot start command: {exc}"
+
+
+class PollCommandTool(Tool):
+    name = "poll_command"
+    description = "Read new output and status from a process started by start_command."
+    parameters = {
+        "process_id": {"type": "string"},
+        "cursor": {"type": "integer", "description": "Cursor returned by previous poll (default 0)"},
+        "max_chars": {"type": "integer", "description": "Maximum new output characters (default 20000)"},
+    }
+    required = ["process_id"]
+
+    def run(self, ctx: AgentContext, process_id: str, cursor: int = 0,
+            max_chars: int = 20_000) -> str:
+        import json
+        return json.dumps(ctx.processes.poll(process_id, cursor, max_chars), ensure_ascii=False)
+
+
+class SendStdinTool(Tool):
+    name = "send_stdin"
+    description = "Write text to the stdin of a running background process. Include newline when needed."
+    parameters = {"process_id": {"type": "string"}, "text": {"type": "string"}}
+    required = ["process_id", "text"]
+    risk = Risk.WRITE
+
+    def run(self, ctx: AgentContext, process_id: str, text: str) -> str:
+        import json
+        return json.dumps(ctx.processes.send_stdin(process_id, text), ensure_ascii=False)
+
+
+class TerminateCommandTool(Tool):
+    name = "terminate_command"
+    description = "Terminate a background command and its child process tree."
+    parameters = {"process_id": {"type": "string"}}
+    required = ["process_id"]
+    risk = Risk.WRITE
+
+    def run(self, ctx: AgentContext, process_id: str) -> str:
+        import json
+        return json.dumps(ctx.processes.terminate(process_id), ensure_ascii=False)
+
+
 def register_shell_tools(registry) -> None:
     registry.register(RunCommandTool())
+    registry.register(StartCommandTool())
+    registry.register(PollCommandTool())
+    registry.register(SendStdinTool())
+    registry.register(TerminateCommandTool())
