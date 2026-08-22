@@ -27,7 +27,7 @@ class Session:
         self.img_dir = self.dir / "images"
         self.messages: list[dict[str, Any]] = []
         if system_prompt:
-            self.messages.append({"role": "system", "content": system_prompt})
+            self.add("system", system_prompt)
 
     # -- přidávání zpráv ---------------------------------------------------
     def add(self, role: str, content: Any, *, images: list[Path] | None = None,
@@ -104,8 +104,11 @@ class Session:
         if not f.exists():
             raise FileNotFoundError(f"Session {session_id} nenalezena ({f})")
         s.messages = [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines() if line.strip()]
-        if system_prompt and (not s.messages or s.messages[0]["role"] != "system"):
-            s.messages.insert(0, {"role": "system", "content": system_prompt})
+        if system_prompt:
+            if s.messages and s.messages[0]["role"] == "system":
+                s.messages[0]["content"] = system_prompt
+            else:
+                s.messages.insert(0, {"role": "system", "content": system_prompt})
         return s
 
     @staticmethod
