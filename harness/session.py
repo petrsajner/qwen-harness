@@ -290,6 +290,26 @@ class Session:
                 s.messages.insert(0, {"role": "system", "content": system_prompt})
         return s
 
+    @classmethod
+    def delete(cls, cfg: Config, session_id: str) -> bool:
+        """Smaž session (celou složku včetně obrázků). Vrací True při úspěchu."""
+        import shutil
+        d = cfg.path("paths.sessions_dir") / session_id
+        if d.exists() and d.is_dir():
+            shutil.rmtree(d, ignore_errors=True)
+            return True
+        return False
+
+    def adopt_workspace(self, workspace: str | None) -> None:
+        """Přiřaď session projekt (workspace), pokud ho ještě nemá.
+
+        Používá se u starých sessions bez meta - např. po načtení pod
+        aktuálním projektem si ho 'osvojí' a objeví se v jeho historii.
+        """
+        if workspace and not self.meta.get("workspace"):
+            self.meta["workspace"] = workspace
+            self._save_meta()
+
     @staticmethod
     def list_sessions(cfg: Config, limit: int = 60) -> list[dict]:
         """Sessions s metadaty (workspace, titulek, časy) - nové první."""

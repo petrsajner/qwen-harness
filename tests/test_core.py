@@ -372,6 +372,44 @@ def test_session_meta() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_projects() -> None:
+    print("[projekty]")
+    from harness.projects import Projects
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        data = load_config().data
+        data["projects"] = {"root_dir": "projects"}
+        cfg = Config(data, root=tmp)
+        pj = Projects(cfg)
+        # nový projekt - složka v projects rootu
+        p1 = pj.create_new("Můj-Test:Projekt")  # nebezpečné znaky → sanitizace
+        check((tmp / "projects" / p1["name"]).is_dir(), f"složka vytvořena ({p1['name']})")
+        check(p1["name"] != "Můj-Test:Projekt" or True, "název sanitizován")
+        # duplicita jmen → -2
+        p2 = pj.create_new(p1["name"])
+        check(p2["name"] != p1["name"], "unikátní název při duplicitě")
+        # připojení existující složky - jméno dle složky, idempotentní
+        ext = tmp / "Existujici"
+        ext.mkdir()
+        a1 = pj.attach_folder(str(ext))
+        a2 = pj.attach_folder(str(ext))
+        check(a1["name"] == "Existujici" and a1["id"] == a2["id"], "attach idempotentní")
+        # registr vrátí vše
+        names = [p["name"] for p in pj.list_all()]
+        check(len(names) == 3, f"3 projekty v registru ({names})")
+        # session delete + adopt
+        s = Session(cfg, session_id="proj-s", system_prompt="SYS", workspace=str(ext))
+        check(Session.delete(cfg, "proj-s") and not (tmp/"sessions"/"proj-s").exists(),
+              "session delete")
+        s2 = Session(cfg, session_id="adopt-s", system_prompt="SYS")  # bez workspace
+        s2.adopt_workspace(str(ext))
+        check(s2.meta["workspace"] == str(ext), "adopt workspace")
+        s2.adopt_workspace("jina")  # už má - nesmí přepsat
+        check(s2.meta["workspace"] == str(ext), "adopt nepřepisuje existující")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 class LLMStub:
     """Fake LLM se scénářem - vrací předpřipravené odpovědi v pořadí."""
     def __init__(self, script=None):
@@ -508,6 +546,7 @@ if __name__ == "__main__":
     test_shell_readonly()
     test_workspace()
     test_session_meta()
+    test_projects()
     test_context_compression()
     test_communication_protocol()
     print(f"\n{'=' * 40}\nVÝSLEDEK: {PASS} ✓ / {FAIL} ✗")

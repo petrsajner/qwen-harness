@@ -75,6 +75,8 @@ class AppState:
         self.recent_ws: list[str] = saved.get("recent", [])
         if self.workspace:
             cfg.agent["workspace"] = self.workspace  # převezme každý nový Agent
+            from harness.projects import Projects
+            Projects(cfg).ensure_registered(self.workspace)  # migrace → projekt
         self._restore_session()
 
     def _restore_session(self) -> None:
@@ -430,6 +432,8 @@ def send_message(message: str, files, history: list[dict]):
         history.append({"role": "user", "content": shown})
         yield history, gr.update(visible=False), refresh_status()
         state.agent.new_task(message.strip() or "Please analyze the attached image(s).", images=imgs)
+        # session si osvojí aktuální projekt (objeví se v jeho historii)
+        state.session.adopt_workspace(state.workspace)
         yield from _run_steps(history)
     except Exception as e:
         history.append({"role": "assistant", "content": _error_message(e)})
@@ -568,12 +572,13 @@ def sessions_refresh():
 
 
 def load_from_row(sel_evt, df_value):
-    """Klik na řádek tabulky historie → načti session (přepne i projekt)."""
+    """Klik na řádek tabulky historie → vyber (🗑) i načti (dvojklik?)."""
     try:
         idx = sel_evt.index[0] if sel_evt and sel_evt.index is not None else None
         if idx is None or idx >= len(_sessions_rows):
             return
         sid = _sessions_rows[idx]["id"]
+        _selected_sid["id"] = sid  # pro 🗑 Smazat
     except Exception:
         return
     yield from load_session_handler(sid)
@@ -615,7 +620,7 @@ def load_session_handler(selection: str):
             gr.Info(f"✅ Session načtena: {state.session.meta.get('title', selection)[:50]}")
         state.save_ui_state()
         yield chat_view(), gr.update(visible=False), refresh_status(), \
-            gr.update(choices=state.recent_ws, value=state.workspace)
+            gr.update(choices=project_choices(), value=current_project_name())
     except Exception as e:
         gr.Warning(f"❌ {e}")
         yield chat_view(), gr.update(visible=False), refresh_status(), gr.update()
@@ -682,6 +687,129 @@ def _memory_paths():
     from harness.memory import MemoryStore
     store = MemoryStore(cfg, Path(state.workspace) if state.workspace else None)
     return store
+
+
+# ------------------------------------------------------------- projekty
+from harness.projects import Projects
+
+
+def _projects() -> Projects:
+    return Projects(cfg)
+
+
+def project_choices() -> list[str]:
+    return [p["name"] for p in _projects().list_all()]
+
+
+def current_project_name() -> str | None:
+    if not state.workspace:
+        return None
+    p = _projects().by_path(state.workspace)
+    return p["name"] if p else Path(state.workspace).name
+
+
+def set_project_handler(name: str):
+    """Výběr projektu v dropdownu → nastav workspace."""
+    try:
+        proj = next((p for p in _projects().list_all() if p["name"] == name), None)
+        if not proj:
+            return gr.update()
+        if proj.get("missing"):
+            gr.Warning(f"Složka projektu neexistuje: {proj['path']}")
+            return gr.update()
+        state.set_workspace(proj["path"])
+        gr.Info(f"📁 Projekt: {proj['name']}")
+        return gr.update(choices=project_choices(), value=proj["name"])
+    except Exception as e:
+        gr.Warning(f"❌ {e}")
+        return gr.update()
+
+
+def attach_project_handler():
+    """📂 Připoj existující složku jako projekt (název dle složky)."""
+    path = pick_directory_dialog()
+    if not path:
+        return gr.update(), gr.update(visible=False)
+    try:
+        proj = _projects().attach_folder(path)
+        state.set_workspace(proj["path"])
+        gr.Info(f"📁 Připojen projekt: {proj['name']}")
+        return gr.update(choices=project_choices(), value=proj["name"]), gr.update(visible=False)
+    except Exception as e:
+        gr.Warning(f"❌ {e}")
+        return gr.update(), gr.update(visible=False)
+
+
+def create_project_handler(name: str):
+    """➕ Nový projekt: vytvoří složku v projects/ a zaregistruje."""
+    try:
+        name = (name or "").strip()
+        if not name:
+            gr.Warning("Zadej název projektu.")
+            return gr.update(), gr.update(visible=False), ""
+        proj = _projects().create_new(name)
+        state.set_workspace(proj["path"])
+        gr.Info(f"📁 Vytvořen projekt {proj['name']} → {proj['path']}")
+        return gr.update(choices=project_choices(), value=proj["name"]), gr.update(visible=False), ""
+    except Exception as e:
+        gr.Warning(f"❌ {e}")
+        return gr.update(), gr.update(visible=False), ""
+
+
+def open_in_editor(path: Path | str):
+    """Otevři soubor ve výchozím editoru uživatele."""
+    import os as _os
+    try:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.touch(exist_ok=True)
+        _os.startfile(str(p))  # noqa: S606 - Windows default app
+        return f"Otevírám: {p}"
+    except Exception as e:
+        return f"❌ {e}"
+
+
+# ------------------------------------------------------------- mazání chatů
+_selected_sid: dict = {"id": None}
+
+
+def delete_selected_session():
+    """🗑 Smaž v historii vybraný chat (klik na řádek = vybere)."""
+    try:
+        sid = _selected_sid.get("id")
+        if not sid:
+            gr.Warning("Nejdřív klikni na řádek chatu v tabulce.")
+            return sessions_refresh(), gr.update()
+        if sid == state.session.id:
+            gr.Warning("Nemůžu smazat právě otevřený chat - nejdřív otevři jiný (🆕 Nová).")
+            return sessions_refresh(), gr.update()
+        ok = Session.delete(cfg, sid)
+        gr.Info("🗑 Chat smazán" if ok else "Chat nenalezen")
+        _selected_sid["id"] = None
+        return sessions_refresh(), gr.update(value="")
+    except Exception as e:
+        gr.Warning(f"❌ {e}")
+        return sessions_refresh(), gr.update()
+
+
+def _mem_infos():
+    """Info texty o souborech paměti (cesty k otevření)."""
+    try:
+        store = _memory_paths()
+        g = f"**Globální:** `{store.global_path}`"
+        p = store.project_path()
+        p_txt = f"**Projektová:** `{p}`" if p else "**Projektová:** — nejdřív vyber projekt"
+    except Exception:
+        g, p_txt = "—", "—"
+    return f"<small>{g}</small>", f"<small>{p_txt}</small>"
+
+
+def _mem_g_text() -> str:
+    return _mem_infos()[0]
+
+
+def _mem_p_text() -> str:
+    return _mem_infos()[1]
 
 
 def load_memory_global() -> str:
@@ -852,19 +980,86 @@ def _clear_inputs():
 
 # ------------------------------------------------------------- UI
 CUSTOM_CSS = """
-.gradio-container { max-width: 1500px !important; padding: 8px 12px !important; }
-/* chat přes (téměř) celou výšku okna */
-#main-chat { height: calc(100vh - 216px) !important; min-height: 340px !important; }
-/* tenký vstup */
-#msg-in textarea { min-height: 40px !important; max-height: 110px !important; }
-/* kompaktní upload obrázků */
+/* ============ PROFESIONÁLNÍ DARK THEME ============ */
+.gradio-container, .dark .gradio-container {
+  background: #0d1117 !important;
+  font-family: 'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif !important;
+  color: #e6edf3 !important; max-width: 1500px !important; padding: 10px 14px !important;
+}
+/* panely / karty */
+.block, .gap, .form, .panel, .gr-box, [class*="block-border"] {
+  border-color: #21262d !important; border-radius: 12px !important;
+}
+.form { background: transparent !important; }
+[class*="center"], .wrap.default, .gradio-container > .main > .wrap {
+  background: #0d1117 !important;
+}
+/* vnitřní plochy panelů */
+[data-testid="block-label"], .label-wrap, .panel { color: #8b949e !important; }
+.grp, .group { background: #161b22 !important; border-radius: 12px !important;
+  border: 1px solid #21262d !important; padding: 10px !important; }
+.accordion { border: 1px solid #21262d !important; border-radius: 12px !important; }
+/* vstupy */
+input, textarea, select, .input, .textbox {
+  background: #0d1117 !important; border-color: #30363d !important; color: #e6edf3 !important;
+  border-radius: 8px !important;
+}
+input:focus, textarea:focus { border-color: #2dd4bf !important; box-shadow: 0 0 0 2px rgba(45,212,191,.15) !important; }
+/* tlačítka - moderní chip */
+button, .button, .secondary-wrap, .primary-wrap {
+  border-radius: 10px !important; border: 1px solid #30363d !important;
+  background: #21262d !important; color: #e6edf3 !important;
+  transition: all .15s ease !important; font-weight: 500 !important;
+}
+button:hover { background: #30363d !important; transform: translateY(-1px); border-color:#8b949e !important; }
+.primary-wrap, button.primary {
+  background: linear-gradient(135deg,#0d9488,#0ea5e9) !important; border: none !important;
+  color: #fff !important; box-shadow: 0 2px 12px rgba(13,148,136,.35) !important;
+}
+.primary-wrap:hover, button.primary:hover { filter: brightness(1.12) !important; transform: translateY(-1px); }
+/* ====== ČTVERCOVÁ HLAVIČKOVÁ TLACÍTKA: ikona nad textem ====== */
+.sqbtn button, button.sqbtn {
+  min-width: 74px !important; height: 58px !important; padding: 6px 4px !important;
+  display: flex !important; flex-direction: column !important; align-items: center !important;
+  justify-content: center !important; gap: 3px !important; font-size: 10.5px !important;
+  text-transform: uppercase !important; letter-spacing: .04em !important; border-radius: 12px !important;
+}
+.sqbtn button .icon, button.sqbtn .icon { display: none !important; }
+#btn-start button::before, button#btn-start::before { content:"▶"; font-size:17px; }
+#btn-stop-srv button::before, button#btn-stop-srv::before { content:"⏹"; font-size:17px; }
+#btn-refresh button::before, button#btn-refresh::before { content:"🔄"; font-size:17px; }
+#btn-compress button::before, button#btn-compress::before { content:"🗜"; font-size:17px; }
+#btn-handoff button::before, button#btn-handoff::before { content:"📦"; font-size:17px; }
+#btn-new button::before, button#btn-new::before { content:"✚"; font-size:17px; }
+#btn-proj-new button::before, button#btn-proj-new::before { content:"📁✚"; font-size:15px; }
+#btn-proj-attach button::before, button#btn-proj-attach::before { content:"📂"; font-size:17px; }
+/* chat */
+#main-chat { height: calc(100vh - 248px) !important; min-height: 340px !important;
+  background: #0d1117 !important; border: 1px solid #21262d !important; border-radius: 12px !important; }
+#main-chat .message { border-radius: 12px !important; border: 1px solid #21262d !important; margin-bottom: 6px !important; }
+#main-chat .message-user { background: #1c2a3a !important; }
+#main-chat .message-bot, #main-chat .message-assistant { background: #161b22 !important; }
+#msg-in textarea { min-height: 42px !important; max-height: 110px !important;
+  background: #161b22 !important; border-radius: 10px !important; }
 #files-in { max-height: 72px !important; overflow-y: auto !important; }
 #files-in .wrap { padding: 4px !important; min-height: 0 !important; }
-/* drobná hlavička */
+/* tabulka historie */
+#sessions-df [data-testid="dataframe"] { background: #161b22 !important; border-radius: 10px !important; }
+#sessions-df table { color: #e6edf3 !important; }
+#sessions-df th { background: #21262d !important; color: #e6edf3 !important; }
+#sessions-df td { border-color: #21262d !important; }
+#sessions-df tr:hover td { background: #1c2430 !important; }
+/* drobnosti */
 .hdr p { margin: 0 !important; font-size: 0.9em !important; }
-/* menší mezery mezi prvky */
-.gap { gap: 4px !important; }
-/* blikající kurzor v live zprávě */
+.gap { gap: 6px !important; }
+#status-pill { background: #161b22 !important; border: 1px solid #30363d !important;
+  border-radius: 999px !important; padding: 4px 14px !important; }
+/* scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #30363d !important; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #484f58 !important; }
+::-webkit-scrollbar-track { background: transparent !important; }
+/* blikající kurzor */
 @keyframes qwen-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 .blink-cursor { animation: qwen-blink 1s step-end infinite; }
 """
@@ -872,28 +1067,34 @@ CUSTOM_CSS = """
 
 def build_ui() -> gr.Blocks:
     model_choices = list(cfg.data["models"].keys())
-    with gr.Blocks(title="Qwen3.8-27B lokální harness") as ui:
-        # --- hlavička: titulek + stav + server tlačítka (jedna řádka) ---
+    with gr.Blocks(title="Qwen3.8-27B Harness") as ui:
+        # --- hlavička: titulek + stav + akce (čtvercová tlačítka, ikona nad textem) ---
         with gr.Row(elem_classes=["hdr", "gap"]):
-            gr.Markdown("🤖 **Qwen3.8-27B**", elem_classes=["hdr"], scale=1, min_width=120)
-            status_box = gr.Markdown(refresh_status, elem_classes=["hdr"], scale=4)
-            btn_start = gr.Button("▶ Start", size="sm", min_width=72)
-            btn_stop = gr.Button("⏹ Stop", size="sm", min_width=68)
-            btn_refresh = gr.Button("🔄 Obnovit", size="sm", min_width=84)
-            btn_compress = gr.Button("🗜️ Komprimuj", size="sm", min_width=96)
-            btn_handoff = gr.Button("📦 Předej", size="sm", min_width=88)
-            btn_new = gr.Button("🆕 Nová", size="sm", min_width=80)
+            gr.Markdown("## 🤖 Qwen3.8-27B <small style='color:#8b949e'>Harness</small>",
+                        elem_classes=["hdr"], scale=2, min_width=150)
+            status_box = gr.Markdown(refresh_status, elem_id="status-pill", scale=4)
+            btn_start = gr.Button("Server", size="sm", elem_id="btn-start", elem_classes=["sqbtn"])
+            btn_stop = gr.Button("Stop", size="sm", elem_id="btn-stop-srv", elem_classes=["sqbtn"])
+            btn_refresh = gr.Button("Status", size="sm", elem_id="btn-refresh", elem_classes=["sqbtn"])
+            btn_compress = gr.Button("Komprimuj", size="sm", elem_id="btn-compress", elem_classes=["sqbtn"])
+            btn_handoff = gr.Button("Předej", size="sm", elem_id="btn-handoff", elem_classes=["sqbtn"])
+            btn_new = gr.Button("Nový", size="sm", elem_id="btn-new", elem_classes=["sqbtn"])
 
-        # --- workspace: jedna řádka (dropdown = naposledy použité + ruční cesta) ---
+        # --- projekty: výběr / nový / připojit složku ---
         with gr.Row(elem_classes=["gap"]):
-            ws_pick = gr.Dropdown(
-                choices=state.recent_ws or [],
-                value=state.workspace,
-                allow_custom_value=True, interactive=True, filterable=True,
-                show_label=False, container=False, scale=5,
-                info="📁 Složka projektu — vyber z nedávných, napiš cestu, nebo klikni na 📂 Vybrat",
-                elem_id="ws-pick")
-            btn_ws_browse = gr.Button("📂 Vybrat složku", size="sm", min_width=110)
+            proj_dd = gr.Dropdown(choices=project_choices(), value=current_project_name(),
+                                  allow_custom_value=False, interactive=True,
+                                  show_label=False, container=False, scale=5,
+                                  info="Projekt (workspace) — chaty, soubory i paměť projektu",
+                                  elem_id="proj-dd")
+            btn_proj_attach = gr.Button("Připojit", size="sm", elem_id="btn-proj-attach",
+                                        elem_classes=["sqbtn"])
+            btn_proj_new = gr.Button("Nový", size="sm", elem_id="btn-proj-new",
+                                     elem_classes=["sqbtn"])
+        with gr.Row(visible=False) as proj_new_row:
+            proj_new_tb = gr.Textbox(placeholder="název nového projektu…",
+                                     show_label=False, container=False, scale=4)
+            btn_proj_create = gr.Button("Vytvořit", variant="primary", size="sm", scale=1)
 
         # --- chat (hlavní plocha; na startu obnovená poslední session) ---
         chat = gr.Chatbot(value=chat_view(), label=None, show_label=False, height=600,
@@ -940,45 +1141,47 @@ def build_ui() -> gr.Blocks:
                 headers=["Projekt", "Název chatu", "Aktualizováno", "Zprávy", "id"],
                 datatype=["str", "str", "str", "number", "str"],
                 value=session_rows, interactive=False, wrap=True,
-                column_widths=["16%", "44%", "12%", "8%", "20%"],
+                column_widths=["16%", "42%", "12%", "8%", "22%"],
                 elem_id="sessions-df")
             with gr.Row():
-                rename_tb = gr.Textbox(label="✏️ Přejmenovat aktuální chat",
-                                       placeholder="nový název…", scale=3, container=False)
-                btn_rename = gr.Button("Přejmenovat", size="sm", scale=1)
-                btn_hist_reload = gr.Button("🔄 Obnovit", size="sm", scale=1, min_width=90)
-            gr.Markdown("<small>Klikni na řádek = načte chat (u cizího projektu přepne i workspace). "
-                        "Nový chat: 🆕 Nová v hlavičce.</small>", elem_classes=["hdr"])
+                sel_info = gr.Markdown("<small>klikni na řádek = vybere chat</small>",
+                                       elem_classes=["hdr"], scale=3)
+                btn_del_session = gr.Button("🗑 Smazat vybraný", size="sm", scale=1)
+                btn_rename = gr.Button("✏️", size="sm", min_width=44)
+                rename_tb = gr.Textbox(placeholder="nový název…", show_label=False,
+                                       container=False, scale=2)
+                btn_hist_reload = gr.Button("🔄", size="sm", min_width=44)
 
-        # --- 🧠 paměť modelu (uživatel má plnou kontrolu) ---
-        with gr.Accordion("🧠 Paměť modelu — globální / projektová", open=False):
+        # --- 🧠 paměť: správa přes soubory v editoru (ne v UI) ---
+        with gr.Accordion("🧠 Paměť modelu (globální / projektová)", open=False):
             gr.Markdown("Model paměti čte na začátku každé úlohy a po kompresi kontextu; "
-                        "sám si do nich ukládá fakta (nástrojem save_memory). Můžeš je tu "
-                        "libovolně upravit — tvoje úpravy vydrží.")
+                        "fakta si ukládá sám když ho požádáš („zapamatuj si…“). "
+                        "Obsah upravuj ve svém editoru — tlačítky níže soubor otevřeš.")
             with gr.Row():
-                mem_global_tb = gr.Textbox(label="Globální paměť (všechny projekty)",
-                                           value=load_memory_global, lines=10, scale=1,
-                                           elem_id="mem-global")
-                mem_project_tb = gr.Textbox(label="Paměť projektu (aktuální workspace)",
-                                            value=load_memory_project, lines=10, scale=1,
-                                            elem_id="mem-project")
+                mem_g_info = gr.Markdown(_mem_g_text(), elem_classes=["hdr"], scale=3)
+                btn_mem_g = gr.Button("📝 Globální", size="sm", scale=1)
             with gr.Row():
-                btn_mem_save = gr.Button("💾 Uložit paměti", variant="primary", size="sm")
-                btn_mem_reload = gr.Button("🔄 Načíst znovu", size="sm")
+                mem_p_info = gr.Markdown(_mem_p_text(), elem_classes=["hdr"], scale=3)
+                btn_mem_p = gr.Button("📝 Projektová", size="sm", scale=1)
 
-        # události - workspace
-        # nativní dialog: queue=False, aby nezablokoval chat během otevřeného okna
-        btn_ws_browse.click(browse_workspace, None, ws_pick, queue=False)
-        ws_pick.change(set_workspace_handler, ws_pick, ws_pick, queue=False)\
-            .then(lambda: (load_memory_global(), load_memory_project()),
-                  None, [mem_global_tb, mem_project_tb], queue=False)\
+        # události - projekty
+        proj_dd.change(set_project_handler, proj_dd, proj_dd, queue=False)\
+            .then(sessions_refresh, None, sessions_df, queue=False)\
+            .then(_mem_infos, None, [mem_g_info, mem_p_info], queue=False)
+        btn_proj_attach.click(attach_project_handler, None,
+                              [proj_dd, proj_new_row], queue=False)\
+            .then(sessions_refresh, None, sessions_df, queue=False)
+        btn_proj_new.click(lambda: gr.update(visible=True), None, proj_new_row, queue=False)
+        btn_proj_create.click(create_project_handler, proj_new_tb,
+                              [proj_dd, proj_new_row, proj_new_tb], queue=False)\
             .then(sessions_refresh, None, sessions_df, queue=False)
 
-        # události - paměť
-        btn_mem_save.click(save_memory_handler, [mem_global_tb, mem_project_tb],
-                           [mem_global_tb, mem_project_tb], queue=False)
-        btn_mem_reload.click(lambda: (load_memory_global(), load_memory_project()),
-                             None, [mem_global_tb, mem_project_tb], queue=False)
+        # události - paměť (otevřít v editoru)
+        btn_mem_g.click(lambda: open_in_editor(_memory_paths().global_path),
+                        None, mem_g_info, queue=False)
+        btn_mem_p.click(lambda: (open_in_editor(_memory_paths().project_path())
+                                 if _memory_paths().project_path() else "Nejdřív vyber projekt"),
+                        None, mem_p_info, queue=False)
 
         # události - chat
         btn_send.click(send_message, [msg_in, files_in, chat],
@@ -996,7 +1199,9 @@ def build_ui() -> gr.Blocks:
             .then(sessions_refresh, None, sessions_df)
         btn_compress.click(compress_now, chat, [chat, confirm_row, status_box], queue=True)
         sessions_df.select(load_from_row, sessions_df,
-                           [chat, confirm_row, status_box, ws_pick], queue=True)
+                           [chat, confirm_row, status_box, proj_dd], queue=True)
+        btn_del_session.click(delete_selected_session, None,
+                              [sessions_df, sel_info], queue=False)
         btn_rename.click(rename_session, rename_tb, [rename_tb, sessions_df], queue=False)
         btn_hist_reload.click(sessions_refresh, None, sessions_df, queue=False)
         model_dd.change(change_model, model_dd, status_box)
