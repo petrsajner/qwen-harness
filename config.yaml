@@ -43,6 +43,7 @@ sampling:
     top_k: 20
     presence_penalty: 1.5
 thinking: true             # režim uvažování modelu
+reasoning_effort: xhigh    # hloubka uvažování: xhigh | medium | low (jen při thinking: true)
 
 # Agent
 agent:

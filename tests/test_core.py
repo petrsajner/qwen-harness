@@ -317,6 +317,25 @@ def test_context_compression() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_reasoning_effort_kwargs() -> None:
+    print("[reasoning effort]")
+    from harness.llm import _template_kwargs
+    data = load_config().data
+    data["thinking"] = True
+    data["reasoning_effort"] = "low"
+    check(_template_kwargs(Config(data, ROOT)) == {"chat_template_kwargs": {"reasoning_effort": "low"}},
+          "effort low → template kwarg")
+    data["reasoning_effort"] = "xhigh"
+    check(_template_kwargs(Config(data, ROOT))["chat_template_kwargs"]["reasoning_effort"] == "xhigh",
+          "effort xhigh")
+    data["thinking"] = False
+    check(_template_kwargs(Config(data, ROOT)) == {"chat_template_kwargs": {"thinking": False}},
+          "thinking off má prioritu před effort")
+    data["thinking"] = True
+    data["reasoning_effort"] = "blbost"
+    check(_template_kwargs(Config(data, ROOT)) == {}, "neplatný effort → bez kwarg (default šablony)")
+
+
 class LLMStub:
     """Fake LLM se scénářem - vrací předpřipravené odpovědi v pořadí."""
     def __init__(self, script=None):
@@ -449,6 +468,7 @@ if __name__ == "__main__":
     test_tools_fs_shell()
     test_registry_modes()
     test_parse_args()
+    test_reasoning_effort_kwargs()
     test_shell_readonly()
     test_workspace()
     test_context_compression()

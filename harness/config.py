@@ -23,6 +23,7 @@ DEFAULTS: dict[str, Any] = {
         "non_thinking": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5},
     },
     "thinking": True,
+    "reasoning_effort": "xhigh",   # xhigh | medium | low (Qwen reasoning effort)
     "agent": {
         "mode": "agent",
         "autonomy": "supervised",

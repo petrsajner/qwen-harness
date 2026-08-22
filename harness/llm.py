@@ -23,10 +23,16 @@ class AssistantResult:
         return bool(self.tool_calls)
 
 
+REASONING_EFFORTS = ("xhigh", "high", "medium", "low")
+
+
 def _template_kwargs(cfg: Config) -> dict:
-    """Vypnutí thinking režimu přes chat template (Qwen3.8)."""
+    """Thinking on/off + hloubka uvažování (reasoning_effort) přes chat template."""
     if not cfg.data.get("thinking", True):
         return {"chat_template_kwargs": {"thinking": False}}
+    effort = cfg.data.get("reasoning_effort")
+    if effort in REASONING_EFFORTS:
+        return {"chat_template_kwargs": {"reasoning_effort": effort}}
     return {}
 
 

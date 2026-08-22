@@ -35,7 +35,7 @@ HELP = """[bold]Příkazy:[/bold]
   /model q4|q5           přepnutí modelu (restart serveru)
   /mode chat|agent|computer     režim práce
   /autonomy supervised|semi|auto   úroveň autonomie
-  /thinking on|off       režim uvažování modelu
+  /thinking xhigh|medium|low|off   hloubka uvažování modelu
   /img <cesta>           přiložit obrázek k další zprávě
   /screenshot            přiložit screenshot obrazovky
   /new                   nová session   /sessions  seznam   /load <id>
@@ -51,6 +51,7 @@ class TUIApp:
         self.mode = self.cfg.agent.get("mode", "agent")
         self.autonomy = self.cfg.agent.get("autonomy", "supervised")
         self.thinking = bool(self.cfg.data.get("thinking", True))
+        self.reasoning_effort = self.cfg.data.get("reasoning_effort", "xhigh")
         self.auto_approve = False  # "a" v potvrzení = schvalovat vše do konce úlohy
         self.session: Session | None = None
         self.agent: Agent | None = None
@@ -87,7 +88,7 @@ class TUIApp:
 
     # ------------------------------------------------------------------
     def status_line(self) -> str:
-        think = "[green]on[/green]" if self.thinking else "[red]off[/red]"
+        think = "[red]off[/red]" if not self.thinking else f"[green]{self.reasoning_effort}[/green]"
         ws = self.agent.workspace if self.agent else Path.cwd()
         try:
             est = self.session.estimate_context_tokens()
@@ -249,11 +250,21 @@ class TUIApp:
                         else:
                             console.print("[red]Použití: /autonomy supervised|semi|auto[/red]")
                     elif cmd == "/thinking":
-                        if arg in ("on", "off"):
-                            self.thinking = arg == "on"
+                        arg_l = arg.strip().lower()
+                        if arg_l in ("xhigh", "medium", "low", "on", "off", ""):
+                            if arg_l == "":
+                                cur = "off" if not self.thinking else self.reasoning_effort
+                                console.print(f"Přemýšlení: [bold]{cur}[/bold] "
+                                              f"(volby: xhigh | medium | low | off)")
+                            elif arg_l == "off":
+                                self.thinking = False
+                            else:
+                                self.thinking = True
+                                self.reasoning_effort = arg_l if arg_l != "on" else "xhigh"
+                                self.cfg.data["reasoning_effort"] = self.reasoning_effort
                             console.print(self.status_line())
                         else:
-                            console.print("[red]Použití: /thinking on|off[/red]")
+                            console.print("[red]Použití: /thinking xhigh|medium|low|off[/red]")
                     elif cmd == "/ws":
                         if arg:
                             try:

@@ -55,7 +55,11 @@ class AppState:
             self.mode = "agent"
         self.autonomy = saved.get("autonomy") or cfg.agent.get("autonomy", "supervised")
         self.thinking = saved.get("thinking", cfg.data.get("thinking", True))
+        self.reasoning_effort = saved.get("reasoning_effort") or cfg.data.get("reasoning_effort", "xhigh")
+        if self.reasoning_effort not in ("xhigh", "medium", "low"):
+            self.reasoning_effort = "xhigh"
         cfg.data["thinking"] = bool(self.thinking)
+        cfg.data["reasoning_effort"] = self.reasoning_effort
         self.workspace = saved.get("workspace") or cfg.agent.get("workspace")
         self.recent_ws: list[str] = saved.get("recent", [])
         if self.workspace:
@@ -90,6 +94,7 @@ class AppState:
             "mode": self.mode,
             "autonomy": self.autonomy,
             "thinking": bool(self.thinking),
+            "reasoning_effort": self.reasoning_effort,
             "session_id": getattr(self, "session", None).id if getattr(self, "session", None) else None,
         })
 
@@ -552,11 +557,19 @@ def change_autonomy(a: str):
     return f"Autonomie: **{a}**"
 
 
-def change_thinking(on: bool):
-    state.thinking = on
-    cfg.data["thinking"] = on
+def change_thinking(value: str):
+    """Přemýšlení: xhigh / medium / low / off."""
+    value = (value or "xhigh").strip().lower()
+    if value == "off":
+        state.thinking = False
+    else:
+        state.thinking = True
+        state.reasoning_effort = value if value in ("xhigh", "medium", "low") else "xhigh"
+    cfg.data["thinking"] = state.thinking
+    cfg.data["reasoning_effort"] = state.reasoning_effort
     state.save_ui_state()
-    return f"Thinking: **{'on' if on else 'off'}**"
+    mode_txt = "off" if not state.thinking else state.reasoning_effort
+    return f"Přemýšlení: **{mode_txt}**"
 
 
 def _ctx_pct() -> int:
@@ -771,7 +784,10 @@ def build_ui() -> gr.Blocks:
                                       label="Režim")
                 autonomy_dd = gr.Dropdown(["supervised", "semi", "auto"], value=state.autonomy,
                                           label="Autonomie")
-                thinking_cb = gr.Checkbox(value=state.thinking, label="Thinking režim")
+                thinking_dd = gr.Dropdown(
+                    ["xhigh", "medium", "low", "off"],
+                    value=("off" if not state.thinking else state.reasoning_effort),
+                    label="Přemýšlení", info="hloubka uvažování (rychlost ↔ kvalita)")
             with gr.Row():
                 sessions_dd = gr.Dropdown(choices=session_choices(), label="Načíst starou session",
                                           interactive=True, scale=4)
@@ -803,7 +819,7 @@ def build_ui() -> gr.Blocks:
         model_dd.change(change_model, model_dd, status_box)
         mode_dd.change(change_mode, mode_dd, settings_info)
         autonomy_dd.change(change_autonomy, autonomy_dd, settings_info)
-        thinking_cb.change(change_thinking, thinking_cb, settings_info)
+        thinking_dd.change(change_thinking, thinking_dd, settings_info)
         btn_start.click(lambda: server_cmd("start"), None, status_box)
         btn_stop.click(lambda: server_cmd("stop"), None, status_box)
         btn_refresh.click(refresh_status, None, status_box)
