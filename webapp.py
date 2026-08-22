@@ -157,29 +157,38 @@ class StreamHub:
     """Sbírá stream události z agenta (volané z worker vlákna) pro live render."""
 
     def __init__(self) -> None:
+        import time as _t
         self._lock = _threading.Lock()
         self.text = ""
         self.reasoning = ""
         self.rev = 0  # inkrement při každé změně
+        self.last_activity = _t.time()  # poslední jakákoli událost (tokeny i nástroje)
 
     def reset(self) -> None:
+        import time as _t
         with self._lock:
             self.text = ""
             self.reasoning = ""
             self.rev += 1
+            self.last_activity = _t.time()
 
     def on_event(self, kind: str, payload) -> None:
+        import time as _t
         with self._lock:
             if kind == "text" and payload:
                 self.text += payload
                 self.rev += 1
+                self.last_activity = _t.time()
             elif kind == "reasoning" and payload:
                 self.reasoning += payload
                 self.rev += 1
+                self.last_activity = _t.time()
+            elif kind in ("tool_start", "tool_result"):
+                self.last_activity = _t.time()
 
-    def snapshot(self) -> tuple[str, str, int]:
+    def snapshot(self) -> tuple[str, str, int, float]:
         with self._lock:
-            return self.text, self.reasoning, self.rev
+            return self.text, self.reasoning, self.rev, self.last_activity
 
 
 def _live_message(hub: StreamHub, elapsed_s: int = 0) -> dict:
@@ -317,8 +326,9 @@ def _run_steps(history: list[dict], approve: bool | None = None):
             last_change = _time.time()
             shown_sec = -1
             prev_yield_rev = -1
+            idle_strikes = 0  # počítadla pro dead-man detekci zombie streamu
             while t.is_alive():
-                _, _, rev = state.hub.snapshot()
+                _, _, rev, last_activity = state.hub.snapshot()
                 now = _time.time()
                 if rev != last_rev:
                     last_rev = rev
@@ -335,6 +345,25 @@ def _run_steps(history: list[dict], approve: bool | None = None):
                     else:
                         history[live_idx] = live
                     yield history, gr.update(visible=False), gr.update()
+                # DEAD-MAN: >90s bez jakékoli aktivity → zkontroluj, jestli server
+                # něco dělá; když ne (2× za sebou), spojení je zombie → uživ nemůže
+                # čekat na timeout (až 300s) s blokovanou frontou
+                if now - last_activity > 90:
+                    from harness import servermgmt
+                    busy = servermgmt.slots_processing(cfg)
+                    idle_strikes = idle_strikes + 1 if busy is False else 0
+                    if idle_strikes >= 2:
+                        state.abort.set()
+                        if live_idx is not None:
+                            history.pop(live_idx)
+                        history.append({"role": "assistant",
+                                        "content": "🔌 **Spojení se serverem se zaseklo** (server už "
+                                                   "negeneruje, ale odpověď nedorazila). "
+                                                   "Odpověď nebyla dokončena — zkus zprávu odeslat znovu."})
+                        yield history, gr.update(visible=False), refresh_status()
+                        return
+                else:
+                    idle_strikes = 0
                 _time.sleep(0.15)
             t.join()
             # live zprávu odstraň - finální obsah přijdou níže (plný text / tool trace)

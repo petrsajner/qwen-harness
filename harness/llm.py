@@ -33,7 +33,13 @@ def _template_kwargs(cfg: Config) -> dict:
 class LLMClient:
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        self.client = OpenAI(base_url=cfg.base_url + "/v1", api_key="local", timeout=600.0)
+        import httpx
+        # read=300s: max mezera mezi bajty (prompt eval 96k ctx trvá ~80s bez výstupu);
+        # místo výchozích 600s celkových - zaseknutý stream umře dřív
+        self.client = OpenAI(
+            base_url=cfg.base_url + "/v1", api_key="local",
+            timeout=httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=30.0),
+        )
         self.model_name = "local-model"  # llama-server akceptuje cokoliv
 
     # ------------------------------------------------------------------

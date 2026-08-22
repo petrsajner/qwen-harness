@@ -65,6 +65,16 @@ def running_model(cfg: Config) -> str | None:
         return None
 
 
+def slots_processing(cfg: Config) -> bool | None:
+    """Zpracovává server právě nějaký požadavek? (None = endpoint nedostupný)."""
+    try:
+        r = requests.get(f"{cfg.base_url}/slots", timeout=3)
+        slots = r.json()
+        return any(bool(s.get("is_processing")) for s in slots if isinstance(s, dict))
+    except Exception:
+        return None
+
+
 def stop(cfg: Config, quiet: bool = False) -> bool:
     import psutil
     pf = pid_file(cfg)
