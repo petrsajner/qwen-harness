@@ -191,63 +191,63 @@ def _run_steps(history: list[dict], approve: bool | None = None):
                     icon = TOOL_ICON.get(name, "🔧")
                     short = result if len(result) <= 300 else result[:300] + " …"
                     history.append({"role": "assistant", "content": f"{icon} **{name}** → {short}"})
-                yield history, gr.update(visible=False), gr.update(visible=True)
+                yield history, gr.update(visible=False)
             elif r.status is Status.FINAL:
                 history.append({"role": "assistant", "content": r.text or "…"})
-                yield history, gr.update(visible=False), gr.update(visible=True)
+                yield history, gr.update(visible=False)
                 return
             elif r.status is Status.NEEDS_CONFIRMATION:
                 lines = "\n".join(f"⚠️ `{a}`" for a in r.pending_summary)
                 history.append({"role": "assistant",
                                 "content": f"**Čekám na potvrzení akce:**\n{lines}"})
-                yield history, gr.update(visible=True), gr.update(visible=False)
+                yield history, gr.update(visible=True)
                 return
             else:  # ABORTED / ERROR
                 text = _agent_error_message(r) if r.status is Status.ERROR else f"⛔ {r.text}"
                 history.append({"role": "assistant", "content": text})
-                yield history, gr.update(visible=False), gr.update(visible=True)
+                yield history, gr.update(visible=False)
                 return
     except Exception as e:  # pojistka - žádné spadnutí UI
         history.append({"role": "assistant", "content": _error_message(e)})
-        yield history, gr.update(visible=False), gr.update(visible=True)
+        yield history, gr.update(visible=False)
 
 
 # ------------------------------------------------------------- handlery
 def send_message(message: str, files, history: list[dict]):
     try:
         if not (message or "").strip() and not files:
-            yield history, gr.update(visible=False), gr.update(visible=True)
+            yield history, gr.update(visible=False)
             return
         cfg.data["thinking"] = state.thinking
         imgs = [Path(f) for f in (files or []) if Path(f).suffix.lower() in IMG_MIMES]
         shown = (message.strip() or "") + (f"\n🖼️ +{len(imgs)} obrázek(ky)" if imgs else "")
         history.append({"role": "user", "content": shown})
-        yield history, gr.update(visible=False), gr.update(visible=False)
+        yield history, gr.update(visible=False)
         state.agent.new_task(message.strip() or "Please analyze the attached image(s).", images=imgs)
         yield from _run_steps(history)
     except Exception as e:
         history.append({"role": "assistant", "content": _error_message(e)})
-        yield history, gr.update(visible=False), gr.update(visible=True)
+        yield history, gr.update(visible=False)
 
 
 def confirm(approve: bool, history: list[dict]):
     """Reakce na tlačítka Povolit/Zamítnout."""
     try:
         if not state.agent._pending:
-            # není co potvrzovat (např. po dvojkliku) - jen obnov vstup
+            # není co potvrzovat (např. po dvojkliku) - jen zavři panel
             if history and _is_pending_question(history[-1]):
                 history.pop()
-            yield history, gr.update(visible=False), gr.update(visible=True)
+            yield history, gr.update(visible=False)
             return
         # odeber zprávu s dotazem a zaloguj rozhodnutí uživatele
         if history and _is_pending_question(history[-1]):
             history.pop()
         history.append({"role": "user", "content": "✅ Povolit" if approve else "❌ Zamítnout"})
-        yield history, gr.update(visible=False), gr.update(visible=False)
+        yield history, gr.update(visible=False)
         yield from _run_steps(history, approve=approve)
     except Exception as e:
         history.append({"role": "assistant", "content": _error_message(e)})
-        yield history, gr.update(visible=False), gr.update(visible=True)
+        yield history, gr.update(visible=False)
 
 
 def confirm_yes(history: list[dict]):
@@ -262,12 +262,12 @@ def confirm_no(history: list[dict]):
 
 def stop_run(history: list[dict]):
     state.abort.set()
-    yield history, gr.update(visible=False), gr.update(visible=True)
+    yield history, gr.update(visible=False)
 
 
 def new_chat():
     state.new_session()
-    return [], gr.update(visible=False), gr.update(visible=True)
+    return [], gr.update(visible=False)
 
 
 def change_model(key: str):
@@ -354,73 +354,33 @@ def pick_directory_dialog() -> str | None:
     return None
 
 
-def browse_workspace():
-    """Otevře nativní dialog pro výběr složky a nastaví ji jako workspace."""
-    path = pick_directory_dialog()
-    if not path:
-        return gr.update(), "ℹ️ Výběr složky zrušen.", gr.update(), gr.update()
+def set_workspace_handler(path: str):
+    """Nastaví workspace (z dropdownu/ručního zadání). Feedback jako toast."""
     try:
         p = state.set_workspace(path)
-        return (str(p),
-                f"✅ Workspace nastaven: `{p}` — Qwen teď vidí soubory přímo z disku.",
-                workspace_header(),
-                gr.update(choices=state.recent_ws, value=str(p)))
+        gr.Info(f"✅ Workspace: {p}")
+        return gr.update(choices=state.recent_ws, value=str(p))
     except ValueError as e:
-        return gr.update(), f"❌ {e}", gr.update(), gr.update()
+        gr.Warning(f"❌ {e}")
+        return gr.update()
     except Exception as e:
-        return gr.update(), f"❌ Neočekávaná chyba: {type(e).__name__}: {e}", gr.update(), gr.update()
+        gr.Warning(f"❌ {type(e).__name__}: {e}")
+        return gr.update()
+
+
+def browse_workspace():
+    """Nativní dialog → nastav workspace. Feedback jako toast."""
+    path = pick_directory_dialog()
+    if not path:
+        return gr.update()
+    return set_workspace_handler(path)
 
 
 def workspace_header() -> str:
-    """Vždy viditelná hlavička: aktuální workspace + náhled obsahu."""
+    """Text s aktuálním workspace (používáno ve zpětné vazbi / debugu)."""
     if not state.workspace:
-        return ("📁 **Workspace: nenastaven** — otevři *📁 Složka projektu* níže a vyber adresář, "
-                "aby mohl Qwen číst/zapisovat projektové soubory přímo z disku.")
-    ws = Path(state.workspace)
-    try:
-        entries = sorted(ws.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
-    except OSError as e:
-        return f"📁 **Workspace:** `{ws}`\n\n⚠️ nelze číst obsah: {e}"
-    dirs = [p.name for p in entries if p.is_dir() and p.name not in WS_JUNK]
-    files = [p.name for p in entries if p.is_file()][:12]
-    lines = [f"📁 **Workspace:** `{ws}`"]
-    if dirs:
-        lines.append("📂 " + " · ".join(f"`{d}`" for d in dirs[:10]) + (" …" if len(dirs) > 10 else ""))
-    if files:
-        lines.append("📄 " + " · ".join(f"`{f}`" for f in files) + (" …" if len(entries) > 12 + len(dirs) else ""))
-    if not dirs and not files:
-        lines.append("*(prázdný adresář)*")
-    return "\n".join(lines)
-
-
-def set_workspace_handler(path: str):
-    """Nastaví workspace z textového pole / recent dropdownu."""
-    try:
-        p = state.set_workspace(path)
-        feedback = f"✅ Workspace nastaven: `{p}` — Qwen teď vidí soubory přímo z disku."
-    except ValueError as e:
-        feedback = f"❌ {e}"
-    except Exception as e:
-        feedback = f"❌ Neočekávaná chyba: {type(e).__name__}: {e}"
-    return feedback, workspace_header(), gr.update(choices=state.recent_ws, value=state.workspace)
-
-
-def explorer_to_workspace(selection):
-    """Vybraný soubor ve FileExploreru → workspace = jeho nadřazený adresář."""
-    if not selection:
-        return gr.update(), gr.update(), gr.update(), gr.update()
-    rel = selection[0] if isinstance(selection, list) else selection
-    p = Path(rel)
-    if not p.is_absolute():
-        p = Path.home() / p
-    try:
-        target = state.set_workspace(p if p.is_dir() else p.parent)
-        return (str(target),
-                f"✅ Workspace nastaven: `{target}`",
-                workspace_header(),
-                gr.update(choices=state.recent_ws, value=str(target)))
-    except Exception as e:
-        return gr.update(), f"❌ {e}", gr.update(), gr.update()
+        return "📁 Workspace: nenastaven"
+    return f"📁 Workspace: {state.workspace}"
 
 
 def server_cmd(cmd: str):
@@ -432,57 +392,71 @@ def server_cmd(cmd: str):
 
 
 # ------------------------------------------------------------- UI
+CUSTOM_CSS = """
+.gradio-container { max-width: 1500px !important; padding: 8px 12px !important; }
+/* chat přes (téměř) celou výšku okna */
+#main-chat { height: calc(100vh - 216px) !important; min-height: 340px !important; }
+/* tenký vstup */
+#msg-in textarea { min-height: 40px !important; max-height: 110px !important; }
+/* kompaktní upload obrázků */
+#files-in { max-height: 72px !important; overflow-y: auto !important; }
+#files-in .wrap { padding: 4px !important; min-height: 0 !important; }
+/* drobná hlavička */
+.hdr p { margin: 0 !important; font-size: 0.9em !important; }
+/* menší mezery mezi prvky */
+.gap { gap: 4px !important; }
+"""
+
+
 def build_ui() -> gr.Blocks:
     model_choices = list(cfg.data["models"].keys())
     with gr.Blocks(title="Qwen3.8-27B lokální harness") as ui:
-        gr.Markdown("## 🤖 Qwen3.8-27B — lokální harness (RTX 5090)")
-        with gr.Row():
-            with gr.Column(scale=3):
-                status_box = gr.Markdown(refresh_status)
-            with gr.Column(scale=2):
-                with gr.Row():
-                    btn_start = gr.Button("▶ Start serveru", size="sm")
-                    btn_stop = gr.Button("⏹ Stop", size="sm")
-                    btn_refresh = gr.Button("🔄", size="sm")
+        # --- hlavička: titulek + stav + server tlačítka (jedna řádka) ---
+        with gr.Row(elem_classes=["hdr", "gap"]):
+            gr.Markdown("🤖 **Qwen3.8-27B**", elem_classes=["hdr"], scale=1, min_width=120)
+            status_box = gr.Markdown(refresh_status, elem_classes=["hdr"], scale=4)
+            btn_start = gr.Button("▶", size="sm", min_width=36)
+            btn_stop = gr.Button("⏹", size="sm", min_width=36)
+            btn_refresh = gr.Button("🔄", size="sm", min_width=36)
+            btn_new = gr.Button("🆕", size="sm", min_width=36)
 
-        # --- workspace (složka projektu) ---
-        ws_header = gr.Markdown(workspace_header())
-        with gr.Accordion("📁 Složka projektu (workspace)", open=False):
-            with gr.Row():
-                btn_ws_browse = gr.Button("📂 Vybrat složku…\n(nativní dialog Windows)", variant="secondary", scale=1)
-                ws_path = gr.Textbox(label="Cesta k adresáři (nebo souboru v něm)",
-                                     placeholder=r"C:\Users\Petr\projekty\muj-projekt",
-                                     scale=2, interactive=True)
-                btn_ws = gr.Button("📥 Nastavit", variant="primary", scale=1)
-            ws_recent = gr.Dropdown(choices=state.recent_ws, value=state.workspace,
-                                    label="Naposledy použité", interactive=True)
-            ws_feedback = gr.Markdown("")
-            ws_explorer = gr.FileExplorer(
-                label="…nebo vyber soubor ve složce projektu přímo v prohlížeči (bude použit nadřazený adresář)",
-                root_dir=str(Path.home()),
-                ignore_glob=["AppData/**", "**/.git/**", "**/node_modules/**", "**/__pycache__/**",
-                             "**/.venv/**", "**/venv/**", "**/*.gguf"],
-                file_count="single", height=260,
-            )
+        # --- workspace: jedna řádka (dropdown = naposledy použité + ruční cesta) ---
+        with gr.Row(elem_classes=["gap"]):
+            ws_pick = gr.Dropdown(
+                choices=state.recent_ws or [],
+                value=state.workspace,
+                allow_custom_value=True, interactive=True, filterable=True,
+                show_label=False, container=False, scale=5,
+                info="📁 Složka projektu — vyber z nedávných, napiš cestu, nebo klikni na 📂 Vybrat",
+                elem_id="ws-pick")
+            btn_ws_browse = gr.Button("📂 Vybrat složku", size="sm", min_width=110)
 
-        chat = gr.Chatbot(height=480, label="Konverzace", render_markdown=True)
+        # --- chat (hlavní plocha) ---
+        chat = gr.Chatbot(label=None, show_label=False, height=600,
+                          render_markdown=True, elem_id="main-chat")
 
-        with gr.Row(visible=True) as input_row:
-            with gr.Column(scale=5):
-                msg_in = gr.Textbox(placeholder="Napiš zprávu… (Enter = odeslat, Shift+Enter = nový řádek)",
-                                    label="Zpráva", lines=2)
-            with gr.Column(scale=2):
-                files_in = gr.File(label="Obrázky", file_count="multiple",
-                                   file_types=["image"], type="filepath")
-                btn_send = gr.Button("📨 Odeslat", variant="primary", elem_id="btn-send")
-                btn_stop_run = gr.Button("⏹ Přerušit")
+        # --- vstup: tenký textbox + tlačítka (jedna řádka) ---
+        with gr.Row(elem_classes=["gap"]):
+            msg_in = gr.Textbox(
+                placeholder="Napiš zprávu…  (Enter / Ctrl+Enter = odeslat, Shift+Enter = nový řádek)",
+                show_label=False, container=False, lines=1, max_lines=8,
+                elem_id="msg-in", scale=6)
+            btn_send = gr.Button("📨", variant="primary", size="sm", min_width=48,
+                                 elem_id="btn-send")
+            btn_stop_run = gr.Button("⏹", size="sm", min_width=36)
 
+        files_in = gr.File(label=None, show_label=False, container=False,
+                           file_count="multiple", file_types=["image"], type="filepath",
+                           elem_id="files-in")
+
+        # --- potvrzovací lišta (skrytá, dokud agent nečeká na souhlas) ---
         with gr.Row(visible=False) as confirm_row:
-            gr.Markdown("⚠️ **Agent čeká na potvrzení akce** (souhlas s ovládáním PC / zápisy)")
-            btn_yes = gr.Button("✅ Povolit", variant="primary")
-            btn_no = gr.Button("❌ Zamítnout", variant="stop")
+            gr.Markdown("⚠️ **Agent čeká na potvrzení akce** (ovládání PC / zápisy)", scale=4)
+            btn_yes = gr.Button("✅ Povolit", variant="primary", size="sm", scale=1)
+            btn_no = gr.Button("❌ Zamítnout", variant="stop", size="sm", scale=1)
 
-        with gr.Accordion("⚙️ Nastavení", open=False):
+        # --- nastavení (sbalené) ---
+        with gr.Accordion("⚙️ Nastavení — model / režim / autonomie / thinking", open=False):
             with gr.Row():
                 model_dd = gr.Dropdown(model_choices, value=state.model_key,
                                        label="Model (přepnutí = restart serveru)")
@@ -491,29 +465,24 @@ def build_ui() -> gr.Blocks:
                 autonomy_dd = gr.Dropdown(["supervised", "semi", "auto"], value=state.autonomy,
                                           label="Autonomie")
                 thinking_cb = gr.Checkbox(value=state.thinking, label="Thinking režim")
-                btn_new = gr.Button("🆕 Nová session")
             settings_info = gr.Markdown("")
 
         # události - workspace
         # nativní dialog: queue=False, aby nezablokoval chat během otevřeného okna
-        btn_ws_browse.click(browse_workspace, None,
-                            [ws_path, ws_feedback, ws_header, ws_recent], queue=False)
-        btn_ws.click(set_workspace_handler, ws_path, [ws_feedback, ws_header, ws_recent], queue=False)
-        ws_recent.change(set_workspace_handler, ws_recent, [ws_feedback, ws_header, ws_recent], queue=False)
-        ws_explorer.change(explorer_to_workspace, ws_explorer,
-                           [ws_path, ws_feedback, ws_header, ws_recent], queue=False)
+        btn_ws_browse.click(browse_workspace, None, ws_pick, queue=False)
+        ws_pick.change(set_workspace_handler, ws_pick, ws_pick, queue=False)
 
         # události - chat
         btn_send.click(send_message, [msg_in, files_in, chat],
-                       [chat, confirm_row, input_row], queue=True)\
+                       [chat, confirm_row], queue=True)\
             .then(lambda: ("", None), None, [msg_in, files_in])
         msg_in.submit(send_message, [msg_in, files_in, chat],
-                      [chat, confirm_row, input_row], queue=True)\
+                      [chat, confirm_row], queue=True)\
             .then(lambda: ("", None), None, [msg_in, files_in])
-        btn_yes.click(confirm_yes, chat, [chat, confirm_row, input_row], queue=True)
-        btn_no.click(confirm_no, chat, [chat, confirm_row, input_row], queue=True)
-        btn_stop_run.click(stop_run, chat, [chat, confirm_row, input_row], queue=True)
-        btn_new.click(new_chat, None, [chat, confirm_row, input_row])
+        btn_yes.click(confirm_yes, chat, [chat, confirm_row], queue=True)
+        btn_no.click(confirm_no, chat, [chat, confirm_row], queue=True)
+        btn_stop_run.click(stop_run, chat, [chat, confirm_row], queue=True)
+        btn_new.click(new_chat, None, [chat, confirm_row])
         model_dd.change(change_model, model_dd, status_box)
         mode_dd.change(change_mode, mode_dd, settings_info)
         autonomy_dd.change(change_autonomy, autonomy_dd, settings_info)
@@ -522,8 +491,9 @@ def build_ui() -> gr.Blocks:
         btn_stop.click(lambda: server_cmd("stop"), None, status_box)
         btn_refresh.click(refresh_status, None, status_box)
 
-        gr.Markdown("🛡️ **FAILSAFE:** myš do levého horního rohu obrazovky okamžitě přeruší GUI akce. "
-                    "V režimu `supervised` se každá akce potvrzuje. Vše běží lokálně.")
+        gr.Markdown("<small>🛡️ FAILSAFE: myš do levého horního rohu obrazovky přeruší GUI akce · "
+                    "čtecí příkazy nevyžadují potvrzení · vše běží lokálně</small>",
+                    elem_classes=["hdr"])
 
         # Ctrl+Enter odesílá zprávu (vedle klasického Enteru)
         ui.load(None, None, None, js="""
@@ -579,6 +549,7 @@ if __name__ == "__main__":
     build_ui().launch(
         server_name=host,
         server_port=port,
+        css=CUSTOM_CSS,
         show_error=True,  # detail chyb při ladění (jen localhost)
         inbrowser=not os.environ.get("QWEN_NO_BROWSER"),
         allowed_paths=[str(cfg.path("paths.sessions_dir"))],
