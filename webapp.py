@@ -60,6 +60,9 @@ def _save_ui_state(data: dict) -> None:
 class AppState:
     def __init__(self) -> None:
         self.hub = StreamHub()
+        # po smazani chatu: nahradni (transient) chat NABIDNOUT v seznamech az
+        # s prvni zpravou - nesmi tam hned svitit jako "(bez titulku)"
+        self.suppress_active_entry = False
         saved = _load_ui_state()
         self.model_key = saved.get("model") or cfg.model_key()
         if self.model_key not in cfg.data["models"]:
@@ -443,6 +446,7 @@ def send_message(message: str, files, history: list[dict]):
             yield history, gr.update(visible=False), refresh_status()
             return
         cfg.data["thinking"] = state.thinking
+        state.suppress_active_entry = False  # zpráva = chat začíná být skutečný
         imgs = [Path(f) for f in (files or []) if Path(f).suffix.lower() in IMG_MIMES]
         shown = (message.strip() or "") + (f"\n🖼️ +{len(imgs)} obrázek(ky)" if imgs else "")
         history.append({"role": "user", "content": shown})
@@ -490,6 +494,7 @@ def stop_run(history: list[dict]):
 
 
 def new_chat():
+    state.suppress_active_entry = False
     state.new_session()
     return [], gr.update(visible=False), refresh_status()
 
@@ -526,6 +531,7 @@ def handoff_to_new_session():
         gr.Info("📦 Vytvářím souhrn konverzace (chvíli trvá) ...")
         from harness.context import summarize_messages
         summary = summarize_messages(llm, state.session.messages[1:])
+        state.suppress_active_entry = False
         state.new_session()
         state.session.add(
             "user",
@@ -615,6 +621,7 @@ def load_session_handler(selection: str):
             return
         state.session = Session.load(cfg, selection, state._system_prompt())
         state.rebuild_agent()
+        state.suppress_active_entry = False
         # session jiného projektu → přepni workspace (multi-project switching)
         s_ws = state.session.meta.get("workspace")
         if s_ws and s_ws != state.workspace:
@@ -773,7 +780,7 @@ def create_project_handler(name: str):
 def _active_entry() -> tuple[str, str] | None:
     """Aktivní session jako položka seznamu (i transient - hned viditelná)."""
     s = getattr(state, "session", None)
-    if s is None:
+    if s is None or getattr(state, "suppress_active_entry", False):
         return None
     title = (s.meta.get("title") or "(bez titulku)")[:38]
     when = "právě teď" if s.transient else _rel_time(s.meta.get("updated") or time.time())
@@ -851,6 +858,7 @@ def delete_current_chat():
         gr.Info("Aktivní chat není uložený (prázdný) - není co mazat.")
         return gr.update(), gr.update(), gr.update(), gr.update(), _del_state(False)
     state.new_session()                      # náhrada je transient - nic se neukládá
+    state.suppress_active_entry = True       # a hned se v seznamech nenabízí
     ok = Session.delete(cfg, sid)
     gr.Info("🗑 Chat smazán" if ok else "Chat už neexistuje")
     r1, r2, _ = update_chats_radio()
@@ -1131,7 +1139,7 @@ body { background: #0b0e14 !important; }
 .gradio-container {
   width: 100% !important;
   max-width: 1600px !important; margin: 0 auto !important;
-  font-family: 'Segoe UI Variable Text','Segoe UI','Segoe UI Symbol','Segoe UI Emoji','Noto Color Emoji',system-ui,sans-serif !important;
+  font-family: 'Segoe UI Variable Text','Segoe UI','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji',system-ui,sans-serif !important;
   color-scheme: dark !important;
 }
 /* povrchy do tmavé škály */
