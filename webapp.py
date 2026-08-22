@@ -79,9 +79,7 @@ def chat_view() -> list[dict]:
             continue
         msg: dict = {"role": role, "content": content or "…"}
         if role == "user" and imgs:
-            msg["content"] = {"path": str(imgs[0])} if len(content) < 200 else (
-                f"{content}\n\n(+{len(imgs)} obrázek/obrázky)"
-            )
+            msg["content"] = (content + "\n" if content else "") + f"🖼️ +{len(imgs)} obrázek(ky)"
         out.append(msg)
     return out
 
@@ -123,11 +121,8 @@ def send_message(message: str, files, history: list[dict]):
         return
     cfg.data["thinking"] = state.thinking
     imgs = [Path(f) for f in (files or []) if Path(f).suffix.lower() in IMG_MIMES]
-    history.append({"role": "user",
-                    "content": message.strip() or "(obrázky)",
-                    **({"metadata": {"images": [str(i) for i in imgs]}} if imgs else {})})
-    if imgs:
-        history[-1]["content"] = (message.strip() + "\n" if message.strip() else "") + "🖼️"
+    shown = (message.strip() or "") + (f"\n🖼️ +{len(imgs)} obrázek(ky)" if imgs else "")
+    history.append({"role": "user", "content": shown})
     yield history, gr.update(visible=False), gr.update(visible=False)
     state.agent.new_task(message.strip() or "Please analyze the attached image(s).", images=imgs)
     yield from _run_steps(history)

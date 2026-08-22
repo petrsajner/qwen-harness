@@ -131,6 +131,8 @@ def start(cfg: Config, model_key: str | None = None, ctx_size: int | None = None
         "--host", srv["host"],
         "--port", str(srv["port"]),
         "--jinja",               # plná chat template + tool calling
+        "--reasoning-preserve",  # zachování reasoning mezi tool-call koly
+        "--image-min-tokens", "1024",  # přesnější vision grounding (computer use)
         "--alias", model_key,
     ]
     if mmproj.exists():

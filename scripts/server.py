@@ -22,9 +22,11 @@ from harness import servermgmt  # noqa: E402
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("cmd", choices=["start", "stop", "restart", "switch", "status"])
-    ap.add_argument("model", nargs="?", help="model key (q4/q5) pro start/switch/restart")
+    ap.add_argument("model_pos", nargs="?", help="model key (q4/q5) pro start/switch/restart")
+    ap.add_argument("--model", dest="model_opt", help="model key (alternativa k pozici)")
     ap.add_argument("--ctx", type=int, help="override ctx size")
     args = ap.parse_args()
+    args.model = args.model_opt or (args.model_pos or None)
     cfg = load_config()
 
     if args.cmd == "start":

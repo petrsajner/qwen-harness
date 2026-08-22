@@ -27,19 +27,26 @@ PROMPTS = [
 
 
 def bench(llm: LLMClient, thinking: bool) -> None:
-    sampling = llm.cfg.sampling(thinking)
+    sampling = dict(llm.cfg.sampling(thinking))
+    extra_body = {}
+    if "top_k" in sampling:
+        extra_body["top_k"] = sampling.pop("top_k")
     for label, prompt, max_tokens in PROMPTS:
         # TTFT (streaming)
         t0 = time.time()
         first = None
-        gen_start = None
         text = ""
+        usage = None
         try:
             stream = llm.client.chat.completions.create(
                 model=llm.model_name, stream=True, max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}], **sampling,
+                stream_options={"include_usage": True},
+                messages=[{"role": "user", "content": prompt}],
+                extra_body=extra_body, **sampling,
             )
             for chunk in stream:
+                if getattr(chunk, "usage", None):
+                    usage = chunk.usage
                 if not chunk.choices:
                     continue
                 d = chunk.choices[0].delta
@@ -54,12 +61,17 @@ def bench(llm: LLMClient, thinking: bool) -> None:
         if first is None:
             print(f"  [{label}] žádná odpověď (model odmítl?)")
             continue
-        # odhad toků: ~4 znaky/token (přesné použití usage bych dostal z non-stream)
-        approx_tokens = len(text) / 4
+        # skutečné tokeny z usage (fallback: odhad ~4 znaky/token)
+        if usage and getattr(usage, "completion_tokens", None):
+            n_tok = usage.completion_tokens
+            tok_src = "usage"
+        else:
+            n_tok = len(text) / 4
+            tok_src = "odhad"
         ttft = first - t0
         gen_time = t_end - first
-        tps = approx_tokens / gen_time if gen_time > 0 else 0
-        print(f"  {label:<14} TTFT {ttft:5.2f}s | gen {gen_time:5.2f}s | ~{tps:6.1f} tok/s (odhad, {approx_tokens:.0f} tok)")
+        tps = n_tok / gen_time if gen_time > 0 else 0
+        print(f"  {label:<14} TTFT {ttft:5.2f}s | gen {gen_time:5.2f}s | {tps:6.1f} tok/s ({n_tok:.0f} tok, {tok_src})")
 
 
 def main() -> int:
