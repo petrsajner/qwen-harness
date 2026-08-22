@@ -16,17 +16,17 @@ server:
 # Vybrané: unsloth UD (Unsloth Dynamic) kvantizace - dobrá kvalita/velikost
 models:
   q4:
-    alias: "Qwen3.8-27B Q4_K_M (16.5 GB, rychlá, kontext 96k)"
+    alias: "Qwen3.8-27B Q4_K_M (16.5 GB, rychlá, kontext 128k)"
     repo: "unsloth/Qwen3.8-27B-GGUF"
     file: "Qwen3.8-27B-UD-Q4_K_M.gguf"
     mmproj: "mmproj-F16.gguf"
-    ctx_size: 98304        # ~96k tokenů
+    ctx_size: 131072       # 128k - VRAM: ~25.6+3.9 GB KV, cca 2 GB rezerva pro vision
   q5:
-    alias: "Qwen3.8-27B Q5_K_M (19.8 GB, kvalitní, kontext 48k)"
+    alias: "Qwen3.8-27B Q5_K_M (19.8 GB, kvalitní, kontext 96k)"
     repo: "unsloth/Qwen3.8-27B-GGUF"
     file: "Qwen3.8-27B-UD-Q5_K_M.gguf"
     mmproj: "mmproj-F16.gguf"
-    ctx_size: 49152        # ~48k tokenů
+    ctx_size: 98304        # 96k (VRAM ~30 GB, těsnější rezerva)
 
 default_model: q4
 

@@ -76,7 +76,7 @@ SUMMARY_NOTE = (
 _PROTOCOL_MARKS = ("[TASK PROTOCOL", "[PROGRESS UPDATE", "[FINAL SUMMARY")
 TOOL_STEPS_BEFORE_UPDATE = 4   # tool-kroky bez slov k uživateli → vnutit status
 MIN_TOOLS_FOR_SUMMARY = 3      # úloha s ≥N nástroji musí skončit strukturovaným souhrnem
-COMPRESS_AT = 0.75             # auto-komprese při 75 % kontextu (bezpečná rezerva)
+COMPRESS_AT = 0.85             # auto-komprese při 85 % kontextu
 OVERFLOW_RE = re.compile(
     r"exceeds.{0,40}context|context.{0,40}(exceed|full|too (large|long))|"
     r"prompt is too long|maximum context",
@@ -264,7 +264,9 @@ class Agent:
             else:
                 to_summarize = self.session.messages[1:-4]
             summary = summarize_messages(self.llm, to_summarize)
-            ok = self.session.compress_to_summary(summary)
+            # cíl: po kompresi model vidí ~35 % limitu (tokenový rozpočet,
+            # ne počet zpráv - obří tool výstupy v ocasu už nezaberou půlku kontextu)
+            ok = self.session.compress_to_summary(summary, keep_tokens=int(limit * 0.35))
             if not ok:
                 self.session.trim_to_budget(int(limit * 0.5))
             new_est = self.session.estimate_context_tokens()

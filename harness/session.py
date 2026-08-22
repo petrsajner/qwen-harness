@@ -127,24 +127,50 @@ class Session:
         # ~3.6 znaku na token (mix češtiny, kódu, JSON)
         return total * 10 // 36
 
-    def compress_to_summary(self, summary: str, min_keep: int = 10) -> bool:
+    def _msg_tokens(self, m: dict) -> int:
+        """Orientační počet tokenů jedné zprávy (text + obrázky + tool_calls)."""
+        import json as _json
+        c = m.get("content") or ""
+        if not isinstance(c, str):
+            c = " ".join(str(p.get("text", "")) for p in c if isinstance(p, dict))
+        n = len(str(c)) * 10 // 36
+        if m.get("images"):
+            n += len(m["images"]) * self.IMAGE_TOKENS
+        if m.get("tool_calls"):
+            n += len(_json.dumps(m["tool_calls"], ensure_ascii=False)) * 10 // 36
+        return n
+
+    def compress_to_summary(self, summary: str, min_keep: int = 6,
+                            keep_tokens: int | None = None) -> bool:
         """Zaregistruj kompresi kontextu (NE-destruktivně).
 
         Zprávy zůstávají v self.messages (UI + JSONL nedotčené); model od teď
         vidí [system + souhrn + messages[cut:]]. Cut vždy na hranici 'user'
         zprávy, aby se nerozbily dvojice assistant(tool_calls) → tool.
+
+        keep_tokens: cílový rozpočet ponechané části (největší výhodnější cut,
+        který se do něj vejde). Bez něj platí jen min_keep zpráv.
         """
         msgs = self.messages
         head_len = 1 if msgs and msgs[0]["role"] == "system" else 0
-        rest = msgs[head_len:]
-        if len(rest) <= min_keep:
+        if len(msgs) - head_len <= min_keep:
             return False
         cut = None
-        for i in range(len(rest) - min_keep, 0, -1):
-            if rest[i]["role"] == "user":
-                cut = head_len + i
-                break
-        if cut is None:
+        if keep_tokens is not None:
+            acc = 0
+            for i in range(len(msgs) - 1, head_len - 1, -1):
+                acc += self._msg_tokens(msgs[i])
+                if acc > keep_tokens:
+                    break
+                if msgs[i].get("role") == "user" and (len(msgs) - i) >= min_keep:
+                    cut = i  # nejhlubší hranice, jejíž ocas se vejde do rozpočtu
+        else:
+            rest = msgs[head_len:]
+            for i in range(len(rest) - min_keep, 0, -1):
+                if rest[i]["role"] == "user":
+                    cut = head_len + i
+                    break
+        if cut is None or cut <= head_len:
             return False
         if self.compression and cut <= self.compression["cut"]:
             return False  # nový cut musí být za starým

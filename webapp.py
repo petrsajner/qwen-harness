@@ -464,6 +464,28 @@ def new_chat():
     return [], gr.update(visible=False), refresh_status()
 
 
+def compress_now(history: list[dict]):
+    """📦 Ruční komprese: souhrn starší konverzace (i pod prahem 85 %)."""
+    try:
+        est = state.session.estimate_context_tokens()
+        rev_before = state.session.compression_rev
+        gr.Info("📦 Vytvářím souhrn starší konverzace (chvíli trvá) ...")
+        state.agent._maybe_compress(force=True)
+        if state.session.compression_rev == rev_before:
+            gr.Warning("Není co komprimovat (příliš krátká konverzace).")
+            yield history, gr.update(visible=False), refresh_status()
+            return
+        est2 = state.session.estimate_context_tokens()
+        history.append({"role": "assistant",
+                        "content": f"📦 **Ruční komprese dokončena** — ~{est / 1000:.1f}k → ~{est2 / 1000:.1f}k "
+                                   f"tokenů. Model pracuje se souhrnem, historie zůstává celá."})
+        gr.Info(f"✅ Komprimováno: ~{est / 1000:.1f}k → ~{est2 / 1000:.1f}k tokenů")
+        yield history, gr.update(visible=False), refresh_status()
+    except Exception as e:
+        history.append({"role": "assistant", "content": _error_message(e)})
+        yield history, gr.update(visible=False), refresh_status()
+
+
 def handoff_to_new_session():
     """📦 Předat práci do nové session: souhrn stávající konverzace + čistý kontext."""
     try:
@@ -552,7 +574,7 @@ def _check_ctx_warning() -> None:
     prev = getattr(state, "last_ctx_pct", 0)
     state.last_ctx_pct = pct
     if prev < 70 <= pct < 85:
-        gr.Warning(f"📊 Kontext na {pct} % — auto-komprese proběhne při 75 %")
+        gr.Warning(f"📊 Kontext na {pct} % — auto-komprese proběhne při 85 %")
     elif prev < 85 <= pct:
         gr.Warning(f"📊 Kontext na {pct} % — blízko limitu! Zvaž 📦 Předej (souhrn do nové session)")
 
@@ -701,6 +723,7 @@ def build_ui() -> gr.Blocks:
             btn_start = gr.Button("▶ Start", size="sm", min_width=72)
             btn_stop = gr.Button("⏹ Stop", size="sm", min_width=68)
             btn_refresh = gr.Button("🔄 Obnovit", size="sm", min_width=84)
+            btn_compress = gr.Button("🗜️ Komprimuj", size="sm", min_width=96)
             btn_handoff = gr.Button("📦 Předej", size="sm", min_width=88)
             btn_new = gr.Button("🆕 Nová", size="sm", min_width=80)
 
@@ -774,6 +797,7 @@ def build_ui() -> gr.Blocks:
             .then(lambda: gr.update(choices=session_choices()), None, sessions_dd)
         btn_handoff.click(handoff_to_new_session, None, [chat, confirm_row, status_box], queue=True)\
             .then(lambda: gr.update(choices=session_choices()), None, sessions_dd)
+        btn_compress.click(compress_now, chat, [chat, confirm_row, status_box], queue=True)
         btn_load_session.click(load_session_handler, sessions_dd, [chat, confirm_row, status_box])\
             .then(lambda: gr.update(choices=session_choices()), None, sessions_dd)
         model_dd.change(change_model, model_dd, status_box)

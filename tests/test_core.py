@@ -297,6 +297,22 @@ def test_context_compression() -> None:
         check(ok and s2.estimate_context_tokens() <= big // 2,
               f"trim do rozpočtu ({big} → {s2.estimate_context_tokens()})")
         check(len(s2.messages) == n2, "trim nemaže historii (jen posouvá cut)")
+
+        # tokenový rozpočet: obří tool výstupy v ocasu nespotřebují půlku kontextu
+        s3 = Session(cfg, session_id="bigtail-test", system_prompt="SYS")
+        for i in range(10):
+            s3.add("user", f"q{i}")
+            s3.add("assistant", "", tool_calls=[{"id": f"c{i}", "type": "function",
+                                                 "function": {"name": "read_file", "arguments": "{}"}}])
+            s3.add("tool", "T" * 6000, tool_call_id=f"c{i}", name="read_file")  # ~1.6k toků
+        # 10 trojic ≈ 16k+ tokenů; rozpočet 6k → cut musí ořezat hluboko
+        est_before = s3.estimate_context_tokens()
+        ok = s3.compress_to_summary("SOUHRN", keep_tokens=6000)
+        est_after = s3.estimate_context_tokens()
+        check(ok and est_after <= 8000,
+              f"tokenový rozpočet drží ocas ({est_before} → {est_after}, cíl ≤ 8000)")
+        view = s3._view_messages()
+        check(view[2]["role"] == "user", "token-based cut také na user hranici")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

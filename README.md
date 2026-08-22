@@ -101,8 +101,8 @@ Server se dá ovládat i z TUI (`/server start|stop|status`) a z web UI (tlačí
 
 | Model | Generování | VRAM | Kontext |
 |---|---|---|---|
-| Q4_K_M | **~82 tok/s** | ~26 / 32 GB | 96k |
-| Q5_K_M | **~73 tok/s** | ~26 / 32 GB | 48k |
+| Q4_K_M | **~82 tok/s** | ~28 / 32 GB | 128k |
+| Q5_K_M | **~73 tok/s** | ~30 / 32 GB | 96k |
 
 TTFT ~1–2 s. Vlastní benchmark: `.venv/Scripts/python scripts/bench.py [--model q5]`
 
