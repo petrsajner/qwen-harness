@@ -1160,6 +1160,7 @@ button.primary:hover { filter: brightness(1.12) !important; }
   background: #10141b !important; border: 1px solid #21262d !important;
   border-radius: 14px !important; padding: 14px 12px !important;
   height: calc(100vh - 40px) !important; overflow-y: auto !important;
+  flex-wrap: nowrap !important;   /* jinak Gradio balí přebytecne potomky do sloupcu vedle sebe */
 }
 #main { min-width: 0 !important; }
 .side-title { margin-bottom: 2px !important; }
