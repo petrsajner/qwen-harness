@@ -468,11 +468,46 @@ def build_ui() -> gr.Blocks:
     return ui
 
 
+def _port_busy(host: str, port: int) -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1.0)
+        return s.connect_ex((host, port)) == 0
+
+
+def _is_our_webui(host: str, port: int) -> bool:
+    import requests
+    try:
+        r = requests.get(f"http://{host}:{port}/config", timeout=2)
+        return r.status_code == 200 and "components" in r.text
+    except Exception:
+        return False
+
+
 if __name__ == "__main__":
     import os
+    import webbrowser
+
+    host = cfg.web["host"]
+    port = int(cfg.web["port"])
+
+    if _port_busy(host, port):
+        if _is_our_webui(host, port):
+            url = f"http://{host}:{port}"
+            print(f"[INFO] Web UI už běží na {url} — nespouštím druhou instanci, otevírám prohlížeč.")
+            if not os.environ.get("QWEN_NO_BROWSER"):
+                webbrowser.open(url)
+            sys.exit(0)
+        # port drží cizí proces → najdi nejbližší volný
+        new_port = port
+        while _port_busy(host, new_port) and new_port < port + 20:
+            new_port += 1
+        print(f"[INFO] Port {port} je obsazený cizím procesem — Web UI spouštím na portu {new_port}.")
+        port = new_port
+
     build_ui().launch(
-        server_name=cfg.web["host"],
-        server_port=int(cfg.web["port"]),
+        server_name=host,
+        server_port=port,
         show_error=True,  # detail chyb při ladění (jen localhost)
         inbrowser=not os.environ.get("QWEN_NO_BROWSER"),
         allowed_paths=[str(cfg.path("paths.sessions_dir"))],
