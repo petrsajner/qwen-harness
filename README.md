@@ -6,12 +6,16 @@ Harness pro lokální práci s modelem **Qwen3.8-27B** (Apache 2.0) na **RTX 509
 ## Funkce
 
 - 💬 **Obecný chat** i **coding agent** (čtení/zápis souborů, shell, vyhledávání)
+- 📁 **Workspace (složka projektu)** — vyber adresář v WUI; Qwen z něj čte/zapisuje přímo
+  z disku, zdrojové dokumenty nemusíš nahrávat do chatu. Pamatené naposledy použité.
 - 🖼️ **Analýza obrázků** — nativní vision (mmproj), včetně screenshotů
 - 🖱️ **Ovládání počítače** — screenshot → klikání, psaní, klávesy (pyautogui + mss)
 - 🔀 **Přepínatelné modely** — Q4_K_M (96k kontext, ~82 tok/s) ⇄ Q5_K_M (48k, ~73 tok/s)
 - 🧠 **Thinking on/off** — režim uvažování modelu (přepínatelný za běhu)
-- 🛡️ **Tři úrovně autonomie** — supervised / semi / auto (kdykoliv přepnutelné)
+- 🛡️ **Tři úrovně autonomie** — supervised / semi / auto (kdykoliv přepnutelné);
+  čtecí příkazy (`ls`, `cat`, `grep`, `git log`…) nepotřebují potvrzení ani v supervised
 - 🖥️ **Dvě UI** — terminál (TUI) + webové rozhraní (Gradio, jen 127.0.0.1)
+  — WUI: Ctrl+Enter odesílá, chyby zobrazuje jako zprávy v chatu
 - 💾 **Session historie** — JSONL perzistence, obrázky uložené na disk
 
 ## Architektura
@@ -61,6 +65,7 @@ Server se dá ovládat i z TUI (`/server start|stop|status`) a z web UI (tlačí
 ## TUI příkazy
 
 ```
+/ws [cesta]             zobraz/nastav složku projektu (workspace)
 /model q4|q5            přepnutí modelu (restart serveru, ~10 s)
 /mode chat|agent|computer     režim: chat | coding nástroje | + ovládání PC
 /autonomy supervised|semi|auto   úroveň autonomie

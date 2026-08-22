@@ -176,6 +176,73 @@ def test_parse_args() -> None:
           "JSON zasypaný v textu")
 
 
+def test_workspace() -> None:
+    print("[workspace]")
+    from harness.agent import Agent
+    data = load_config().data
+    data["paths"]["sessions_dir"] = str(Path(tempfile.mkdtemp()) / "sessions")
+    cfg = Config(data, root=ROOT)
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        session = Session(cfg, session_id="ws-test")
+        from harness.safety import SafetyPolicy
+        agent = Agent(cfg, LLMStub(), session, build_registry("agent"),
+                      SafetyPolicy("supervised"), mode="agent")
+        # None -> cwd (výchozí)
+        check(agent.workspace == Path.cwd().resolve(), "výchozí workspace = cwd")
+        # nastavení adresáře
+        p = agent.set_workspace(str(tmp))
+        check(p == tmp.resolve() and agent.workspace == tmp.resolve(), "set_workspace adresář")
+        # soubor -> nadřazený adresář
+        f = tmp / "soubor.txt"
+        f.write_text("x", encoding="utf-8")
+        p2 = agent.set_workspace(str(f))
+        check(p2 == tmp.resolve(), "soubor -> nadřazený adresář")
+        # uvozovky kolem cesty
+        p3 = agent.set_workspace(f'"{tmp}"')
+        check(p3 == tmp.resolve(), "cesta v uvozovkách")
+        # neexistující
+        try:
+            agent.set_workspace(tmp / "neexistuje")
+            check(False, "neexistující cesta vyhodí ValueError")
+        except ValueError:
+            check(True, "neexistující cesta vyhodí ValueError")
+        # nástroje řeší relativní cesty od workspace
+        from harness.tools.base import AgentContext
+        r = build_registry("agent").execute("read_file", {"path": "soubor.txt"}, agent.ctx)
+        check("soubor.txt" in r and "1| x" in r, "read_file řeší cestu od workspace")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_shell_readonly() -> None:
+    print("[shell read-only klasifikace]")
+    from harness.tools.shell import RunCommandTool, is_read_only_command
+    tool = RunCommandTool()
+    safe = [
+        "ls -la", "cat soubor.txt", "grep -r foo .", "git status", "git log --oneline",
+        "git diff HEAD~1", "find . -name '*.py'", "echo ahoj", "ls | grep test",
+        "cat a.txt; cat b.txt", "stat main.py", "wc -l *.py",
+    ]
+    unsafe = [
+        "rm -rf x", "echo ahoj > soubor.txt", "cat x | tee y", "mkdir novy",
+        "git push", "git commit -m x", "curl http://x", "ls; rm x",
+        "echo $(rm x)", "npm install x", "grep x . > out", "git branch nova",
+        "cp a b", "cat < vstup.txt", "python skript.py", "",
+    ]
+    for cmd in safe:
+        check(is_read_only_command(cmd), f"SAFE: {cmd!r}")
+    for cmd in unsafe:
+        check(not is_read_only_command(cmd), f"WRITE: {cmd!r}")
+    check(tool.risk_for({"command": "ls"}) == Risk.SAFE, "risk_for ls = SAFE")
+    check(tool.risk_for({"command": "rm x"}) == Risk.WRITE, "risk_for rm = WRITE")
+
+
+class LLMStub:
+    """Pro konstrukci Agenta bez serveru."""
+    pass
+
+
 if __name__ == "__main__":
     test_config()
     test_safety()
@@ -183,5 +250,7 @@ if __name__ == "__main__":
     test_tools_fs_shell()
     test_registry_modes()
     test_parse_args()
+    test_shell_readonly()
+    test_workspace()
     print(f"\n{'=' * 40}\nVÝSLEDEK: {PASS} ✓ / {FAIL} ✗")
     sys.exit(1 if FAIL else 0)

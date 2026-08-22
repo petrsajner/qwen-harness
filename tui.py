@@ -31,15 +31,16 @@ BANNER = r"""
 """
 
 HELP = """[bold]Příkazy:[/bold]
-  /model q4|q5          přepnutí modelu (restart serveru)
-  /mode chat|agent|computer   režim práce
+  /ws [cesta]            zobraz/nastav složku projektu (workspace)
+  /model q4|q5           přepnutí modelu (restart serveru)
+  /mode chat|agent|computer     režim práce
   /autonomy supervised|semi|auto   úroveň autonomie
-  /thinking on|off      režim uvažování modelu
-  /img <cesta>          přiložit obrázek k další zprávě
-  /screenshot           přiložit screenshot obrazovky
-  /new                  nová session   /sessions  seznam   /load <id>
+  /thinking on|off       režim uvažování modelu
+  /img <cesta>           přiložit obrázek k další zprávě
+  /screenshot            přiložit screenshot obrazovky
+  /new                   nová session   /sessions  seznam   /load <id>
   /server status|start|stop    správa inference serveru
-  /help                 tato nápověda  /exit  konec
+  /help                  tato nápověda  /exit  konec
 Vstup: Enter odeslat  •  Ctrl+C přerušit generování"""
 
 
@@ -87,8 +88,10 @@ class TUIApp:
     # ------------------------------------------------------------------
     def status_line(self) -> str:
         think = "[green]on[/green]" if self.thinking else "[red]off[/red]"
+        ws = self.agent.workspace if self.agent else Path.cwd()
         return (f"[bold]model[/bold]={self.model_key}  [bold]režim[/bold]={self.mode}  "
-                f"[bold]autonomie[/bold]={self.autonomy}  [bold]thinking[/bold]={think}")
+                f"[bold]autonomie[/bold]={self.autonomy}  [bold]thinking[/bold]={think}\n"
+                f"[bold]workspace[/bold]={ws}")
 
     def _on_event(self, kind: str, payload) -> None:
         if kind == "text":
@@ -243,6 +246,23 @@ class TUIApp:
                             console.print(self.status_line())
                         else:
                             console.print("[red]Použití: /thinking on|off[/red]")
+                    elif cmd == "/ws":
+                        if arg:
+                            try:
+                                p = self.agent.set_workspace(arg)
+                                # aktualizuj system prompt v session
+                                if self.session.messages and self.session.messages[0]["role"] == "system":
+                                    from harness.prompts import system_prompt as _sp
+                                    self.session.messages[0]["content"] = (
+                                        _sp(self.mode) +
+                                        f"\n\nCurrent project workspace: {p}. "
+                                        f"Relative paths in tools resolve against it. "
+                                        f"The user keeps project sources and documents there.")
+                                console.print(f"[green]✓ Workspace nastaven:[/green] {p}")
+                            except ValueError as e:
+                                console.print(f"[red]{e}[/red]")
+                        else:
+                            console.print(f"Workspace: [bold]{self.agent.workspace}[/bold]")
                     elif cmd == "/img":
                         p = Path(arg).expanduser()
                         if p.exists():

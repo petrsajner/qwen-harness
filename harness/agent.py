@@ -80,6 +80,25 @@ class Agent:
             raise ValueError(f"Neznámý režim: {mode}")
         self.mode = mode
 
+    def set_workspace(self, path: str | Path) -> Path:
+        """Nastaví pracovní adresář (workspace) pro nástroje.
+
+        Pokud je zadán soubor, použije jeho nadřazený adresář.
+        Vrací absolutní cestu; při neexistující cestě vyhodí ValueError.
+        """
+        p = Path(str(path).strip().strip('"').strip("'")).expanduser()
+        p = p.resolve()
+        if p.is_file():
+            p = p.parent
+        if not p.is_dir():
+            raise ValueError(f"Adresář neexistuje: {p}")
+        self.ctx.workspace = p
+        return p
+
+    @property
+    def workspace(self) -> Path:
+        return self.ctx.workspace
+
     @property
     def tools_enabled(self) -> bool:
         return self.mode != "chat"
@@ -209,7 +228,18 @@ class Agent:
             risky = []
             for c in res.tool_calls:
                 tool = self.registry.get(c["function"]["name"])
-                risk = tool.risk if tool else Risk.WRITE
+                if tool is None:
+                    risky.append(c)
+                    continue
+                # dynamická klasifikace rizika (např. read-only shell příkazy)
+                risk = tool.risk
+                risk_for = getattr(tool, "risk_for", None)
+                if risk_for is not None:
+                    try:
+                        args = parse_tool_arguments(c["function"]["arguments"])
+                        risk = risk_for(args)
+                    except ValueError:
+                        risk = Risk.WRITE
                 if self.safety.needs_confirmation(risk):
                     risky.append(c)
             if risky:

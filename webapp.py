@@ -25,16 +25,38 @@ cfg = load_config()
 llm = LLMClient(cfg)
 
 # ------------------------------------------------------------- stav aplikace
+STATE_FILE = cfg.path("paths.runtime_dir") / "webui-state.json"
+
+
+def _load_ui_state() -> dict:
+    import json
+    try:
+        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_ui_state(data: dict) -> None:
+    import json
+    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
 class AppState:
     def __init__(self) -> None:
         self.model_key = cfg.model_key()
         self.mode = cfg.agent.get("mode", "agent")
         self.autonomy = cfg.agent.get("autonomy", "supervised")
         self.thinking = bool(cfg.data.get("thinking", True))
+        saved = _load_ui_state()
+        self.workspace = saved.get("workspace") or cfg.agent.get("workspace")
+        self.recent_ws: list[str] = saved.get("recent", [])
+        if self.workspace:
+            cfg.agent["workspace"] = self.workspace  # převezme každý nový Agent
         self.new_session()
 
     def new_session(self) -> None:
-        self.session = Session(cfg, system_prompt=system_prompt(self.mode))
+        self.session = Session(cfg, system_prompt=self._system_prompt())
         self.rebuild_agent()
 
     def rebuild_agent(self) -> None:
@@ -46,12 +68,41 @@ class AppState:
         self.abort = threading.Event()
         self.agent = Agent(cfg, llm, self.session, build_registry(self.mode),
                            safety, mode=self.mode, abort_flag=self.abort)
+        if self.workspace:
+            try:
+                self.agent.set_workspace(self.workspace)
+            except ValueError:
+                pass
+
+    def _system_prompt(self) -> str:
+        base = system_prompt(self.mode)
+        if self.workspace:
+            base += (f"\n\nCurrent project workspace: {self.workspace}. "
+                     f"Relative paths in tools resolve against it. "
+                     f"The user keeps project sources and documents there - read them with tools "
+                     f"instead of asking the user to paste content.")
+        return base
+
+    def _refresh_system_prompt(self) -> None:
+        """Aktualizuj system prompt existující session (změna workspace/režimu)."""
+        if self.session.messages and self.session.messages[0]["role"] == "system":
+            self.session.messages[0]["content"] = self._system_prompt()
 
     def set_mode(self, mode: str) -> None:
         self.mode = mode
         self.rebuild_agent()
-        if self.session.messages and self.session.messages[0]["role"] == "system":
-            self.session.messages[0]["content"] = system_prompt(mode)
+        self._refresh_system_prompt()
+
+    def set_workspace(self, path: str) -> Path:
+        """Nastav workspace + persist do state souboru."""
+        p = self.agent.set_workspace(path)  # ValueError pokud neexistuje
+        self.workspace = str(p)
+        cfg.agent["workspace"] = str(p)
+        self.recent_ws = [str(p)] + [w for w in self.recent_ws if w != str(p)]
+        self.recent_ws = self.recent_ws[:8]
+        _save_ui_state({"workspace": str(p), "recent": self.recent_ws})
+        self._refresh_system_prompt()
+        return p
 
 
 state = AppState()
@@ -249,6 +300,62 @@ def refresh_status():
     return "🔴 llama-server stojí — spusť: python scripts/server.py start"
 
 
+# ------------------------------------------------------------- workspace
+WS_JUNK = {".git", "node_modules", ".venv", "venv", "__pycache__", ".idea", ".vscode", "dist", "build"}
+
+
+def workspace_header() -> str:
+    """Vždy viditelná hlavička: aktuální workspace + náhled obsahu."""
+    if not state.workspace:
+        return ("📁 **Workspace: nenastaven** — otevři *📁 Složka projektu* níže a vyber adresář, "
+                "aby mohl Qwen číst/zapisovat projektové soubory přímo z disku.")
+    ws = Path(state.workspace)
+    try:
+        entries = sorted(ws.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+    except OSError as e:
+        return f"📁 **Workspace:** `{ws}`\n\n⚠️ nelze číst obsah: {e}"
+    dirs = [p.name for p in entries if p.is_dir() and p.name not in WS_JUNK]
+    files = [p.name for p in entries if p.is_file()][:12]
+    lines = [f"📁 **Workspace:** `{ws}`"]
+    if dirs:
+        lines.append("📂 " + " · ".join(f"`{d}`" for d in dirs[:10]) + (" …" if len(dirs) > 10 else ""))
+    if files:
+        lines.append("📄 " + " · ".join(f"`{f}`" for f in files) + (" …" if len(entries) > 12 + len(dirs) else ""))
+    if not dirs and not files:
+        lines.append("*(prázdný adresář)*")
+    return "\n".join(lines)
+
+
+def set_workspace_handler(path: str):
+    """Nastaví workspace z textového pole / recent dropdownu."""
+    try:
+        p = state.set_workspace(path)
+        feedback = f"✅ Workspace nastaven: `{p}` — Qwen teď vidí soubory přímo z disku."
+    except ValueError as e:
+        feedback = f"❌ {e}"
+    except Exception as e:
+        feedback = f"❌ Neočekávaná chyba: {type(e).__name__}: {e}"
+    return feedback, workspace_header(), gr.update(choices=state.recent_ws, value=state.workspace)
+
+
+def explorer_to_workspace(selection):
+    """Vybraný soubor ve FileExploreru → workspace = jeho nadřazený adresář."""
+    if not selection:
+        return gr.update(), gr.update(), gr.update(), gr.update()
+    rel = selection[0] if isinstance(selection, list) else selection
+    p = Path(rel)
+    if not p.is_absolute():
+        p = Path.home() / p
+    try:
+        target = state.set_workspace(p if p.is_dir() else p.parent)
+        return (str(target),
+                f"✅ Workspace nastaven: `{target}`",
+                workspace_header(),
+                gr.update(choices=state.recent_ws, value=str(target)))
+    except Exception as e:
+        return gr.update(), f"❌ {e}", gr.update(), gr.update()
+
+
 def server_cmd(cmd: str):
     if cmd == "start":
         return change_model(state.model_key)
@@ -270,6 +377,25 @@ def build_ui() -> gr.Blocks:
                     btn_start = gr.Button("▶ Start serveru", size="sm")
                     btn_stop = gr.Button("⏹ Stop", size="sm")
                     btn_refresh = gr.Button("🔄", size="sm")
+
+        # --- workspace (složka projektu) ---
+        ws_header = gr.Markdown(workspace_header())
+        with gr.Accordion("📁 Složka projektu (workspace)", open=False):
+            with gr.Row():
+                ws_path = gr.Textbox(label="Cesta k adresáři (nebo souboru v něm)",
+                                     placeholder=r"C:\Users\Petr\projekty\muj-projekt",
+                                     scale=3, interactive=True)
+                btn_ws = gr.Button("📥 Nastavit", variant="primary", scale=1)
+            ws_recent = gr.Dropdown(choices=state.recent_ws, value=state.workspace,
+                                    label="Naposledy použité", interactive=True)
+            ws_feedback = gr.Markdown("")
+            ws_explorer = gr.FileExplorer(
+                label="…nebo vyber soubor ve složce projektu (bude použit nadřazený adresář)",
+                root_dir=str(Path.home()),
+                ignore_glob=["AppData/**", "**/.git/**", "**/node_modules/**", "**/__pycache__/**",
+                             "**/.venv/**", "**/venv/**", "**/*.gguf"],
+                file_count="single", height=260,
+            )
 
         chat = gr.Chatbot(height=480, label="Konverzace", render_markdown=True)
 
@@ -300,7 +426,13 @@ def build_ui() -> gr.Blocks:
                 btn_new = gr.Button("🆕 Nová session")
             settings_info = gr.Markdown("")
 
-        # události
+        # události - workspace
+        btn_ws.click(set_workspace_handler, ws_path, [ws_feedback, ws_header, ws_recent], queue=False)
+        ws_recent.change(set_workspace_handler, ws_recent, [ws_feedback, ws_header, ws_recent], queue=False)
+        ws_explorer.change(explorer_to_workspace, ws_explorer,
+                           [ws_path, ws_feedback, ws_header, ws_recent], queue=False)
+
+        # události - chat
         btn_send.click(send_message, [msg_in, files_in, chat],
                        [chat, confirm_row, input_row], queue=True)\
             .then(lambda: ("", None), None, [msg_in, files_in])

@@ -21,6 +21,50 @@ BLOCKED_PATTERNS = [
 ]
 
 
+# Příkazy, které pouze čtou (nepotřebují potvrzení ani v supervised režimu).
+SAFE_CMDS = {"ls", "dir", "cat", "type", "head", "tail", "grep", "find", "wc", "file",
+             "stat", "du", "df", "pwd", "whoami", "which", "where", "tree", "echo",
+             "date", "uname", "hostname", "ipconfig"}
+# Git subcommandy, které pouze čtou (bez dvojznačných: branch/tag/remote/config umí i zapisovat).
+SAFE_GIT_SUB = {"status", "log", "diff", "show", "blame", "rev-parse",
+                "ls-files", "describe", "shortlog", "help"}
+# Klíčová slova, která cokoliv mění - nesmí se vyskytnout v žádném segmentu.
+UNSAFE_RE = re.compile(
+    r"\b(rm|del|rd|move|mv|cp|copy|touch|mkdir|rmdir|chmod|chown|kill|taskkill|"
+    r"curl|wget|invoke-webrequest|invoke-restmethod|start-process|iex|invoke-expression|"
+    r"install|uninstall|remove-item|new-item|set-item|clear-item|out-file|"
+    r"tee|sed|awk|tr|xargs|sudo|npm|pip)\b",
+    re.IGNORECASE,
+)
+
+
+def is_read_only_command(command: str) -> bool:
+    """Konzervativní heuristika: je příkaz čistě čtecí?
+
+    Pravidla: žádné přesměrování (<, >), substituce (`, $()), nebezpečná klíčová
+    slova; každý segment (oddělený |, &&, ||, ;) musí začínat bezpečným příkazem.
+    """
+    if not command or not command.strip():
+        return False
+    if "<" in command or ">" in command or "`" in command or "$(" in command:
+        return False
+    segments = re.split(r"\||&&|\|\||;|\r?\n", command)
+    for seg in segments:
+        toks = seg.strip().split()
+        if not toks:
+            continue
+        if UNSAFE_RE.search(seg):
+            return False
+        base = toks[0].lower().lstrip("(").rstrip(")")
+        if base not in SAFE_CMDS and base != "git":
+            return False
+        if base == "git":
+            sub = next((t for t in toks[1:] if not t.startswith("-")), None)
+            if sub is None or sub.lower() not in SAFE_GIT_SUB:
+                return False
+    return True
+
+
 class RunCommandTool(Tool):
     name = "run_command"
     description = (
@@ -36,6 +80,10 @@ class RunCommandTool(Tool):
     }
     required = ["command"]
     risk = Risk.WRITE
+
+    def risk_for(self, args: dict) -> Risk:
+        """Čtecí příkazy (ls, cat, grep, git log...) nepotřebují potvrzení."""
+        return Risk.SAFE if is_read_only_command(str(args.get("command", ""))) else Risk.WRITE
 
     def run(self, ctx: AgentContext, command: str, shell: str = "bash", cwd: str | None = None, timeout: int | None = None) -> str:
         for pat in BLOCKED_PATTERNS:
