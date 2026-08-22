@@ -212,8 +212,13 @@ state = AppState()
 
 
 # ------------------------------------------------------------- render helpers
+_HIDDEN_NOTE_PREFIXES = ("[TASK PROTOCOL", "[PROGRESS UPDATE", "[FINAL SUMMARY", "[Interrupted by user]")
+
+
 def chat_view() -> list[dict]:
     """Převeď session messages do formátu gr.Chatbot (celá historie včetně komprimované části)."""
+    from harness.agent import _PROTOCOL_MARKS
+    hidden = tuple(_PROTOCOL_MARKS) + _HIDDEN_NOTE_PREFIXES[3:]
     out = []
     cut = state.session.compression["cut"] if state.session.compression else None
     for idx, m in enumerate(state.session.messages):
@@ -224,6 +229,8 @@ def chat_view() -> list[dict]:
         role = m["role"]
         if role == "system" or (role == "assistant" and not m.get("content")):
             continue
+        if role == "user" and str(m.get("content", "")).startswith(hidden):
+            continue  # interní protokolové poznámky se v chatu nezobrazují
         content = m.get("content") or ""
         imgs = m.get("images", [])
         if role == "tool":

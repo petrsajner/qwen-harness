@@ -8,6 +8,7 @@ import json
 import shutil
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -301,8 +302,87 @@ def test_context_compression() -> None:
 
 
 class LLMStub:
-    """Pro konstrukci Agenta bez serveru."""
-    pass
+    """Fake LLM se scénářem - vrací předpřipravené odpovědi v pořadí."""
+    def __init__(self, script=None):
+        from harness.llm import AssistantResult
+        self.script = list(script or [])
+        self.calls = 0
+
+    def stream(self, messages, tools=None, max_tokens=None, on_text=None, on_reasoning=None, **kw):
+        self.calls += 1
+        self.last_messages = messages
+        return self.script.pop(0)
+
+
+def _tc(name, args="{}"):
+    return {"id": f"call_{name}", "type": "function",
+            "function": {"name": name, "arguments": args}}
+
+
+def test_communication_protocol() -> None:
+    print("[komunikační protokol]")
+    from harness.agent import Agent, Status
+    from harness.llm import AssistantResult
+    from harness.safety import SafetyPolicy
+    data = load_config().data
+    data["paths"]["sessions_dir"] = str(Path(tempfile.mkdtemp()) / "sessions")
+    cfg = Config(data, root=ROOT)
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        cfg.agent["workspace"] = str(tmp)
+
+        def make_agent(script):
+            session = Session(cfg, session_id=f"proto-{uuid.uuid4().hex[:6]}")
+            llm = LLMStub(script)
+            agent = Agent(cfg, llm, session, build_registry("agent"),
+                          SafetyPolicy("auto"), mode="agent")
+            return agent, session
+
+        # 1) protokolová poznámka se přidá k úloze (a staré se odstraní)
+        agent, session = make_agent([])
+        agent.new_task("udelej neco")
+        notes = [m for m in session.messages if "[TASK PROTOCOL" in str(m.get("content"))]
+        check(len(notes) == 1, "TASK PROTOCOL poznámka přidána (user role)")
+        agent.new_task("dalsi ukol")
+        notes = [m for m in session.messages if "[TASK PROTOCOL" in str(m.get("content"))]
+        check(len(notes) == 1, "stará poznámka nahrazena (ne hromadí se)")
+
+        # 2) progress nudge po 4 tool-krocích bez slov
+        script = [AssistantResult(tool_calls=[_tc("list_dir", '{"path": "."}')]) for _ in range(4)]
+        script.append(AssistantResult(content="hotovo"))
+        agent, session = make_agent(script)
+        agent.new_task("prohledat adresar")
+        statuses = [agent.step(approve=True).status for _ in range(5)]
+        prog = [m for m in session.messages if "[PROGRESS UPDATE" in str(m.get("content"))]
+        check(len(prog) >= 1, f"PROGRESS nudge po 4 krocích (počet: {len(prog)})")
+
+        # 3) vynucení strukturovaného souhrnu po úloze s nástroji
+        script = [
+            AssistantResult(tool_calls=[_tc("list_dir")]),
+            AssistantResult(tool_calls=[_tc("list_dir"), _tc("list_dir")]),
+            AssistantResult(content="jen kratka odpoved"),   # nezaklad vyzaduje souhrn
+            AssistantResult(content="✅ Hotovo: nic\n- **x**: y"),  # strukturovany
+        ]
+        agent, session = make_agent(script)
+        agent.new_task("test souhrnu")
+        r1 = agent.step(approve=True)
+        r2 = agent.step(approve=True)
+        r3 = agent.step(approve=True)
+        check(r3.status is Status.CONTINUE, "krátká odpověď po nástrojích → vynucen souhrn (CONTINUE)")
+        notes = [m for m in session.messages if "[FINAL SUMMARY" in str(m.get("content"))]
+        check(len(notes) == 1, "SUMMARY poznámka vložena")
+        r4 = agent.step(approve=True)
+        check(r4.status is Status.FINAL and "✅" in r4.text, "druhý průchod → FINAL se souhrnem")
+        check(agent.llm.calls == 4, "žádné zbytečné navíc volání")
+
+        # 4) chat režim: žádný protokol (bez nástrojů netřeba)
+        session = Session(cfg, session_id="chat-proto")
+        agent = Agent(cfg, LLMStub([]), session, build_registry("chat"), SafetyPolicy("auto"), mode="chat")
+        agent.new_task("ahoj")
+        notes = [m for m in session.messages if "[TASK PROTOCOL" in str(m.get("content"))]
+        check(not notes, "chat režim bez protokolu")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":
@@ -315,5 +395,6 @@ if __name__ == "__main__":
     test_shell_readonly()
     test_workspace()
     test_context_compression()
+    test_communication_protocol()
     print(f"\n{'=' * 40}\nVÝSLEDEK: {PASS} ✓ / {FAIL} ✗")
     sys.exit(1 if FAIL else 0)

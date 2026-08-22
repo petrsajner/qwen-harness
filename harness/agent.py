@@ -47,6 +47,41 @@ class StepResult:
 
 EventCb = Callable[[str, object], None]  # ("text"|"reasoning"|"tool_start"|"tool_result", payload)
 
+# --- komunikační protokol (vynucený harnessem) ------------------------------
+TASK_PROTOCOL_NOTE = (
+    "[TASK PROTOCOL - follow for this task] "
+    "(1) START: before any tool call, briefly confirm (1-2 sentences, user's language) "
+    "what the task is and your plan. "
+    "(2) PROGRESS: during longer work include one-sentence status updates "
+    "(what you found/did, what you do next). "
+    "(3) FINISH: when the task is done, ALWAYS end with a structured summary with these sections "
+    "(use the user's language; skip sections that do not apply): "
+    "✅ Done/Changed - exact files (paths) and what changed; "
+    "🔍 Found - relevant findings (read-only, nothing changed); "
+    "📋 Next steps - concrete suggested follow-up; "
+    "⏸️ Postponed - what was deliberately left out and why."
+)
+PROGRESS_NOTE = (
+    "[PROGRESS UPDATE REQUIRED] Before or together with your next tool call, give the user "
+    "a ONE-sentence status update in their language: what you found/did so far and what you "
+    "are doing next."
+)
+SUMMARY_NOTE = (
+    "[FINAL SUMMARY REQUIRED] The task ended without the required structured summary. "
+    "Write it now, in the user's language, short and concrete: "
+    "✅ Done/Changed (exact files + what changed) · 🔍 Found (read-only findings) · "
+    "📋 Next steps (concrete) · ⏸️ Postponed (why)."
+)
+_PROTOCOL_MARKS = ("[TASK PROTOCOL", "[PROGRESS UPDATE", "[FINAL SUMMARY")
+TOOL_STEPS_BEFORE_UPDATE = 4   # tool-kroky bez slov k uživateli → vnutit status
+MIN_TOOLS_FOR_SUMMARY = 3      # úloha s ≥N nástroji musí skončit strukturovaným souhrnem
+
+
+def _looks_structured(text: str) -> bool:
+    if len(text) > 800:
+        return True
+    return any(m in text for m in ("✅", "🔍", "📋", "⏸", "##", "- **", "\n- "))
+
 
 class Agent:
     def __init__(self, cfg: Config, llm: LLMClient, session: Session, registry: ToolRegistry,
@@ -66,6 +101,9 @@ class Agent:
         )
         self._steps = 0
         self._pending: list[dict] = []          # tool_calls čekající na potvrzení
+        self._tools_used_this_task = 0
+        self._tool_steps_since_update = 0
+        self._summary_requested = False
 
     # ------------------------------------------------------------------
     def emit(self, kind: str, payload) -> None:
@@ -108,8 +146,19 @@ class Agent:
         """Zaloguje uživatelský vstup a resetuje počítadla."""
         self._steps = 0
         self._pending = []
+        self._tools_used_this_task = 0
+        self._tool_steps_since_update = 0
+        self._summary_requested = False
         self.safety.new_task()
         self.session.add("user", text, images=images)
+        if self.tools_enabled:
+            # jsou-staré protokolové poznámky → jedna čerstvá
+            # (poznámky jdou jako user-role: Qwen šablona zakazuje system uprostřed konverzace)
+            self.session.messages = [
+                m for m in self.session.messages
+                if not any(str(m.get("content", "")).startswith(mark) for mark in _PROTOCOL_MARKS)
+            ]
+            self.session.add("user", TASK_PROTOCOL_NOTE)
 
     def _check_abort(self) -> StepResult | None:
         if self.abort_flag.is_set():
@@ -289,9 +338,23 @@ class Agent:
                                   pending_summary=self._summarize_calls(res.tool_calls),
                                   reasoning=res.reasoning)
             trace = self._execute_calls(res.tool_calls)
+            # 📢 progress nudge: dlouhá série kroků bez slov k uživateli
+            self._tools_used_this_task += len(trace)
+            self._tool_steps_since_update += 1
+            if self._tool_steps_since_update >= TOOL_STEPS_BEFORE_UPDATE:
+                self._tool_steps_since_update = 0
+                self.session.add("user", PROGRESS_NOTE)
             return StepResult(Status.CONTINUE, tool_trace=trace, reasoning=res.reasoning)
 
-        # 5) finální odpověď
+        # 5) finální odpověď (+ 📋 vynucení strukturovaného souhrnu)
+        if (self.tools_enabled
+                and self._tools_used_this_task >= MIN_TOOLS_FOR_SUMMARY
+                and not self._summary_requested
+                and not _looks_structured(res.content or "")):
+            self._summary_requested = True
+            self.session.add("assistant", res.content)
+            self.session.add("user", SUMMARY_NOTE)
+            return StepResult(Status.CONTINUE, text=res.content, reasoning=res.reasoning)
         self.session.add("assistant", res.content)
         return StepResult(Status.FINAL, text=res.content, reasoning=res.reasoning)
 

@@ -155,7 +155,8 @@ class TUIApp:
             self.abort.set()
             console.print("\n[bold yellow]⛔ Přerušeno (Ctrl+C)[/bold yellow]")
             # doruč zprávu o přerušení do session, aby model věděl kontext
-            self.session.add("system", "[Interrupted by user]")
+            # (user role - Qwen šablona neumí system uprostřed konverzace)
+            self.session.add("user", "[Interrupted by user]")
 
     # ------------------------------------------------------------------
     def cmd_model(self, key: str) -> None:
