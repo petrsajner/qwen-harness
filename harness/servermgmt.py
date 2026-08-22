@@ -148,6 +148,7 @@ def start(cfg: Config, model_key: str | None = None, ctx_size: int | None = None
         "-m", str(mfile),
         "-ngl", str(srv.get("n_gpu_layers", 999)),
         "-c", str(ctx),
+        "-np", "1",              # jeden slot = celý kontext jedinému proudu (single-user)
         "--host", srv["host"],
         "--port", str(srv["port"]),
         "--jinja",               # plná chat template + tool calling

@@ -537,6 +537,26 @@ def change_thinking(on: bool):
     return f"Thinking: **{'on' if on else 'off'}**"
 
 
+def _ctx_pct() -> int:
+    try:
+        est = state.session.estimate_context_tokens()
+        limit = int(cfg.model().get("ctx_size", 32768))
+        return min(200, est * 100 // max(limit, 1))
+    except Exception:
+        return 0
+
+
+def _check_ctx_warning() -> None:
+    """Toast varování při překročení prahů kontextu (jen při přechodu, ne opakovaně)."""
+    pct = _ctx_pct()
+    prev = getattr(state, "last_ctx_pct", 0)
+    state.last_ctx_pct = pct
+    if prev < 70 <= pct < 85:
+        gr.Warning(f"📊 Kontext na {pct} % — auto-komprese proběhne při 75 %")
+    elif prev < 85 <= pct:
+        gr.Warning(f"📊 Kontext na {pct} % — blízko limitu! Zvaž 📦 Předej (souhrn do nové session)")
+
+
 def refresh_status():
     if servermgmt.health(cfg):
         s = f"🟢 {servermgmt.running_model(cfg) or state.model_key} · {servermgmt.vram_str()}"
@@ -551,6 +571,7 @@ def refresh_status():
         s += f" · 📊 ctx ~{est / 1000:.1f}k/{limit // 1000}k{warn}"
     except Exception:
         pass
+    _check_ctx_warning()
     return s
 
 

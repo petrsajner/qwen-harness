@@ -14,6 +14,7 @@ Stavy kroku (StepResult.status):
 from __future__ import annotations
 
 import enum
+import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,6 +76,12 @@ SUMMARY_NOTE = (
 _PROTOCOL_MARKS = ("[TASK PROTOCOL", "[PROGRESS UPDATE", "[FINAL SUMMARY")
 TOOL_STEPS_BEFORE_UPDATE = 4   # tool-kroky bez slov k uživateli → vnutit status
 MIN_TOOLS_FOR_SUMMARY = 3      # úloha s ≥N nástroji musí skončit strukturovaným souhrnem
+COMPRESS_AT = 0.75             # auto-komprese při 75 % kontextu (bezpečná rezerva)
+OVERFLOW_RE = re.compile(
+    r"exceeds.{0,40}context|context.{0,40}(exceed|full|too (large|long))|"
+    r"prompt is too long|maximum context",
+    re.IGNORECASE,
+)
 
 
 def _looks_structured(text: str) -> bool:
@@ -149,6 +156,7 @@ class Agent:
         self._tools_used_this_task = 0
         self._tool_steps_since_update = 0
         self._summary_requested = False
+        self._overflow_retried = False
         self.safety.new_task()
         self.session.add("user", text, images=images)
         if self.tools_enabled:
@@ -235,15 +243,15 @@ class Agent:
         except (KeyError, ValueError):
             return 32768
 
-    def _maybe_compress(self) -> None:
-        """Auto-komprese kontextu při ~85 % limitu (souhrn starší konverzace).
+    def _maybe_compress(self, force: bool = False) -> None:
+        """Auto-komprese kontextu při COMPRESS_AT % limitu (nebo vynuceně po přetečení).
 
         Ne-destruktivní: historie zůstává pro UI, model vidí souhrn + poslední zprávy.
         Fallback při selhání sumarizace: posun cutu (hard trim) na 50 % limitu.
         """
         limit = self._ctx_limit()
         est = self.session.estimate_context_tokens()
-        if est < int(limit * 0.85):
+        if not force and est < int(limit * COMPRESS_AT):
             return
         self.emit("info", f"📦 Kontext ~{est} tok (>85 % z {limit}) - vytvářím souhrn starší konverzace ...")
         try:
@@ -308,6 +316,13 @@ class Agent:
         except KeyboardInterrupt:
             raise
         except Exception as e:
+            # 🔄 PŘETEČENÍ KONTEXTU: komprimuj hned a zkus znovu (1× za úlohu)
+            if not self._overflow_retried and OVERFLOW_RE.search(str(e)):
+                self._overflow_retried = True
+                self.emit("info", "⚡ Přetečení kontextu - komprimuji a zkouším znovu ...")
+                self._maybe_compress(force=True)
+                return StepResult(Status.CONTINUE,
+                                  text="Kontext přetekl - byl komprimován, zkouším pokračovat.")
             return StepResult(Status.ERROR, text=f"LLM chyba: {type(e).__name__}: {e}")
 
         self._steps += 1

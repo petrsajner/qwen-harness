@@ -381,6 +381,47 @@ def test_communication_protocol() -> None:
         agent.new_task("ahoj")
         notes = [m for m in session.messages if "[TASK PROTOCOL" in str(m.get("content"))]
         check(not notes, "chat režim bez protokolu")
+
+        # 5) přetečení kontextu → komprese + retry (1×), pak FINAL
+        class OverflowLLM(LLMStub):
+            def stream(self, messages, **kw):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("request exceeds the available context size")
+                from harness.llm import AssistantResult
+                return AssistantResult(content="✅ po kompresi OK")
+
+        from harness.agent import Status as St
+        for i in range(8):
+            (tmp / f"f{i}.txt").write_text("x" * 400, encoding="utf-8")
+        session = Session(cfg, session_id="ovf-test", system_prompt="SYS")
+        ovf_llm = OverflowLLM()
+        agent = Agent(cfg, ovf_llm, session, build_registry("agent"), SafetyPolicy("auto"), mode="agent")
+        agent.llm = ovf_llm
+        # naplnění session, aby komprese měla co zahodit
+        for i in range(8):
+            session.add("user", f"q{i} " + "y" * 900)
+            session.add("assistant", f"a{i} " + "z" * 900)
+        agent.new_task("dalsi dotaz")
+        agent._steps = 0
+        r = agent.step(approve=True)
+        check(r.status is St.CONTINUE, "overflow → CONTINUE (komprese + retry)")
+        r2 = agent.step(approve=True)
+        check(r2.status is St.FINAL and ovf_llm.calls == 2,
+              "retry po kompresi uspěl (2 volání)")
+        # druhé přetečení už retry nedostane → ERROR
+        class AlwaysOverflow(LLMStub):
+            def stream(self, messages, **kw):
+                self.calls += 1
+                raise RuntimeError("prompt is too long: 999999 > 98304")
+        ao = AlwaysOverflow()
+        agent.llm = ao
+        agent._overflow_retried = False
+        session.add("user", "znovu preteceni")
+        agent.safety.new_task()
+        r3 = agent.step(approve=True)
+        r4 = agent.step(approve=True)
+        check(r4.status is St.ERROR and ao.calls == 2, "druhé přetečení → ERROR (žádná smyčka)")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
