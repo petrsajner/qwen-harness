@@ -23,6 +23,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
+# pythonw nemá stdout/stderr → přesměruj do log souboru, ať není tichá smrt
+if sys.stdout is None or sys.stderr is None:
+    _logdir = ROOT / "runtime"
+    _logdir.mkdir(parents=True, exist_ok=True)
+    _logfile = open(_logdir / "app.log", "a", buffering=1, encoding="utf-8")
+    _logfile.write(f"\n===== APP START {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+    sys.stdout = _logfile
+    sys.stderr = _logfile
+
 
 def _alert(msg: str) -> None:
     """MessageBox bez externích závislostí (ctypes)."""
@@ -42,6 +51,32 @@ def preflight(cfg) -> list[str]:
     if not cfg.model_file().exists():
         problems.append(f"model {cfg.model_key()} (runtime/models)")
     return problems
+
+
+def _focus_window() -> None:
+    """Přines okno aplikace do popředí (WebView2 občas otevře okno v pozadí)."""
+    import ctypes
+    import time as _t
+    _t.sleep(0.8)
+    try:
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        found: list[int] = []
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+        def cb(h, l):
+            buf = ctypes.create_unicode_buffer(128)
+            user32.GetWindowTextW(h, buf, 128)
+            if "Qwen3.8-27B Harness" in buf.value:
+                found.append(h)
+            return True
+
+        user32.EnumWindows(cb, 0)
+        for h in found:
+            user32.ShowWindow(h, 9)          # SW_RESTORE
+            user32.SetForegroundWindow(h)
+    except Exception:
+        pass
 
 
 def main() -> int:
@@ -123,7 +158,7 @@ def main() -> int:
             background_color="#0b0e14",
         )
         print(f"[APP] Okno otevřeno: {url}")
-        webview.start()  # blokuje do zavření okna
+        webview.start(_focus_window)  # blokuje do zavření okna
     except ImportError:
         import webbrowser
         print(f"[APP] pywebview chybí - otevírám systémový prohlížeč: {url}")
@@ -138,4 +173,12 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        _alert("Aplikace selhala – detaily v runtime\\app.log")
+        raise SystemExit(1)

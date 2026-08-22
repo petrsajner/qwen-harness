@@ -1,0 +1,818 @@
+([('QwenHarness.exe',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\build\\QwenHarness\\QwenHarness.exe',
+   'EXECUTABLE'),
+  ('VCRUNTIME140.dll',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\VCRUNTIME140.dll',
+   'BINARY'),
+  ('VCRUNTIME140_1.dll',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\VCRUNTIME140_1.dll',
+   'BINARY'),
+  ('_asyncio.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\_asyncio.pyd',
+   'EXTENSION'),
+  ('_bz2.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\_bz2.pyd',
+   'EXTENSION'),
+  ('_cffi_backend.cp312-win_amd64.pyd',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\_cffi_backend.cp312-win_amd64.pyd',
+   'EXTENSION'),
+  ('_ctypes.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\_ctypes.pyd',
+   'EXTENSION'),
+  ('_decimal.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\_decimal.pyd',
+   'EXTENSION'),
+  ('_elementtree.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\_elementtree.pyd',
+   'EXTENSION'),
+  ('_hashlib.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\_hashlib.pyd',
+   'EXTENSION'),
+  ('_lzma.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\_lzma.pyd',
+   'EXTENSION'),
+  ('_multiprocessing.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\_multiprocessing.pyd',
+   'EXTENSION'),
+  ('_overlapped.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\_overlapped.pyd',
+   'EXTENSION'),
+  ('_queue.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\_queue.pyd',
+   'EXTENSION'),
+  ('_socket.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\_socket.pyd',
+   'EXTENSION'),
+  ('_ssl.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\_ssl.pyd',
+   'EXTENSION'),
+  ('_uuid.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\_uuid.pyd',
+   'EXTENSION'),
+  ('_wmi.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\_wmi.pyd',
+   'EXTENSION'),
+  ('base_library.zip',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\build\\QwenHarness\\base_library.zip',
+   'DATA'),
+  ('clr_loader\\ffi\\dlls\\amd64\\ClrLoader.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\clr_loader\\ffi\\dlls\\amd64\\ClrLoader.dll',
+   'BINARY'),
+  ('clr_loader\\ffi\\dlls\\x86\\ClrLoader.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\clr_loader\\ffi\\dlls\\x86\\ClrLoader.dll',
+   'BINARY'),
+  ('libcrypto-3.dll',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\libcrypto-3.dll',
+   'BINARY'),
+  ('libffi-8.dll',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\libffi-8.dll',
+   'BINARY'),
+  ('libssl-3.dll',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\libssl-3.dll',
+   'BINARY'),
+  ('markupsafe-3.0.3.dist-info\\INSTALLER',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\INSTALLER',
+   'DATA'),
+  ('markupsafe-3.0.3.dist-info\\METADATA',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\METADATA',
+   'DATA'),
+  ('markupsafe-3.0.3.dist-info\\RECORD',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\RECORD',
+   'DATA'),
+  ('markupsafe-3.0.3.dist-info\\WHEEL',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\WHEEL',
+   'DATA'),
+  ('markupsafe-3.0.3.dist-info\\licenses\\LICENSE.txt',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\licenses\\LICENSE.txt',
+   'DATA'),
+  ('markupsafe-3.0.3.dist-info\\top_level.txt',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\top_level.txt',
+   'DATA'),
+  ('markupsafe\\_speedups.cp312-win_amd64.pyd',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\markupsafe\\_speedups.cp312-win_amd64.pyd',
+   'EXTENSION'),
+  ('pyexpat.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\pyexpat.pyd',
+   'EXTENSION'),
+  ('python312.dll',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\python312.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\Microsoft.Win32.Primitives.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\Microsoft.Win32.Primitives.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\Python.Runtime.deps.json',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\Python.Runtime.deps.json',
+   'DATA'),
+  ('pythonnet\\runtime\\Python.Runtime.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\Python.Runtime.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\Python.Runtime.xml',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\Python.Runtime.xml',
+   'DATA'),
+  ('pythonnet\\runtime\\System.AppContext.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.AppContext.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Collections.Concurrent.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Collections.Concurrent.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Collections.NonGeneric.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Collections.NonGeneric.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Collections.Specialized.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Collections.Specialized.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Collections.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Collections.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.ComponentModel.EventBasedAsync.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ComponentModel.EventBasedAsync.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.ComponentModel.Primitives.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ComponentModel.Primitives.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.ComponentModel.TypeConverter.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ComponentModel.TypeConverter.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.ComponentModel.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ComponentModel.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Console.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Console.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Data.Common.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Data.Common.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.Contracts.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Contracts.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.Debug.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Debug.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.FileVersionInfo.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.FileVersionInfo.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.Process.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Process.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.StackTrace.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.StackTrace.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.TextWriterTraceListener.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.TextWriterTraceListener.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.Tools.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Tools.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.TraceSource.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.TraceSource.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.Tracing.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Tracing.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Drawing.Primitives.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Drawing.Primitives.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Dynamic.Runtime.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Dynamic.Runtime.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Globalization.Calendars.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Globalization.Calendars.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Globalization.Extensions.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Globalization.Extensions.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Globalization.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Globalization.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.Compression.ZipFile.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.Compression.ZipFile.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.Compression.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.Compression.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.FileSystem.DriveInfo.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.FileSystem.DriveInfo.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.FileSystem.Primitives.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.FileSystem.Primitives.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.FileSystem.Watcher.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.FileSystem.Watcher.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.FileSystem.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.FileSystem.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.IsolatedStorage.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.IsolatedStorage.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.MemoryMappedFiles.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.MemoryMappedFiles.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.Pipes.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.Pipes.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.UnmanagedMemoryStream.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.UnmanagedMemoryStream.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Linq.Expressions.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Linq.Expressions.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Linq.Parallel.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Linq.Parallel.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Linq.Queryable.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Linq.Queryable.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Linq.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Linq.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.Http.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Http.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.NameResolution.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.NameResolution.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.NetworkInformation.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.NetworkInformation.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.Ping.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Ping.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.Primitives.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Primitives.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.Requests.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Requests.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.Security.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Security.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.Sockets.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Sockets.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.WebHeaderCollection.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.WebHeaderCollection.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.WebSockets.Client.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.WebSockets.Client.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.WebSockets.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.WebSockets.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.ObjectModel.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ObjectModel.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Reflection.Extensions.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Reflection.Extensions.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Reflection.Primitives.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Reflection.Primitives.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Reflection.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Reflection.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Resources.Reader.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Resources.Reader.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Resources.ResourceManager.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Resources.ResourceManager.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Resources.Writer.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Resources.Writer.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.CompilerServices.VisualC.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.CompilerServices.VisualC.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.Extensions.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Extensions.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.Handles.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Handles.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.InteropServices.RuntimeInformation.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.InteropServices.RuntimeInformation.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.InteropServices.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.InteropServices.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.Numerics.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Numerics.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.Serialization.Formatters.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Serialization.Formatters.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.Serialization.Json.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Serialization.Json.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.Serialization.Primitives.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Serialization.Primitives.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.Serialization.Xml.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Serialization.Xml.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Security.Claims.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Claims.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Security.Cryptography.Algorithms.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Cryptography.Algorithms.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Security.Cryptography.Csp.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Cryptography.Csp.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Security.Cryptography.Encoding.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Cryptography.Encoding.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Security.Cryptography.Primitives.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Cryptography.Primitives.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Security.Cryptography.X509Certificates.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Cryptography.X509Certificates.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Security.Principal.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Principal.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Security.SecureString.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.SecureString.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Text.Encoding.Extensions.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Text.Encoding.Extensions.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Text.Encoding.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Text.Encoding.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Text.RegularExpressions.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Text.RegularExpressions.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Threading.Overlapped.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Overlapped.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Threading.Tasks.Parallel.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Tasks.Parallel.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Threading.Tasks.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Tasks.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Threading.Thread.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Thread.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Threading.ThreadPool.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.ThreadPool.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Threading.Timer.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Timer.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Threading.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.ValueTuple.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ValueTuple.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Xml.ReaderWriter.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.ReaderWriter.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Xml.XDocument.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.XDocument.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Xml.XPath.XDocument.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.XPath.XDocument.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Xml.XPath.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.XPath.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Xml.XmlDocument.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.XmlDocument.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Xml.XmlSerializer.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.XmlSerializer.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\netstandard.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\netstandard.dll',
+   'BINARY'),
+  ('pywebview-6.2.1.dist-info\\INSTALLER',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pywebview-6.2.1.dist-info\\INSTALLER',
+   'DATA'),
+  ('pywebview-6.2.1.dist-info\\METADATA',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pywebview-6.2.1.dist-info\\METADATA',
+   'DATA'),
+  ('pywebview-6.2.1.dist-info\\RECORD',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pywebview-6.2.1.dist-info\\RECORD',
+   'DATA'),
+  ('pywebview-6.2.1.dist-info\\REQUESTED',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pywebview-6.2.1.dist-info\\REQUESTED',
+   'DATA'),
+  ('pywebview-6.2.1.dist-info\\WHEEL',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pywebview-6.2.1.dist-info\\WHEEL',
+   'DATA'),
+  ('pywebview-6.2.1.dist-info\\entry_points.txt',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pywebview-6.2.1.dist-info\\entry_points.txt',
+   'DATA'),
+  ('pywebview-6.2.1.dist-info\\licenses\\LICENSE',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pywebview-6.2.1.dist-info\\licenses\\LICENSE',
+   'DATA'),
+  ('pywebview-6.2.1.dist-info\\top_level.txt',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pywebview-6.2.1.dist-info\\top_level.txt',
+   'DATA'),
+  ('select.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\select.pyd',
+   'EXTENSION'),
+  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\INSTALLER',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\INSTALLER',
+   'DATA'),
+  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\METADATA',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\METADATA',
+   'DATA'),
+  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\RECORD',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\RECORD',
+   'DATA'),
+  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\REQUESTED',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\REQUESTED',
+   'DATA'),
+  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\WHEEL',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\WHEEL',
+   'DATA'),
+  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\licenses\\LICENSE',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\licenses\\LICENSE',
+   'DATA'),
+  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\top_level.txt',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\top_level.txt',
+   'DATA'),
+  ('setuptools\\_vendor\\jaraco\\text\\Lorem ipsum.txt',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\jaraco\\text\\Lorem '
+   'ipsum.txt',
+   'DATA'),
+  ('unicodedata.pyd',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\DLLs\\unicodedata.pyd',
+   'EXTENSION'),
+  ('webview\\__init__.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\__init__.py',
+   'DATA'),
+  ('webview\\__pyinstaller\\__init__.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\__pyinstaller\\__init__.py',
+   'DATA'),
+  ('webview\\__pyinstaller\\hook-webview.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\__pyinstaller\\hook-webview.py',
+   'DATA'),
+  ('webview\\_version.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\_version.py',
+   'DATA'),
+  ('webview\\dom\\__init__.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\dom\\__init__.py',
+   'DATA'),
+  ('webview\\dom\\classlist.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\dom\\classlist.py',
+   'DATA'),
+  ('webview\\dom\\dom.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\dom\\dom.py',
+   'DATA'),
+  ('webview\\dom\\element.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\dom\\element.py',
+   'DATA'),
+  ('webview\\dom\\event.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\dom\\event.py',
+   'DATA'),
+  ('webview\\dom\\propsdict.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\dom\\propsdict.py',
+   'DATA'),
+  ('webview\\errors.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\errors.py',
+   'DATA'),
+  ('webview\\event.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\event.py',
+   'DATA'),
+  ('webview\\guilib.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\guilib.py',
+   'DATA'),
+  ('webview\\http.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\http.py',
+   'DATA'),
+  ('webview\\js\\api.js',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\js\\api.js',
+   'DATA'),
+  ('webview\\js\\customize.js',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\js\\customize.js',
+   'DATA'),
+  ('webview\\js\\finish.js',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\js\\finish.js',
+   'DATA'),
+  ('webview\\js\\lib\\dom_json.js',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\js\\lib\\dom_json.js',
+   'DATA'),
+  ('webview\\js\\lib\\polyfill.js',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\js\\lib\\polyfill.js',
+   'DATA'),
+  ('webview\\js\\state.js',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\js\\state.js',
+   'DATA'),
+  ('webview\\lib\\Microsoft.Web.WebView2.Core.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\lib\\Microsoft.Web.WebView2.Core.dll',
+   'BINARY'),
+  ('webview\\lib\\Microsoft.Web.WebView2.WinForms.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\lib\\Microsoft.Web.WebView2.WinForms.dll',
+   'BINARY'),
+  ('webview\\lib\\WebBrowserInterop.x64.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\lib\\WebBrowserInterop.x64.dll',
+   'BINARY'),
+  ('webview\\lib\\WebBrowserInterop.x86.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\lib\\WebBrowserInterop.x86.dll',
+   'BINARY'),
+  ('webview\\lib\\pywebview-android.jar',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\lib\\pywebview-android.jar',
+   'DATA'),
+  ('webview\\lib\\runtimes\\win-arm64\\native\\WebView2Loader.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\lib\\runtimes\\win-arm64\\native\\WebView2Loader.dll',
+   'BINARY'),
+  ('webview\\lib\\runtimes\\win-x64\\native\\WebView2Loader.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\lib\\runtimes\\win-x64\\native\\WebView2Loader.dll',
+   'BINARY'),
+  ('webview\\lib\\runtimes\\win-x86\\native\\WebView2Loader.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\lib\\runtimes\\win-x86\\native\\WebView2Loader.dll',
+   'BINARY'),
+  ('webview\\localization.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\localization.py',
+   'DATA'),
+  ('webview\\menu.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\menu.py',
+   'DATA'),
+  ('webview\\models.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\models.py',
+   'DATA'),
+  ('webview\\platforms\\__init__.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\__init__.py',
+   'DATA'),
+  ('webview\\platforms\\android\\__init__.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\__init__.py',
+   'DATA'),
+  ('webview\\platforms\\android\\app.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\app.py',
+   'DATA'),
+  ('webview\\platforms\\android\\base.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\base.py',
+   'DATA'),
+  ('webview\\platforms\\android\\event.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\event.py',
+   'DATA'),
+  ('webview\\platforms\\android\\jclass\\__init__.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\jclass\\__init__.py',
+   'DATA'),
+  ('webview\\platforms\\android\\jclass\\app.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\jclass\\app.py',
+   'DATA'),
+  ('webview\\platforms\\android\\jclass\\content.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\jclass\\content.py',
+   'DATA'),
+  ('webview\\platforms\\android\\jclass\\net.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\jclass\\net.py',
+   'DATA'),
+  ('webview\\platforms\\android\\jclass\\os.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\jclass\\os.py',
+   'DATA'),
+  ('webview\\platforms\\android\\jclass\\view.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\jclass\\view.py',
+   'DATA'),
+  ('webview\\platforms\\android\\jclass\\webkit.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\jclass\\webkit.py',
+   'DATA'),
+  ('webview\\platforms\\android\\jinterface\\__init__.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\jinterface\\__init__.py',
+   'DATA'),
+  ('webview\\platforms\\android\\jinterface\\pywebview.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\jinterface\\pywebview.py',
+   'DATA'),
+  ('webview\\platforms\\android\\jinterface\\view.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\jinterface\\view.py',
+   'DATA'),
+  ('webview\\platforms\\android\\jinterface\\webkit.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\android\\jinterface\\webkit.py',
+   'DATA'),
+  ('webview\\platforms\\cef.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\cef.py',
+   'DATA'),
+  ('webview\\platforms\\cocoa.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\cocoa.py',
+   'DATA'),
+  ('webview\\platforms\\edgechromium.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\edgechromium.py',
+   'DATA'),
+  ('webview\\platforms\\gtk.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\gtk.py',
+   'DATA'),
+  ('webview\\platforms\\mshtml.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\mshtml.py',
+   'DATA'),
+  ('webview\\platforms\\qt.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\qt.py',
+   'DATA'),
+  ('webview\\platforms\\win32.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\win32.py',
+   'DATA'),
+  ('webview\\platforms\\winforms.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\platforms\\winforms.py',
+   'DATA'),
+  ('webview\\py.typed',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\py.typed',
+   'DATA'),
+  ('webview\\screen.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\screen.py',
+   'DATA'),
+  ('webview\\state.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\state.py',
+   'DATA'),
+  ('webview\\util.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\util.py',
+   'DATA'),
+  ('webview\\window.py',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\webview\\window.py',
+   'DATA')],)

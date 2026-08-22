@@ -4,9 +4,9 @@
 ; ============================================================
 
 #define MyAppName "Qwen3.8-27B Harness"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Petr - lokalni AI harness"
-#define MyAppExeName "run_app.bat"
+#define MyAppExeName "QwenHarness.exe"
 #define MyAppIcon "..\app_icon.ico"
 
 [Setup]
@@ -36,6 +36,10 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
+; hlavní aplikace (PyInstaller: exe + _internal)
+Source: "..\dist\QwenHarness\QwenHarness.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\QwenHarness\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
+; podpůrné zdroje (harness jádro, skripty, config)
 Source: "..\qwen_app.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\webapp.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\tui.py"; DestDir: "{app}"; Flags: ignoreversion
@@ -44,20 +48,23 @@ Source: "..\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\config.yaml"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\app_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\.gitignore"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\harness\*.py"; DestDir: "{app}\harness"; Flags: ignoreversion recursesubdirs
 Source: "..\harness\tools\*.py"; DestDir: "{app}\harness\tools"; Flags: ignoreversion
 Source: "..\scripts\*.py"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "..\tests\*.py"; DestDir: "{app}\tests"; Flags: ignoreversion
+; setup skript (venv + modely) - spouští se po instalaci
+Source: "run_setup.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\app_icon.ico"; WorkingDir: "{app}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{group}\Instalace prostředí a modelů (37 GB)"; Filename: "{app}\run_setup.bat"; WorkingDir: "{app}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\app_icon.ico"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-; volitelne spustit hned po instalaci (probehne prvotni setup + otevre appku)
-Filename: "{app}\{#MyAppExeName}"; Description: "Spustit {#MyAppName} (prvni spusteni stahne modely ~37 GB)"; Flags: postinstall skipifsilent shellexec; WorkingDir: "{app}"
+; HLAVNI KROK: vytvori venv, stahne zavislosti, llama.cpp i modely (~37 GB)
+; s prubehem v konzoli - hned po dokonceni instalatoru (default zaskrtnuto)
+Filename: "{app}\run_setup.bat"; Description: "Nainstalovat prostředí a stáhnout modely (~37 GB, nutné pro provoz)"; Flags: postinstall shellexec runasoriginaluser; WorkingDir: "{app}"
 
 [Messages]
 cze.WelcomeLabel2=Tento pruvodce nainstaluje [name/ver] - lokalni AI harness pro Qwen3.8-27B (RTX 5090).%n%nPo instalaci se pri prvem spusteni automaticky stahne prostredi a modely (~37 GB).%n%nPOKRAČOVAT?
