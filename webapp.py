@@ -303,6 +303,73 @@ def refresh_status():
 # ------------------------------------------------------------- workspace
 WS_JUNK = {".git", "node_modules", ".venv", "venv", "__pycache__", ".idea", ".vscode", "dist", "build"}
 
+# PowerShell FolderBrowserDialog (fallback, když by chyběl tkinter).
+# -STA je nutné pro Windows Forms dialogy; topmost owner drží dialog nad prohlížečem.
+_PS_FOLDER_DIALOG = r"""
+Add-Type -AssemblyName System.Windows.Forms
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true; $owner.ShowInTaskbar = $false
+$d = New-Object System.Windows.Forms.FolderBrowserDialog
+$d.Description = 'Vyber slozku projektu (workspace)'
+if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
+    Write-Output $d.SelectedPath
+}
+"""
+
+
+def pick_directory_dialog() -> str | None:
+    """Nativní Windows dialog pro výběr složky (na stroji, kde běží webapp = localhost).
+
+    1) tkinter askdirectory (nativní, rychlé)
+    2) fallback: PowerShell FolderBrowserDialog
+    Vrací vybranou cestu nebo None (zrušeno / nedostupné).
+    """
+    # 1) tkinter
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)  # dialog nad oknem prohlížeče
+        try:
+            path = filedialog.askdirectory(title="Vyber složku projektu (workspace)")
+        finally:
+            root.destroy()
+        if path:
+            return path
+    except Exception:
+        pass
+    # 2) PowerShell fallback
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-STA", "-Command", _PS_FOLDER_DIALOG],
+            capture_output=True, text=True, timeout=600,
+        )
+        p = (out.stdout or "").strip().strip('"')
+        if p and Path(p).is_dir():
+            return p
+    except Exception:
+        pass
+    return None
+
+
+def browse_workspace():
+    """Otevře nativní dialog pro výběr složky a nastaví ji jako workspace."""
+    path = pick_directory_dialog()
+    if not path:
+        return gr.update(), "ℹ️ Výběr složky zrušen.", gr.update(), gr.update()
+    try:
+        p = state.set_workspace(path)
+        return (str(p),
+                f"✅ Workspace nastaven: `{p}` — Qwen teď vidí soubory přímo z disku.",
+                workspace_header(),
+                gr.update(choices=state.recent_ws, value=str(p)))
+    except ValueError as e:
+        return gr.update(), f"❌ {e}", gr.update(), gr.update()
+    except Exception as e:
+        return gr.update(), f"❌ Neočekávaná chyba: {type(e).__name__}: {e}", gr.update(), gr.update()
+
 
 def workspace_header() -> str:
     """Vždy viditelná hlavička: aktuální workspace + náhled obsahu."""
@@ -382,15 +449,16 @@ def build_ui() -> gr.Blocks:
         ws_header = gr.Markdown(workspace_header())
         with gr.Accordion("📁 Složka projektu (workspace)", open=False):
             with gr.Row():
+                btn_ws_browse = gr.Button("📂 Vybrat složku…\n(nativní dialog Windows)", variant="secondary", scale=1)
                 ws_path = gr.Textbox(label="Cesta k adresáři (nebo souboru v něm)",
                                      placeholder=r"C:\Users\Petr\projekty\muj-projekt",
-                                     scale=3, interactive=True)
+                                     scale=2, interactive=True)
                 btn_ws = gr.Button("📥 Nastavit", variant="primary", scale=1)
             ws_recent = gr.Dropdown(choices=state.recent_ws, value=state.workspace,
                                     label="Naposledy použité", interactive=True)
             ws_feedback = gr.Markdown("")
             ws_explorer = gr.FileExplorer(
-                label="…nebo vyber soubor ve složce projektu (bude použit nadřazený adresář)",
+                label="…nebo vyber soubor ve složce projektu přímo v prohlížeči (bude použit nadřazený adresář)",
                 root_dir=str(Path.home()),
                 ignore_glob=["AppData/**", "**/.git/**", "**/node_modules/**", "**/__pycache__/**",
                              "**/.venv/**", "**/venv/**", "**/*.gguf"],
@@ -427,6 +495,9 @@ def build_ui() -> gr.Blocks:
             settings_info = gr.Markdown("")
 
         # události - workspace
+        # nativní dialog: queue=False, aby nezablokoval chat během otevřeného okna
+        btn_ws_browse.click(browse_workspace, None,
+                            [ws_path, ws_feedback, ws_header, ws_recent], queue=False)
         btn_ws.click(set_workspace_handler, ws_path, [ws_feedback, ws_header, ws_recent], queue=False)
         ws_recent.change(set_workspace_handler, ws_recent, [ws_feedback, ws_header, ws_recent], queue=False)
         ws_explorer.change(explorer_to_workspace, ws_explorer,
