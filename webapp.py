@@ -801,8 +801,8 @@ def chat_choices() -> list[tuple[str, str]]:
             label = f"💬 {s['title'][:38]}  ·  {_rel_time(s['updated'])}"
             out.append((label, s["id"]))
         act = _active_entry()
-        if act and act[1] not in {sid for _, sid in out} and state.session.meta.get("workspace"):
-            out.insert(0, act)  # aktivní (transient) chat hned nahoře
+        if act and act[1] not in {sid for _, sid in out}                 and state.session.meta.get("workspace") == state.workspace:
+            out.insert(0, act)  # aktivní chat hned nahoře (jen patří-li do tohoto projektu)
         return out
     except Exception:
         return []
@@ -863,6 +863,41 @@ def delete_current_chat():
     gr.Info("🗑 Chat smazán" if ok else "Chat už neexistuje")
     r1, r2, _ = update_chats_radio()
     return chat_view(), r1, r2, refresh_status(), _del_state(False)
+
+
+def _current_chat_project() -> str:
+    """Projekt aktivního chatu (pro dropdown přesunu)."""
+    ws = state.session.meta.get("workspace") if getattr(state, "session", None) else None
+    if not ws:
+        return NOPROJ_NAME
+    p = _projects().by_path(ws)
+    return p["name"] if p else Path(ws).name
+
+
+def move_chat_to(project_name: str):
+    """Přesuň AKTIVNÍ chat do vybraného projektu (nebo mimo projekty)."""
+    try:
+        s = state.session
+        if s.transient:
+            gr.Warning("Chat není uložený - pošli nejdřív zprávu.")
+            return gr.update(), gr.update(), gr.update()
+        if not project_name or project_name == NOPROJ_NAME:
+            s.meta["workspace"] = None
+            target = "bez projektu"
+        else:
+            proj = next((p for p in _projects().list_all() if p["name"] == project_name), None)
+            if not proj:
+                gr.Warning(f"Projekt '{project_name}' nenalezen.")
+                return gr.update(), gr.update(), gr.update()
+            s.meta["workspace"] = proj["path"]
+            target = proj["name"]
+        s._save_meta()
+        gr.Info(f"📁 Chat přesunut → {target}")
+        r1, r2, ds = update_chats_radio()
+        return r1, r2, ds
+    except Exception as e:
+        gr.Warning(f"❌ {e}")
+        return gr.update(), gr.update(), gr.update()
 
 
 def open_in_editor(path: Path | str):
@@ -1306,6 +1341,11 @@ def build_ui() -> gr.Blocks:
                     rename_tb = gr.Textbox(placeholder="přejmenovat aktuální…", show_label=False,
                                            container=False, scale=3)
                     btn_rename = gr.Button("Uložit", size="sm", scale=1, elem_classes=["sqsm"])
+                with gr.Row(elem_classes=["gap"]):
+                    move_dd = gr.Dropdown(choices=project_choices(), value=_current_chat_project(),
+                                          show_label=False, container=False, scale=3,
+                                          elem_id="move-dd", info=None)
+                    btn_move = gr.Button("přesunout", size="sm", scale=1, elem_classes=["sqsm"])
 
             # ================= HLAVNÍ CHAT =================
             with gr.Column(scale=5, elem_id="main"):
@@ -1352,6 +1392,8 @@ def build_ui() -> gr.Blocks:
                            [chat, chats_radio, noproj_radio, status_box, del_state], queue=False)
         btn_rename.click(rename_session, rename_tb,
                          [rename_tb, chats_radio, noproj_radio, del_state], queue=False)
+        btn_move.click(move_chat_to, move_dd,
+                       [chats_radio, noproj_radio, del_state], queue=False)
 
         # paměť (otevřít v editoru)
         btn_mem_g.click(lambda: open_in_editor(_memory_paths().global_path),

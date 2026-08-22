@@ -61,10 +61,16 @@ computer:
   failsafe: true              # pyautogui FAILSAFE - myš do levého horního rohu = okamžité přerušení
   pause_between_actions: 0.15 # sekund mezi GUI akcemi
 
-# Webové UI
+# Webové UI + přístup modelu k internetu (read-only GET)
 web:
   host: 127.0.0.1
   port: 7860
+  # internetové nástroje modelu (web_search / web_fetch)
+  enabled: true
+  backend: google     # google / auto / bing (backend knihovny ddgs)
+  timeout: 10         # s na jeden požadavek
+  max_chars: 12000    # max délka textu z web_fetch
+  search_results: 5   # výchozí počet výsledků hledání
 
 # Cesty (relativně ke kořenu projektu, pokud nejsou absolutní)
 paths:

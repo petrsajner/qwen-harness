@@ -413,9 +413,10 @@ class Agent:
 
 def build_registry(mode: str) -> ToolRegistry:
     """Postav registry nástrojů podle režimu (memory nástroje ve všech režimech)."""
-    from harness.tools import computer, fs, memory, shell, vision
+    from harness.tools import computer, fs, memory, shell, vision, web
     reg = ToolRegistry()
     memory.register_memory_tools(reg)  # chat má alespoň paměť
+    web.register_web_tools(reg)        # internet: web_search + web_fetch (všude)
     if mode == "chat":
         return reg
     fs.register_fs_tools(reg)

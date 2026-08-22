@@ -158,8 +158,8 @@ def test_registry_modes() -> None:
     chat = build_registry("chat")
     agent = build_registry("agent")
     computer = build_registry("computer")
-    check(set(chat.names()) == {"read_memory", "save_memory"},
-          f"chat režim: jen memory nástroje ({chat.names()})")
+    check(set(chat.names()) == {"read_memory", "save_memory", "web_search", "web_fetch"},
+          f"chat režim: jen memory + web nástroje ({chat.names()})")
     check({"list_dir", "run_command", "view_image"} <= set(agent.names()),
           f"agent režim: fs+shell+vision ({len(agent.names())})")
     check({"screenshot", "click", "type_text", "press_key"} <= set(computer.names()),
@@ -395,6 +395,30 @@ def test_transient_session() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_web_tools() -> None:
+    print("[web nástroje - offline parsery + registrace]")
+    from harness.tools import web as webt
+
+    txt = webt._strip_tags("<html><body><script>bad()</script><h1>Ahoj</h1>"
+                           "<p>sv&#233;te &amp; nazdar</p></body></html>")
+    check("Ahoj" in txt and "svéte & nazdar" in txt and "bad()" not in txt,
+          "_strip_tags: tagy pryč, entity dekódovány")
+    u = webt._ddg_unwrap("//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fdoc")
+    check(u == "https://example.com/doc", "_ddg_unwrap rozbalí uddg redirect")
+    enc = ("https://www.bing.com/ck/a?!&amp;&amp;p=xx&u=a1aHR0cHM6Ly9naXRodWIuY29tL3Rlc3Q"
+           "&ntb=1")
+    check(webt._bing_unwrap(enc) == "https://github.com/test", "_bing_unwrap dekóduje base64 url")
+    for mode in ("chat", "agent", "computer"):
+        reg = build_registry(mode)
+        check("web_search" in reg.names() and "web_fetch" in reg.names(),
+              f"web nástroje v režimu {mode}")
+    reg = build_registry("chat")
+    cfgd = load_config()
+    ctx = type("C", (), {"cfg": cfgd})()
+    out = reg.execute("web_fetch", {"url": "ftp://neplatne.cz"}, ctx)
+    check(out.startswith("ERROR"), "web_fetch odmítne non-http url")
+
+
 def test_projects() -> None:
     print("[projekty]")
     from harness.projects import Projects
@@ -570,6 +594,7 @@ if __name__ == "__main__":
     test_workspace()
     test_session_meta()
     test_transient_session()
+    test_web_tools()
     test_projects()
     test_context_compression()
     test_communication_protocol()
