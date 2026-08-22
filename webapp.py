@@ -182,15 +182,21 @@ class StreamHub:
             return self.text, self.reasoning, self.rev
 
 
-def _live_message(hub: StreamHub) -> dict:
-    """Zpráva pro live render: hotový text, nebo 'uvažuji…' s ocasem reasoningu."""
+def _live_message(hub: StreamHub, elapsed_s: int = 0) -> dict:
+    """Živá zpráva: streamovaný text, nebo 'uvažuji' s poctivým indikátorem aktivity.
+
+    elapsed_s = sekundy od posledního toku - roste, i když model mlčí (poctivé:
+    uživatel vidí, že se nic neděje; blikající kurzor se obnovuje jen s daty).
+    """
     text, reasoning, _ = hub.snapshot()
+    cursor = ' <span class="blink-cursor">▍</span>'
     if text:
-        return {"role": "assistant", "content": text}
-    tail = reasoning[-220:].replace("\n", " ") if reasoning else ""
+        suffix = f"\n\n<i>⏳ {elapsed_s}s bez nových tokenů</i>" if elapsed_s >= 5 else ""
+        return {"role": "assistant", "content": text + cursor + suffix}
+    tail = reasoning[-200:].replace("\n", " ") if reasoning else ""
+    head = f"💭 <i>uvažování… ({elapsed_s}s)</i>"
     return {"role": "assistant",
-            "content": f"💭 <i>uvažování…</i> <small>{tail}</small>" if tail
-                       else "💭 <i>připravuji odpověď…</i>"}
+            "content": (head + f" <small>{tail}</small>" if tail else head) + cursor}
 
 
 def _step_threaded(agent, approve: bool | None) -> tuple:
@@ -308,11 +314,21 @@ def _run_steps(history: list[dict], approve: bool | None = None):
             first = False
             live_idx: int | None = None
             last_rev = -1
+            last_change = _time.time()
+            shown_sec = -1
+            prev_yield_rev = -1
             while t.is_alive():
-                text, reasoning, rev = state.hub.snapshot()
-                if rev != last_rev and (text or reasoning):
+                _, _, rev = state.hub.snapshot()
+                now = _time.time()
+                if rev != last_rev:
                     last_rev = rev
-                    live = _live_message(state.hub)
+                    last_change = now
+                elapsed = int(now - last_change)
+                # yield při nových datech, nebo každou sekundu (poctivý indikátor)
+                if rev != prev_yield_rev or elapsed != shown_sec:
+                    prev_yield_rev = rev
+                    shown_sec = elapsed
+                    live = _live_message(state.hub, elapsed)
                     if live_idx is None:
                         history.append(live)
                         live_idx = len(history) - 1
@@ -600,6 +616,11 @@ def server_cmd(cmd: str):
     return refresh_status()
 
 
+def _clear_inputs():
+    """Vyčisti vstupní pole a upload po odeslání."""
+    return gr.update(value=""), gr.update(value=None)
+
+
 # ------------------------------------------------------------- UI
 CUSTOM_CSS = """
 .gradio-container { max-width: 1500px !important; padding: 8px 12px !important; }
@@ -614,6 +635,9 @@ CUSTOM_CSS = """
 .hdr p { margin: 0 !important; font-size: 0.9em !important; }
 /* menší mezery mezi prvky */
 .gap { gap: 4px !important; }
+/* blikající kurzor v live zprávě */
+@keyframes qwen-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+.blink-cursor { animation: qwen-blink 1s step-end infinite; }
 """
 
 
@@ -643,7 +667,7 @@ def build_ui() -> gr.Blocks:
 
         # --- chat (hlavní plocha; na startu obnovená poslední session) ---
         chat = gr.Chatbot(value=chat_view(), label=None, show_label=False, height=600,
-                          render_markdown=True, elem_id="main-chat")
+                          render_markdown=True, elem_id="main-chat", autoscroll=False)
 
         # --- vstup: tenký textbox + tlačítka (jedna řádka) ---
         with gr.Row(elem_classes=["gap"]):
@@ -689,10 +713,10 @@ def build_ui() -> gr.Blocks:
         # události - chat
         btn_send.click(send_message, [msg_in, files_in, chat],
                        [chat, confirm_row, status_box], queue=True)\
-            .then(lambda: ("", None), None, [msg_in, files_in])
+            .then(_clear_inputs, None, [msg_in, files_in])
         msg_in.submit(send_message, [msg_in, files_in, chat],
                       [chat, confirm_row, status_box], queue=True)\
-            .then(lambda: ("", None), None, [msg_in, files_in])
+            .then(_clear_inputs, None, [msg_in, files_in])
         btn_yes.click(confirm_yes, chat, [chat, confirm_row, status_box], queue=True)
         btn_no.click(confirm_no, chat, [chat, confirm_row, status_box], queue=True)
         btn_stop_run.click(stop_run, chat, [chat, confirm_row, status_box], queue=True)
@@ -723,6 +747,30 @@ def build_ui() -> gr.Blocks:
               if (btn) { e.preventDefault(); btn.click(); }
             }
           });
+          // chytrý autoscroll: drž konec chatu, jen pokud uživatel sám "sedí dole";
+          // při scrollu nahoru přestáváme skákat na poslední řádek
+          const setup = () => {
+            const root = document.getElementById('main-chat');
+            if (!root) return;
+            // najdi scrollovatelný kontejner uvnitř chatu
+            let el = null;
+            for (const c of root.querySelectorAll('div')) {
+              if (c.scrollHeight > c.clientHeight + 4) { el = c; break; }
+            }
+            el = el || root;
+            let stick = true;
+            el.addEventListener('scroll', () => {
+              stick = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+            }, {passive: true});
+            const mo = new MutationObserver(() => {
+              if (stick) el.scrollTop = el.scrollHeight;
+            });
+            mo.observe(el, {childList: true, subtree: true, characterData: true});
+          };
+          setup();
+          // gradio překresluje DOM - zkus znovu po chvíli (idempotentní: staré listenery
+          // na stejném elementu jsou neškodné, stick se jen přepočítá)
+          setTimeout(setup, 2500);
         }
         """)
 
