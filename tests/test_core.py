@@ -444,6 +444,38 @@ def test_streaming_bridge() -> None:
           "worker bridge vrátí výsledek agent.step")
 
 
+def test_async_model_switch() -> None:
+    print("[async model switch]")
+    import threading
+    from harness.model_switch import ModelSwitchController
+
+    entered = threading.Event()
+    release = threading.Event()
+    callbacks: list[str] = []
+
+    def ensure(_cfg, key):
+        entered.set()
+        release.wait(timeout=2)
+        return key == "q5"
+
+    controller = ModelSwitchController(load_config(), ensure_fn=ensure)
+    check(controller.request("q5", on_success=callbacks.append),
+          "první switch se spustí na pozadí")
+    check(entered.wait(timeout=1) and controller.snapshot().busy,
+          "controller ihned hlásí starting")
+    check(not controller.request("q4"), "souběžný switch je odmítnut")
+    release.set()
+    check(controller.wait(timeout=2), "background switch doběhne")
+    snap = controller.snapshot()
+    check(snap.status == "ready" and snap.target == "q5" and callbacks == ["q5"],
+          "úspěšný switch publikuje ready a callback")
+
+    failed = ModelSwitchController(load_config(), ensure_fn=lambda _cfg, _key: False)
+    check(failed.request("q4") and failed.wait(timeout=2)
+          and failed.snapshot().status == "failed",
+          "selhání serveru se propíše do stavu controlleru")
+
+
 def test_session_meta() -> None:
     print("[session meta + historie]")
     tmp = Path(tempfile.mkdtemp())
@@ -701,6 +733,7 @@ if __name__ == "__main__":
     test_reasoning_effort_kwargs()
     test_runtime_lifecycle_helpers()
     test_streaming_bridge()
+    test_async_model_switch()
     test_shell_readonly()
     test_workspace()
     test_session_meta()

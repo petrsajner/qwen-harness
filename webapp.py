@@ -27,6 +27,7 @@ import gradio as gr
 from harness.agent import Agent, Status, build_registry
 from harness.config import load_config
 from harness.llm import LLMClient
+from harness.model_switch import ModelSwitchController
 from harness.prompts import system_prompt
 from harness.safety import SafetyPolicy
 from harness.session import Session, IMG_MIMES
@@ -61,6 +62,7 @@ def _save_ui_state(data: dict) -> None:
 class AppState:
     def __init__(self) -> None:
         self.hub = StreamHub()
+        self.model_switch = ModelSwitchController(cfg)
         # po smazani chatu: nahradni (transient) chat NABIDNOUT v seznamech az
         # s prvni zpravou - nesmi tam hned svitit jako "(bez titulku)"
         self.suppress_active_entry = False
@@ -583,13 +585,16 @@ def load_session_handler(selection: str):
         yield chat_view(), gr.update(visible=False), refresh_status(), gr.update()
 
 
+def _model_switch_succeeded(key: str) -> None:
+    state.model_key = key
+    cfg.data["default_model"] = key  # agent/ctx-limit sledují aktuální model
+    state.save_ui_state()
+
+
 def change_model(key: str):
-    if servermgmt.ensure(cfg, key):
-        state.model_key = key
-        cfg.data["default_model"] = key  # agent/ctx-limit sledují aktuální model
-        state.save_ui_state()
-        return refresh_status()
-    return "❌ Přepnutí modelu selhalo (viz runtime/llama-server.log)"
+    if not state.model_switch.request(key, on_success=_model_switch_succeeded):
+        gr.Info("Model se už načítá; počkej na dokončení aktuální operace.")
+    return refresh_runtime_controls()
 
 
 def change_mode(mode: str):
@@ -967,12 +972,20 @@ def save_memory_handler(global_text: str, project_text: str):
 
 def refresh_status():
     """Status ve 3 řádcích: model / VRAM / tokeny."""
+    switch = state.model_switch.snapshot()
     st = servermgmt.server_state(cfg)
-    key = servermgmt.running_model(cfg) or state.model_key
+    key = switch.target if switch.busy or switch.status == "failed" \
+        else (servermgmt.running_model(cfg) or state.model_key)
     mfile = cfg.data["models"].get(key, {}).get("file", "")
     verze = mfile.replace("Qwen3.8-27B-", "").replace(".gguf", "") or key
     model_name = f"Qwen3.8-27B · {verze}"
-    if st == "running":
+    if switch.busy:
+        line1 = f"⏳ načítám {model_name} do VRAM…"
+        line2 = "🖥️ GPU VRAM: —"
+    elif switch.status == "failed":
+        line1 = f"❌ {model_name} — přepnutí selhalo"
+        line2 = f"<small>{switch.error}</small>"
+    elif st == "running":
         line1 = f"🟢 {model_name}"
         line2 = f"🖥️ GPU VRAM: {servermgmt.vram_str()}"
     elif st == "starting":
@@ -994,19 +1007,21 @@ def refresh_status():
     return f"{line1}<br>{line2}<br>{line3}"
 
 
+def refresh_runtime_controls():
+    switch = state.model_switch.snapshot()
+    update_args = {"interactive": not switch.busy}
+    if switch.status == "failed":
+        update_args["value"] = state.model_key
+    return refresh_status(), gr.update(**update_args)
+
+
 def _autostart_server_thread() -> None:
     """Launcher nastaví QWEN_AUTOSTART_SERVER=1 → model se nahodí na pozadí,
     UI zobrazuje ⏳ stav (UI first, model second)."""
-    def _run():
-        try:
-            if servermgmt.server_state(cfg) != "down":
-                return  # už běží nebo startuje (někdo jiný)
-            print("[AUTOSTART] na pozadí startuji llama-server ...", flush=True)
-            servermgmt.start(cfg)
-            print("[AUTOSTART] model připraven.", flush=True)
-        except Exception as e:
-            print(f"[AUTOSTART] selhalo: {e}", flush=True)
-    threading.Thread(target=_run, daemon=True, name="autostart-server").start()
+    if servermgmt.server_state(cfg) != "down":
+        return
+    print("[AUTOSTART] na pozadí startuji llama-server ...", flush=True)
+    state.model_switch.request(state.model_key, on_success=_model_switch_succeeded)
 
 
 # ------------------------------------------------------------- workspace
@@ -1098,10 +1113,12 @@ def server_cmd(cmd: str):
         return change_model(state.model_key)
     if cmd == "stop":
         servermgmt.stop(cfg, quiet=True)
+        state.model_switch.reset()
     if cmd == "restart":
-        servermgmt.stop(cfg, quiet=True)
-        return change_model(state.model_key)
-    return refresh_status()
+        if not state.model_switch.request(
+                state.model_key, restart=True, on_success=_model_switch_succeeded):
+            gr.Info("Model se už načítá; restart nyní nelze spustit.")
+    return refresh_runtime_controls()
 
 
 def _clear_inputs():
@@ -1238,7 +1255,10 @@ def build_ui() -> gr.Blocks:
                 btn_handoff = gr.Button("předej novému chatu", size="sm", elem_classes=["sqsm"])
 
                 with gr.Accordion("⚙️ Nastavení", open=False):
-                    model_dd = gr.Dropdown(model_choices, value=state.model_key, label="Model")
+                    model_dd = gr.Dropdown(
+                        model_choices, value=state.model_key, label="Model",
+                        interactive=not state.model_switch.snapshot().busy,
+                    )
                     mode_dd = gr.Dropdown(["chat", "agent", "computer"], value=state.mode, label="Režim")
                     autonomy_dd = gr.Dropdown(["supervised", "semi", "auto"], value=state.autonomy,
                                               label="Autonomie")
@@ -1363,13 +1383,13 @@ def build_ui() -> gr.Blocks:
                           [chat, confirm_row, status_box], queue=True)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         btn_compress.click(compress_now, chat, [chat, confirm_row, status_box], queue=True)
-        model_dd.change(change_model, model_dd, status_box)
+        model_dd.input(change_model, model_dd, [status_box, model_dd])
         mode_dd.change(change_mode, mode_dd, settings_info)
         autonomy_dd.change(change_autonomy, autonomy_dd, settings_info)
         thinking_dd.change(change_thinking, thinking_dd, settings_info)
-        btn_start.click(lambda: server_cmd("start"), None, status_box)
-        btn_stop.click(lambda: server_cmd("stop"), None, status_box)
-        btn_refresh.click(lambda: server_cmd("restart"), None, status_box)
+        btn_start.click(lambda: server_cmd("start"), None, [status_box, model_dd])
+        btn_stop.click(lambda: server_cmd("stop"), None, [status_box, model_dd])
+        btn_refresh.click(lambda: server_cmd("restart"), None, [status_box, model_dd])
 
         gr.Markdown("<small>🛡️ FAILSAFE: myš do levého horního rohu přeruší GUI akce · "
                     "čtecí příkazy bez potvrzení · vše lokálně</small>", elem_classes=["hdr"],
@@ -1420,7 +1440,7 @@ def build_ui() -> gr.Blocks:
 
         # živý status (⏳ načítám model → 🟢) každých 5 s
         if hasattr(gr, "Timer"):
-            gr.Timer(5.0).tick(refresh_status, outputs=status_box)
+            gr.Timer(5.0).tick(refresh_runtime_controls, outputs=[status_box, model_dd])
     return ui
 
 
@@ -1446,6 +1466,9 @@ if __name__ == "__main__":
 
     host = cfg.web["host"]
     port = int(os.environ.get("QWEN_WEB_PORT") or cfg.web["port"])
+
+    if os.environ.get("QWEN_AUTOSTART_SERVER"):
+        _autostart_server_thread()
 
     if _port_busy(host, port):
         if _is_our_webui(host, port):
