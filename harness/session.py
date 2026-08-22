@@ -21,7 +21,7 @@ IMG_MIMES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", "
 
 class Session:
     def __init__(self, cfg: Config, session_id: str | None = None, system_prompt: str | None = None,
-                 workspace: str | None = None):
+                 workspace: str | None = None, transient: bool = False):
         self.cfg = cfg
         self.id = session_id or time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
         self.dir = cfg.path("paths.sessions_dir") / self.id
@@ -33,6 +33,9 @@ class Session:
         self.compression_rev = 0  # inkrement při každé změně (pro UI marker)
         self.meta: dict[str, Any] = {"workspace": workspace, "title": None,
                                      "created": time.time(), "updated": time.time()}
+        # transient = nový neuložený chat: žije jen v paměti, na disk se zapíše
+        # až s první uživatelskou zprávou (persist()) - neplní se prázdné chatty
+        self.transient = transient
         if system_prompt:
             self.add("system", system_prompt)
 
@@ -47,6 +50,8 @@ class Session:
             msg["tool_call_id"] = tool_call_id
         if name:
             msg["name"] = name
+        if self.transient and role == "user":
+            self.persist()  # první skutečná zpráva → chat se zapisuje na disk
         if images:
             msg["images"] = [str(self._store_image(p)) for p in images]
         self.messages.append(msg)
@@ -61,6 +66,8 @@ class Session:
 
     def _store_image(self, path: Path) -> Path:
         """Zkopíruje obrázek do session adresáře a vrátí novou cestu."""
+        if self.transient:
+            self.persist()
         self.img_dir.mkdir(parents=True, exist_ok=True)
         if self.img_dir in path.resolve().parents or path.parent == self.img_dir:
             return path  # už je v session (screenshoty apod.)
@@ -214,7 +221,20 @@ class Session:
     def _jsonl(self) -> Path:
         return self.dir / "messages.jsonl"
 
+    def persist(self) -> None:
+        """Zapiš transient session na disk (celou) a opusť transient režim."""
+        if not self.transient:
+            return
+        self.transient = False
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self._save_meta()
+        with open(self._jsonl, "w", encoding="utf-8") as f:
+            for m in self.messages:
+                f.write(json.dumps(m, ensure_ascii=False) + "\n")
+
     def _append_jsonl(self, msg: dict) -> None:
+        if self.transient:
+            return
         self.dir.mkdir(parents=True, exist_ok=True)
         with open(self._jsonl, "a", encoding="utf-8") as f:
             f.write(json.dumps(msg, ensure_ascii=False) + "\n")
@@ -237,6 +257,8 @@ class Session:
         return self.dir / "meta.json"
 
     def _save_meta(self) -> None:
+        if self.transient:
+            return
         try:
             self.dir.mkdir(parents=True, exist_ok=True)
             self._meta_file.write_text(

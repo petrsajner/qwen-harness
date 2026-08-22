@@ -117,7 +117,7 @@ class AppState:
 
     def new_session(self) -> None:
         self.session = Session(cfg, system_prompt=self._system_prompt(),
-                               workspace=self.workspace)
+                               workspace=self.workspace, transient=True)
         self.rebuild_agent()
         try:
             self.save_ui_state()
@@ -814,7 +814,10 @@ def delete_current_chat():
         return gr.update(), gr.update(), gr.update(), gr.update(), _del_state(True)
     _del_arm["ts"] = 0.0                     # 2. klik → smazat
     sid = state.session.id
-    state.new_session()
+    if state.session.transient:
+        gr.Info("Aktivní chat není uložený (prázdný) - není co mazat.")
+        return gr.update(), gr.update(), gr.update(), gr.update(), _del_state(False)
+    state.new_session()                      # náhrada je transient - nic se neukládá
     ok = Session.delete(cfg, sid)
     gr.Info("🗑 Chat smazán" if ok else "Chat už neexistuje")
     r1, r2, _ = update_chats_radio()
@@ -1236,6 +1239,13 @@ def build_ui() -> gr.Blocks:
                 chats_radio = gr.Radio(choices=chat_choices(), value=state.session.id,
                                        show_label=False, container=False, elem_id="chats-radio",
                                        info=None)
+
+                gr.Markdown("<small class='side-h'>💬 CHATY BEZ PROJEKTU</small>", elem_classes=["hdr"])
+                noproj_radio = gr.Radio(choices=noproj_chat_choices(), value=None,
+                                        show_label=False, container=False, elem_id="noproj-radio",
+                                        info=None)
+
+                gr.Markdown("<small class='side-h'>🔧 AKTIVNÍ CHAT</small>", elem_classes=["hdr"])
                 with gr.Row(elem_classes=["gap"]):
                     btn_new = gr.Button("+ Nový chat", size="sm", scale=2, elem_classes=["sqsm"])
                     btn_del_chat = gr.Button("Smaž chat", size="sm", scale=1, elem_classes=["sqsm"])
@@ -1244,11 +1254,6 @@ def build_ui() -> gr.Blocks:
                     rename_tb = gr.Textbox(placeholder="přejmenovat aktuální…", show_label=False,
                                            container=False, scale=3)
                     btn_rename = gr.Button("Uložit", size="sm", scale=1, elem_classes=["sqsm"])
-
-                gr.Markdown("<small class='side-h'>💬 CHATY BEZ PROJEKTU</small>", elem_classes=["hdr"])
-                noproj_radio = gr.Radio(choices=noproj_chat_choices(), value=None,
-                                        show_label=False, container=False, elem_id="noproj-radio",
-                                        info=None)
 
             # ================= HLAVNÍ CHAT =================
             with gr.Column(scale=5, elem_id="main"):

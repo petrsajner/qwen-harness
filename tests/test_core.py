@@ -372,6 +372,29 @@ def test_session_meta() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_transient_session() -> None:
+    print("[transient session - lazy zápis na disk]")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        data = load_config().data
+        data["paths"]["sessions_dir"] = str(tmp / "sessions")
+        cfg = Config(data, root=ROOT)
+        s = Session(cfg, system_prompt="SYS", workspace=r"C:\projekty\Alfa", transient=True)
+        s.add("assistant", "ahoj")
+        check(s.transient and not s.dir.exists(),
+              "bez user zprávy nic na disku (transient)")
+        s.add("user", "Oprav bug")
+        check(not s.transient and s.dir.exists() and s._jsonl.exists(),
+              "první user zpráva = persist na disk")
+        lines = s._jsonl.read_text(encoding="utf-8").strip().splitlines()
+        check(len(lines) == 3, f"celá historie zapsána ({len(lines)} řádků)")
+        s2 = Session.load(cfg, s.id)
+        check(len(s2.messages) == 3 and not s2.transient, "load po persist")
+        check(Session.delete(cfg, "neexistujici-x") is False, "delete neexistující = False")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_projects() -> None:
     print("[projekty]")
     from harness.projects import Projects
@@ -546,6 +569,7 @@ if __name__ == "__main__":
     test_shell_readonly()
     test_workspace()
     test_session_meta()
+    test_transient_session()
     test_projects()
     test_context_compression()
     test_communication_protocol()
