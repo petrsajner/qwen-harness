@@ -144,7 +144,23 @@ class Agent:
 
     # ------------------------------------------------------------------
     def step(self, approve: bool | None = None) -> StepResult:
-        """Jeden krok agenta (jedno LLM volání + vykonání nástrojů)."""
+        """Jeden krok agenta (jedno LLM volání + vykonání nástrojů).
+
+        Neočekávané výjimky zachytí a vrátí jako Status.ERROR (nikdy nevyhazuje).
+        """
+        try:
+            return self._step(approve)
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            import traceback
+            tail = traceback.format_exc(limit=3).strip().splitlines()
+            tail_s = tail[-1][:300] if tail else ""
+            return StepResult(Status.ERROR,
+                              text=f"{type(e).__name__}: {e}",
+                              reasoning=tail_s)
+
+    def _step(self, approve: bool | None = None) -> StepResult:
         # 1) čekající potvrzení
         if self._pending:
             if approve is None:

@@ -88,51 +88,125 @@ TOOL_ICON = {"screenshot": "📸", "click": "🖱️", "type_text": "⌨️", "p
              "scroll": "🖱️", "move_mouse": "🖱️", "run_command": "💻", "view_image": "🖼️"}
 
 
-def _run_steps(history: list[dict]):
-    """Společný generátor: běhej step() dokud FINAL/NEEDS_CONFIRMATION/stop."""
-    while True:
-        r = state.agent.step()
-        if r.status is Status.CONTINUE:
-            for name, args, result in r.tool_trace:
-                icon = TOOL_ICON.get(name, "🔧")
-                short = result if len(result) <= 300 else result[:300] + " …"
-                history.append({"role": "assistant", "content": f"{icon} **{name}** → {short}"})
-            yield history, gr.update(visible=False), gr.update(visible=True)
-        elif r.status is Status.FINAL:
-            history.append({"role": "assistant", "content": r.text or "…"})
-            yield history, gr.update(visible=False), gr.update(visible=True)
-            return
-        elif r.status is Status.NEEDS_CONFIRMATION:
-            lines = "\n".join(f"⚠️ `{a}`" for a in r.pending_summary)
-            history.append({"role": "assistant",
-                            "content": f"**Čekám na potvrzení akce:**\n{lines}"})
-            yield history, gr.update(visible=True), gr.update(visible=False)
-            return
-        else:  # ABORTED / ERROR
-            history.append({"role": "assistant", "content": f"⛔ {r.text}"})
-            yield history, gr.update(visible=False), gr.update(visible=True)
-            return
+def _content_str(msg: dict) -> str:
+    """Obsah zprávy jako string - zvládá plain string i Gradio list-of-parts formát."""
+    c = msg.get("content", "")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):  # [{"type": "text", "text": "..."}, ...]
+        return " ".join(str(p.get("text", "")) for p in c if isinstance(p, dict))
+    return str(c)
+
+
+def _is_pending_question(msg: dict) -> bool:
+    return msg.get("role") == "assistant" and "Čekám na potvrzení" in _content_str(msg)
+
+
+def _error_message(e: BaseException) -> str:
+    """Jemná chybová zpráva do chatu (místo červeného overlay Gradia)."""
+    import traceback
+    lines = traceback.format_exc(limit=4).strip().splitlines()
+    tail = lines[-1][:200] if len(lines) > 1 else ""
+    msg = (f"❌ **Došlo k chybě** — `{type(e).__name__}: {e}`\n\n"
+           f"<small>`{tail}`</small>\n\n"
+           f"Můžeš zkusit pokračovat další zprávou. Pokud problém přetrvává, "
+           f"zkus **🆕 Novou session** nebo **▶ Start serveru**.")
+    return msg
+
+
+def _agent_error_message(r) -> str:
+    """Chybový stav agentu (Status.ERROR) jako srozumitelná zpráva."""
+    hint = ""
+    if "Connection" in r.text or "Connect" in r.text or "timeout" in r.text.lower():
+        hint = "\n\n💡 *Vypadá to na problém s inference serverem — zkus **▶ Start serveru**.*"
+    elif "tool" in r.text.lower():
+        hint = "\n\n💡 *Nástroj selhal — zkus zadat úkol jinak.*"
+    return f"⚠️ **{r.text}**{hint}"
+
+
+def _run_steps(history: list[dict], approve: bool | None = None):
+    """Společný generátor: krokuj agentem dokud FINAL/NEEDS_CONFIRMATION/stop.
+
+    Výjimky zachytává a vrací jako zprávu v chatu (nikdy nenechá spadnout UI).
+    `approve` platí jen pro první krok (schválení čekajících akcí).
+    """
+    try:
+        first = True
+        while True:
+            r = state.agent.step(approve=approve if first else None)
+            first = False
+            if r.status is Status.CONTINUE:
+                for name, args, result in r.tool_trace:
+                    icon = TOOL_ICON.get(name, "🔧")
+                    short = result if len(result) <= 300 else result[:300] + " …"
+                    history.append({"role": "assistant", "content": f"{icon} **{name}** → {short}"})
+                yield history, gr.update(visible=False), gr.update(visible=True)
+            elif r.status is Status.FINAL:
+                history.append({"role": "assistant", "content": r.text or "…"})
+                yield history, gr.update(visible=False), gr.update(visible=True)
+                return
+            elif r.status is Status.NEEDS_CONFIRMATION:
+                lines = "\n".join(f"⚠️ `{a}`" for a in r.pending_summary)
+                history.append({"role": "assistant",
+                                "content": f"**Čekám na potvrzení akce:**\n{lines}"})
+                yield history, gr.update(visible=True), gr.update(visible=False)
+                return
+            else:  # ABORTED / ERROR
+                text = _agent_error_message(r) if r.status is Status.ERROR else f"⛔ {r.text}"
+                history.append({"role": "assistant", "content": text})
+                yield history, gr.update(visible=False), gr.update(visible=True)
+                return
+    except Exception as e:  # pojistka - žádné spadnutí UI
+        history.append({"role": "assistant", "content": _error_message(e)})
+        yield history, gr.update(visible=False), gr.update(visible=True)
 
 
 # ------------------------------------------------------------- handlery
 def send_message(message: str, files, history: list[dict]):
-    if not (message or "").strip() and not files:
+    try:
+        if not (message or "").strip() and not files:
+            yield history, gr.update(visible=False), gr.update(visible=True)
+            return
+        cfg.data["thinking"] = state.thinking
+        imgs = [Path(f) for f in (files or []) if Path(f).suffix.lower() in IMG_MIMES]
+        shown = (message.strip() or "") + (f"\n🖼️ +{len(imgs)} obrázek(ky)" if imgs else "")
+        history.append({"role": "user", "content": shown})
+        yield history, gr.update(visible=False), gr.update(visible=False)
+        state.agent.new_task(message.strip() or "Please analyze the attached image(s).", images=imgs)
+        yield from _run_steps(history)
+    except Exception as e:
+        history.append({"role": "assistant", "content": _error_message(e)})
         yield history, gr.update(visible=False), gr.update(visible=True)
-        return
-    cfg.data["thinking"] = state.thinking
-    imgs = [Path(f) for f in (files or []) if Path(f).suffix.lower() in IMG_MIMES]
-    shown = (message.strip() or "") + (f"\n🖼️ +{len(imgs)} obrázek(ky)" if imgs else "")
-    history.append({"role": "user", "content": shown})
-    yield history, gr.update(visible=False), gr.update(visible=False)
-    state.agent.new_task(message.strip() or "Please analyze the attached image(s).", images=imgs)
-    yield from _run_steps(history)
 
 
 def confirm(approve: bool, history: list[dict]):
-    if history and history[-1]["role"] == "assistant" and "Čekám na potvrzení" in str(history[-1]["content"]):
-        history.pop()  # odeber zprávu s dotazem
+    """Reakce na tlačítka Povolit/Zamítnout."""
+    try:
+        if not state.agent._pending:
+            # není co potvrzovat (např. po dvojkliku) - jen obnov vstup
+            if history and _is_pending_question(history[-1]):
+                history.pop()
+            yield history, gr.update(visible=False), gr.update(visible=True)
+            return
+        # odeber zprávu s dotazem a zaloguj rozhodnutí uživatele
+        if history and _is_pending_question(history[-1]):
+            history.pop()
         history.append({"role": "user", "content": "✅ Povolit" if approve else "❌ Zamítnout"})
-    yield from _run_steps(history)
+        yield history, gr.update(visible=False), gr.update(visible=False)
+        yield from _run_steps(history, approve=approve)
+    except Exception as e:
+        history.append({"role": "assistant", "content": _error_message(e)})
+        yield history, gr.update(visible=False), gr.update(visible=True)
+
+
+def confirm_yes(history: list[dict]):
+    """btn_yes handler - MUSÍ být generátor (Gradio iteruje yieldy)."""
+    yield from confirm(True, history)
+
+
+def confirm_no(history: list[dict]):
+    """btn_no handler - MUSÍ být generátor."""
+    yield from confirm(False, history)
 
 
 def stop_run(history: list[dict]):
@@ -206,7 +280,7 @@ def build_ui() -> gr.Blocks:
             with gr.Column(scale=2):
                 files_in = gr.File(label="Obrázky", file_count="multiple",
                                    file_types=["image"], type="filepath")
-                btn_send = gr.Button("📨 Odeslat", variant="primary")
+                btn_send = gr.Button("📨 Odeslat", variant="primary", elem_id="btn-send")
                 btn_stop_run = gr.Button("⏹ Přerušit")
 
         with gr.Row(visible=False) as confirm_row:
@@ -233,8 +307,8 @@ def build_ui() -> gr.Blocks:
         msg_in.submit(send_message, [msg_in, files_in, chat],
                       [chat, confirm_row, input_row], queue=True)\
             .then(lambda: ("", None), None, [msg_in, files_in])
-        btn_yes.click(lambda h: confirm(True, h), chat, [chat, confirm_row, input_row], queue=True)
-        btn_no.click(lambda h: confirm(False, h), chat, [chat, confirm_row, input_row], queue=True)
+        btn_yes.click(confirm_yes, chat, [chat, confirm_row, input_row], queue=True)
+        btn_no.click(confirm_no, chat, [chat, confirm_row, input_row], queue=True)
         btn_stop_run.click(stop_run, chat, [chat, confirm_row, input_row], queue=True)
         btn_new.click(new_chat, None, [chat, confirm_row, input_row])
         model_dd.change(change_model, model_dd, status_box)
@@ -247,6 +321,18 @@ def build_ui() -> gr.Blocks:
 
         gr.Markdown("🛡️ **FAILSAFE:** myš do levého horního rohu obrazovky okamžitě přeruší GUI akce. "
                     "V režimu `supervised` se každá akce potvrzuje. Vše běží lokálně.")
+
+        # Ctrl+Enter odesílá zprávu (vedle klasického Enteru)
+        ui.load(None, None, None, js="""
+        () => {
+          document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+              const btn = document.getElementById('btn-send');
+              if (btn) { e.preventDefault(); btn.click(); }
+            }
+          });
+        }
+        """)
     return ui
 
 
@@ -255,6 +341,7 @@ if __name__ == "__main__":
     build_ui().launch(
         server_name=cfg.web["host"],
         server_port=int(cfg.web["port"]),
+        show_error=True,  # detail chyb při ladění (jen localhost)
         inbrowser=not os.environ.get("QWEN_NO_BROWSER"),
         allowed_paths=[str(cfg.path("paths.sessions_dir"))],
     )
