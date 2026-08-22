@@ -169,6 +169,14 @@ class AppState:
             pass
         return p
 
+    def clear_workspace(self) -> None:
+        """Zruš výběr projektu (nové chatty bez příslušnosti, agent bez workspace)."""
+        self.workspace = None
+        cfg.agent["workspace"] = None
+        self.rebuild_agent()
+        self._refresh_system_prompt()
+        self.save_ui_state()
+
 
 # ------------------------------------------------------------- live streaming
 import queue as _queue
@@ -696,20 +704,27 @@ def _projects() -> Projects:
     return Projects(cfg)
 
 
+NOPROJ_NAME = "žádný projekt"
+
+
 def project_choices() -> list[str]:
-    return [p["name"] for p in _projects().list_all()]
+    return [NOPROJ_NAME] + [p["name"] for p in _projects().list_all()]
 
 
-def current_project_name() -> str | None:
+def current_project_name() -> str:
     if not state.workspace:
-        return None
+        return NOPROJ_NAME
     p = _projects().by_path(state.workspace)
     return p["name"] if p else Path(state.workspace).name
 
 
 def set_project_handler(name: str):
-    """Výběr projektu v dropdownu → nastav workspace."""
+    """Výběr projektu v dropdownu → nastav workspace (volba žádný projekt = bez projektu)."""
     try:
+        if name == NOPROJ_NAME:
+            state.clear_workspace()
+            gr.Info("∅ Bez projektu - nové chatty budou bez příslušnosti")
+            return gr.update(choices=project_choices(), value=NOPROJ_NAME)
         proj = next((p for p in _projects().list_all() if p["name"] == name), None)
         if not proj:
             return gr.update()
@@ -755,17 +770,32 @@ def create_project_handler(name: str):
         return gr.update(), gr.update(visible=False), ""
 
 
+def _active_entry() -> tuple[str, str] | None:
+    """Aktivní session jako položka seznamu (i transient - hned viditelná)."""
+    s = getattr(state, "session", None)
+    if s is None:
+        return None
+    title = (s.meta.get("title") or "(bez titulku)")[:38]
+    when = "právě teď" if s.transient else _rel_time(s.meta.get("updated") or time.time())
+    return (f"💬 {title}  ·  {when}", s.id)
+
+
 def chat_choices() -> list[tuple[str, str]]:
     """(popisek, id) chatů AKTUÁLNÍHO projektu - pro sidebar radio."""
     try:
         cur = state.workspace
-        sessions = [s for s in Session.list_sessions(cfg, limit=100)
+        if cur is None:
+            return []  # bez vybraného projektu nezobrazuj chaty jako "projektové"
+        sessions = [s for s in Session.list_sessions(cfg, limit=200)
                     if s.get("workspace") == cur]
         sessions.sort(key=lambda s: s["updated"], reverse=True)
         out = []
-        for s in sessions[:25]:
+        for s in sessions[:200]:
             label = f"💬 {s['title'][:38]}  ·  {_rel_time(s['updated'])}"
             out.append((label, s["id"]))
+        act = _active_entry()
+        if act and act[1] not in {sid for _, sid in out} and state.session.meta.get("workspace"):
+            out.insert(0, act)  # aktivní (transient) chat hned nahoře
         return out
     except Exception:
         return []
@@ -775,13 +805,16 @@ def noproj_chat_choices() -> list[tuple[str, str]]:
     """(popisek, id) chatů BEZ projektu - sekce pod seznamem projektu."""
     try:
         in_main = {sid for _, sid in chat_choices()}
-        sessions = [s for s in Session.list_sessions(cfg, limit=100)
+        sessions = [s for s in Session.list_sessions(cfg, limit=200)
                     if not s.get("workspace") and s["id"] not in in_main]
         sessions.sort(key=lambda s: s["updated"], reverse=True)
         out = []
-        for s in sessions[:15]:
+        for s in sessions[:200]:
             label = f"💬 {s['title'][:38]}  ·  {_rel_time(s['updated'])}"
             out.append((label, s["id"]))
+        act = _active_entry()
+        if act and act[1] not in {sid for _, sid in out} and not state.session.meta.get("workspace"):
+            out.insert(0, act)  # aktivní (transient) chat hned nahoře
         return out
     except Exception:
         return []
@@ -1322,10 +1355,12 @@ def build_ui() -> gr.Blocks:
         # chat zprávy
         btn_send.click(send_message, [msg_in, files_in, chat],
                        [chat, confirm_row, status_box], queue=True)\
-            .then(_clear_inputs, None, [msg_in, files_in])
+            .then(_clear_inputs, None, [msg_in, files_in])\
+            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         msg_in.submit(send_message, [msg_in, files_in, chat],
                       [chat, confirm_row, status_box], queue=True)\
-            .then(_clear_inputs, None, [msg_in, files_in])
+            .then(_clear_inputs, None, [msg_in, files_in])\
+            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         btn_yes.click(confirm_yes, chat, [chat, confirm_row, status_box], queue=True)
         btn_no.click(confirm_no, chat, [chat, confirm_row, status_box], queue=True)
         btn_stop_run.click(stop_run, chat, [chat, confirm_row, status_box], queue=True)
