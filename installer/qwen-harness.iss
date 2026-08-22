@@ -1,0 +1,63 @@
+; ============================================================
+;  Qwen3.8-27B Harness - instalator (Inno Setup 6)
+;  Build:  installer\build_installer.bat  →  dist\QwenHarness-Setup-1.0.0.exe
+; ============================================================
+
+#define MyAppName "Qwen3.8-27B Harness"
+#define MyAppVersion "1.0.0"
+#define MyAppPublisher "Petr - lokalni AI harness"
+#define MyAppExeName "run_app.bat"
+#define MyAppIcon "..\app_icon.ico"
+
+[Setup]
+AppId={{8F3A2C1B-6D5E-4F8A-9B7C-2E1D0A4B5C6E}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+DefaultDirName={localappdata}\QwenHarness
+DefaultGroupName={#MyAppName}
+; bez admin prav - instalace do uzivatelskeho profilu
+PrivilegesRequired=lowest
+OutputDir=..\dist
+OutputBaseFilename=QwenHarness-Setup-{#MyAppVersion}
+SetupIconFile={#MyAppIcon}
+UninstallDisplayIcon={app}\app_icon.ico
+Compression=lzma2
+SolidCompression=yes
+WizardStyle=modern
+ArchitecturesInstallIn64BitMode=x64compatible
+CloseApplications=no
+
+[Languages]
+Name: "cze"; MessagesFile: "compiler:Languages\Czech.isl"
+Name: "en"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+
+[Files]
+Source: "..\qwen_app.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\webapp.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\tui.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\run_app.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\config.yaml"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
+Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\app_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\.gitignore"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "..\harness\*.py"; DestDir: "{app}\harness"; Flags: ignoreversion recursesubdirs
+Source: "..\harness\tools\*.py"; DestDir: "{app}\harness\tools"; Flags: ignoreversion
+Source: "..\scripts\*.py"; DestDir: "{app}\scripts"; Flags: ignoreversion
+Source: "..\tests\*.py"; DestDir: "{app}\tests"; Flags: ignoreversion
+
+[Icons]
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\app_icon.ico"; WorkingDir: "{app}"
+Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\app_icon.ico"; WorkingDir: "{app}"; Tasks: desktopicon
+
+[Run]
+; volitelne spustit hned po instalaci (probehne prvotni setup + otevre appku)
+Filename: "{app}\{#MyAppExeName}"; Description: "Spustit {#MyAppName} (prvni spusteni stahne modely ~37 GB)"; Flags: postinstall skipifsilent shellexec; WorkingDir: "{app}"
+
+[Messages]
+cze.WelcomeLabel2=Tento pruvodce nainstaluje [name/ver] - lokalni AI harness pro Qwen3.8-27B (RTX 5090).%n%nPo instalaci se pri prvem spusteni automaticky stahne prostredi a modely (~37 GB).%n%nPOKRAČOVAT?

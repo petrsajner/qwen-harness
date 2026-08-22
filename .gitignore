@@ -9,6 +9,7 @@ sessions/
 logs/
 *.log
 .tui_history
+dist/
 
 # Python
 __pycache__/

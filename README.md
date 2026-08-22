@@ -62,6 +62,33 @@ Q4_K_M + Q5_K_M + mmproj (~37 GB) z `unsloth/Qwen3.8-27B-GGUF`.
 
 Server se dá ovládat i z TUI (`/server start|stop|status`) a z web UI (tlačítka).
 
+## Desktop aplikace (Windows)
+
+**`qwen_app.py`** — nativní okno s kompletním životním cyklem:
+
+```bash
+.venv/Scripts/pythonw qwen_app.py     # bez konzole (pro zástupce)
+.venv/Scripts/python qwen_app.py      # s diagnostickou konzolí
+```
+
+- **START**: automaticky nastartuje llama-server (pokud neběží) + Web UI a otevře
+  nativní okno (WebView2). Chybí-li prostředí, nabídne opravu.
+- **KONEC**: zavření okna zastaví Web UI **i llama-server** a uvolní VRAM
+  (ověřeno: 28 GB → 3,4 GB). Fallback bez pywebview: systémový prohlížeč.
+
+### Instalátor (Setup.exe)
+
+```bash
+installer/build_installer.bat     # vytvoří dist/QwenHarness-Setup-1.0.0.exe
+```
+
+- Instaluje do `%LOCALAPPDATA%\QwenHarness` (bez admin práv), Start Menu +
+  volitelně desktop ikona, čeština, odinstalace standardně přes Windows
+- **První spuštění** (`run_app.bat` zástupcem) automaticky: vytvoří venv,
+  stáhne závislosti, llama.cpp (~540 MB) a modely (~37 GB) — pak už jen otvírá appku
+- Pozn.: odinstalace nechá stažené modely a sessions
+  (`%LOCALAPPDATA%\QwenHarness\runtime`, `\sessions`) — smaž ručně, pokud nechceš.
+
 ## TUI příkazy
 
 ```
