@@ -572,16 +572,8 @@ def sessions_refresh():
 
 
 def load_from_row(sel_evt, df_value):
-    """Klik na řádek tabulky historie → vyber (🗑) i načti (dvojklik?)."""
-    try:
-        idx = sel_evt.index[0] if sel_evt and sel_evt.index is not None else None
-        if idx is None or idx >= len(_sessions_rows):
-            return
-        sid = _sessions_rows[idx]["id"]
-        _selected_sid["id"] = sid  # pro 🗑 Smazat
-    except Exception:
-        return
-    yield from load_session_handler(sid)
+    """(zastaralé - nahrazeno select_row_handler; ponecháno pro kompatibilitu)"""
+    yield from []
 
 
 def rename_session(name: str):
@@ -773,23 +765,55 @@ def open_in_editor(path: Path | str):
 _selected_sid: dict = {"id": None}
 
 
+def _selected_info_text() -> str:
+    sid = _selected_sid.get("id")
+    if not sid:
+        return "<small>klikni na řádek v tabulce → vybere se chat (nic se nenačte)</small>"
+    row = next((s for s in _sessions_rows if s["id"] == sid), None)
+    if not row:
+        return "<small>vybraný chat už neexistuje</small>"
+    proj = Path(row["workspace"]).name if row.get("workspace") else "bez projektu"
+    return (f"<small>📄 vybráno: <b>{row['title'][:60]}</b> · {proj} · "
+            f"{row['messages']} zpráv</small>")
+
+
+def select_row_handler(sel_evt, df_value):
+    """Klik na řádek = POUZE VÝBĚR (načtení/mazání až tlačítky - nic se nenačte!)."""
+    try:
+        idx = sel_evt.index[0] if sel_evt and sel_evt.index is not None else None
+        if idx is not None and idx < len(_sessions_rows):
+            _selected_sid["id"] = _sessions_rows[idx]["id"]
+    except Exception:
+        pass
+    return _selected_info_text()
+
+
+def load_selected_session():
+    """📂 Načti právě vybraný chat."""
+    sid = _selected_sid.get("id")
+    if not sid:
+        gr.Warning("Nejdřív klikni na řádek chatu v tabulce (výběr).")
+        return
+    yield from load_session_handler(sid)
+
+
 def delete_selected_session():
-    """🗑 Smaž v historii vybraný chat (klik na řádek = vybere)."""
+    """🗑 Smaž vybraný chat (jde i aktuální - nahradí se novým prázdným)."""
     try:
         sid = _selected_sid.get("id")
         if not sid:
-            gr.Warning("Nejdřív klikni na řádek chatu v tabulce.")
-            return sessions_refresh(), gr.update()
+            gr.Warning("Nejdřív klikni na řádek chatu v tabulce (výběr).")
+            yield chat_view(), sessions_refresh(), _selected_info_text(), gr.update(visible=False), refresh_status()
+            return
         if sid == state.session.id:
-            gr.Warning("Nemůžu smazat právě otevřený chat - nejdřív otevři jiný (🆕 Nová).")
-            return sessions_refresh(), gr.update()
+            state.new_session()  # otevřený chat nahraď novým, pak maž
         ok = Session.delete(cfg, sid)
-        gr.Info("🗑 Chat smazán" if ok else "Chat nenalezen")
+        gr.Info("🗑 Chat smazán" if ok else "Chat nenalezen (už smazán?)")
         _selected_sid["id"] = None
-        return sessions_refresh(), gr.update(value="")
+        yield chat_view(), sessions_refresh(), _selected_info_text(), gr.update(visible=False), refresh_status()
     except Exception as e:
         gr.Warning(f"❌ {e}")
-        return sessions_refresh(), gr.update()
+        yield chat_view(), sessions_refresh(), _selected_info_text(), gr.update(visible=False), refresh_status()
 
 
 def _mem_infos():
@@ -980,84 +1004,79 @@ def _clear_inputs():
 
 # ------------------------------------------------------------- UI
 CUSTOM_CSS = """
-/* ============ PROFESIONÁLNÍ DARK THEME ============ */
-.gradio-container, .dark .gradio-container {
-  background: #0d1117 !important;
+/* === PROFESIONÁLNÍ DARK THEME (gradio .dark + akcenty) == */
+html, body, gradio-app, .gradio-container {
+  background: #0b0e14 !important;
+}
+body { background: #0b0e14 !important; }
+.gradio-container {
+  max-width: 1600px !important; margin: 0 auto !important;
   font-family: 'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif !important;
-  color: #e6edf3 !important; max-width: 1500px !important; padding: 10px 14px !important;
+  color-scheme: dark !important;
 }
-/* panely / karty */
-.block, .gap, .form, .panel, .gr-box, [class*="block-border"] {
-  border-color: #21262d !important; border-radius: 12px !important;
-}
-.form { background: transparent !important; }
-[class*="center"], .wrap.default, .gradio-container > .main > .wrap {
-  background: #0d1117 !important;
-}
-/* vnitřní plochy panelů */
-[data-testid="block-label"], .label-wrap, .panel { color: #8b949e !important; }
-.grp, .group { background: #161b22 !important; border-radius: 12px !important;
-  border: 1px solid #21262d !important; padding: 10px !important; }
-.accordion { border: 1px solid #21262d !important; border-radius: 12px !important; }
-/* vstupy */
-input, textarea, select, .input, .textbox {
-  background: #0d1117 !important; border-color: #30363d !important; color: #e6edf3 !important;
-  border-radius: 8px !important;
-}
-input:focus, textarea:focus { border-color: #2dd4bf !important; box-shadow: 0 0 0 2px rgba(45,212,191,.15) !important; }
-/* tlačítka - moderní chip */
-button, .button, .secondary-wrap, .primary-wrap {
+/* povrchy do tmavé škály */
+.dark, .gradio-container.dark { color-scheme: dark !important; }
+.form, .gap, .block, [data-testid="group"] { background: transparent !important; }
+.panel, .grp, .form { border-color: #21262d !important; }
+
+/* tlačítka */
+button {
   border-radius: 10px !important; border: 1px solid #30363d !important;
   background: #21262d !important; color: #e6edf3 !important;
   transition: all .15s ease !important; font-weight: 500 !important;
 }
-button:hover { background: #30363d !important; transform: translateY(-1px); border-color:#8b949e !important; }
-.primary-wrap, button.primary {
-  background: linear-gradient(135deg,#0d9488,#0ea5e9) !important; border: none !important;
-  color: #fff !important; box-shadow: 0 2px 12px rgba(13,148,136,.35) !important;
+button:hover { background: #2d333b !important; border-color: #8b949e !important; transform: translateY(-1px); }
+button.primary, .primary-wrap button {
+  background: linear-gradient(135deg,#0d9488,#0ea5e9) !important;
+  border: none !important; color: #fff !important;
+  box-shadow: 0 2px 12px rgba(13,148,136,.3) !important;
 }
-.primary-wrap:hover, button.primary:hover { filter: brightness(1.12) !important; transform: translateY(-1px); }
-/* ====== ČTVERCOVÁ HLAVIČKOVÁ TLACÍTKA: ikona nad textem ====== */
+button.primary:hover { filter: brightness(1.12) !important; }
+
+/* čtvercová tlačítka: ikona nad textem */
 .sqbtn button, button.sqbtn {
-  min-width: 74px !important; height: 58px !important; padding: 6px 4px !important;
+  min-width: 72px !important; height: 56px !important; padding: 5px 4px !important;
   display: flex !important; flex-direction: column !important; align-items: center !important;
-  justify-content: center !important; gap: 3px !important; font-size: 10.5px !important;
-  text-transform: uppercase !important; letter-spacing: .04em !important; border-radius: 12px !important;
+  justify-content: center !important; gap: 3px !important; font-size: 10px !important;
+  text-transform: uppercase !important; letter-spacing: .05em !important; border-radius: 12px !important;
 }
-.sqbtn button .icon, button.sqbtn .icon { display: none !important; }
-#btn-start button::before, button#btn-start::before { content:"▶"; font-size:17px; }
-#btn-stop-srv button::before, button#btn-stop-srv::before { content:"⏹"; font-size:17px; }
-#btn-refresh button::before, button#btn-refresh::before { content:"🔄"; font-size:17px; }
-#btn-compress button::before, button#btn-compress::before { content:"🗜"; font-size:17px; }
-#btn-handoff button::before, button#btn-handoff::before { content:"📦"; font-size:17px; }
-#btn-new button::before, button#btn-new::before { content:"✚"; font-size:17px; }
-#btn-proj-new button::before, button#btn-proj-new::before { content:"📁✚"; font-size:15px; }
-#btn-proj-attach button::before, button#btn-proj-attach::before { content:"📂"; font-size:17px; }
-/* chat */
-#main-chat { height: calc(100vh - 248px) !important; min-height: 340px !important;
-  background: #0d1117 !important; border: 1px solid #21262d !important; border-radius: 12px !important; }
-#main-chat .message { border-radius: 12px !important; border: 1px solid #21262d !important; margin-bottom: 6px !important; }
-#main-chat .message-user { background: #1c2a3a !important; }
-#main-chat .message-bot, #main-chat .message-assistant { background: #161b22 !important; }
-#msg-in textarea { min-height: 42px !important; max-height: 110px !important;
-  background: #161b22 !important; border-radius: 10px !important; }
+.sqbtn button .icon { display: none !important; }
+#btn-start button::before { content:"▶"; font-size:16px; }
+#btn-stop-srv button::before { content:"⏹"; font-size:16px; }
+#btn-refresh button::before { content:"⟳"; font-size:16px; }
+#btn-compress button::before { content:"🗜"; font-size:16px; }
+#btn-handoff button::before { content:"📦"; font-size:16px; }
+#btn-new button::before { content:"✚"; font-size:16px; }
+#btn-proj-new button::before { content:"📁✚"; font-size:14px; }
+#btn-proj-attach button::before { content:"📂"; font-size:16px; }
+
+/* chat - inverzní: user vpravo (modrý), asistent vlevo (tmavý) */
+#main-chat { height: calc(100vh - 248px) !important; min-height: 340px !important; border-radius: 12px !important; }
+#main-chat .user-row, #main-chat [class*="user"] { justify-content: flex-end !important; }
+#main-chat .bot-row, #main-chat [class*="bot"] { justify-content: flex-start !important; }
+#main-chat .message { border-radius: 14px !important; padding: 10px 14px !important; }
+#main-chat .user-row .message, #main-chat .message-user {
+  background: #1d4ed8 !important; color: #f0f6ff !important;
+  border: 1px solid #3b82f6 !important;
+}
+#main-chat .bot-row .message, #main-chat .message-bot,
+#main-chat .message-assistant {
+  background: #161b22 !important; color: #e6edf3 !important;
+  border: 1px solid #30363d !important;
+}
+/* vstup */
+#msg-in textarea { min-height: 44px !important; max-height: 110px !important; border-radius: 10px !important; }
 #files-in { max-height: 72px !important; overflow-y: auto !important; }
-#files-in .wrap { padding: 4px !important; min-height: 0 !important; }
-/* tabulka historie */
-#sessions-df [data-testid="dataframe"] { background: #161b22 !important; border-radius: 10px !important; }
-#sessions-df table { color: #e6edf3 !important; }
-#sessions-df th { background: #21262d !important; color: #e6edf3 !important; }
-#sessions-df td { border-color: #21262d !important; }
+/* historie - tabulka */
+#sessions-df table { font-size: 0.92em !important; }
 #sessions-df tr:hover td { background: #1c2430 !important; }
 /* drobnosti */
 .hdr p { margin: 0 !important; font-size: 0.9em !important; }
 .gap { gap: 6px !important; }
-#status-pill { background: #161b22 !important; border: 1px solid #30363d !important;
-  border-radius: 999px !important; padding: 4px 14px !important; }
+#status-pill { border: 1px solid #30363d !important; border-radius: 999px !important; padding: 4px 14px !important; }
 /* scrollbar */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #30363d !important; border-radius: 6px; }
-::-webkit-scrollbar-thumb:hover { background: #484f58 !important; }
 ::-webkit-scrollbar-track { background: transparent !important; }
 /* blikající kurzor */
 @keyframes qwen-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
@@ -1144,9 +1163,10 @@ def build_ui() -> gr.Blocks:
                 column_widths=["16%", "42%", "12%", "8%", "22%"],
                 elem_id="sessions-df")
             with gr.Row():
-                sel_info = gr.Markdown("<small>klikni na řádek = vybere chat</small>",
+                sel_info = gr.Markdown("<small>klikni na řádek → vybere se chat (nic se nenačte)</small>",
                                        elem_classes=["hdr"], scale=3)
-                btn_del_session = gr.Button("🗑 Smazat vybraný", size="sm", scale=1)
+                btn_load_sel = gr.Button("📂 Načíst", variant="primary", size="sm", scale=1)
+                btn_del_session = gr.Button("🗑 Smazat", size="sm", scale=1)
                 btn_rename = gr.Button("✏️", size="sm", min_width=44)
                 rename_tb = gr.Textbox(placeholder="nový název…", show_label=False,
                                        container=False, scale=2)
@@ -1198,10 +1218,11 @@ def build_ui() -> gr.Blocks:
         btn_handoff.click(handoff_to_new_session, None, [chat, confirm_row, status_box], queue=True)\
             .then(sessions_refresh, None, sessions_df)
         btn_compress.click(compress_now, chat, [chat, confirm_row, status_box], queue=True)
-        sessions_df.select(load_from_row, sessions_df,
+        sessions_df.select(select_row_handler, sessions_df, sel_info, queue=False)
+        btn_load_sel.click(load_selected_session, None,
                            [chat, confirm_row, status_box, proj_dd], queue=True)
         btn_del_session.click(delete_selected_session, None,
-                              [sessions_df, sel_info], queue=False)
+                              [chat, sessions_df, sel_info, confirm_row, status_box], queue=False)
         btn_rename.click(rename_session, rename_tb, [rename_tb, sessions_df], queue=False)
         btn_hist_reload.click(sessions_refresh, None, sessions_df, queue=False)
         model_dd.change(change_model, model_dd, status_box)
@@ -1216,21 +1237,28 @@ def build_ui() -> gr.Blocks:
                     "čtecí příkazy nevyžadují potvrzení · vše běží lokálně</small>",
                     elem_classes=["hdr"])
 
-        # Ctrl+Enter odesílá zprávu (vedle klasického Enteru)
+        # Ctrl+Enter odesílá + VYNUCENÝ DARK MODE + chytrý autoscroll
         ui.load(None, None, None, js="""
         () => {
+          // (1) vynuť gradio dark theme na všech úrovních DOM
+          const setDark = () => {
+            [document.body, document.documentElement,
+             document.querySelector('gradio-app'),
+             document.querySelector('.gradio-container')].forEach(e => e && e.classList.add('dark'));
+          };
+          setDark(); setTimeout(setDark, 500); setTimeout(setDark, 2000);
+          new MutationObserver(setDark).observe(document.body, {childList: true, subtree: true});
+          // (2) Ctrl+Enter = odeslat
           document.addEventListener('keydown', (e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
               const btn = document.getElementById('btn-send');
               if (btn) { e.preventDefault(); btn.click(); }
             }
           });
-          // chytrý autoscroll: drž konec chatu, jen pokud uživatel sám "sedí dole";
-          // při scrollu nahoru přestáváme skákat na poslední řádek
+          // (3) chytrý autoscroll: drž konec, jen pokud uživatel "sedí dole"
           const setup = () => {
             const root = document.getElementById('main-chat');
             if (!root) return;
-            // najdi scrollovatelný kontejner uvnitř chatu
             let el = null;
             for (const c of root.querySelectorAll('div')) {
               if (c.scrollHeight > c.clientHeight + 4) { el = c; break; }
@@ -1240,14 +1268,10 @@ def build_ui() -> gr.Blocks:
             el.addEventListener('scroll', () => {
               stick = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
             }, {passive: true});
-            const mo = new MutationObserver(() => {
-              if (stick) el.scrollTop = el.scrollHeight;
-            });
+            const mo = new MutationObserver(() => { if (stick) el.scrollTop = el.scrollHeight; });
             mo.observe(el, {childList: true, subtree: true, characterData: true});
           };
           setup();
-          // gradio překresluje DOM - zkus znovu po chvíli (idempotentní: staré listenery
-          // na stejném elementu jsou neškodné, stick se jen přepočítá)
           setTimeout(setup, 2500);
         }
         """)
