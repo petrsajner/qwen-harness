@@ -87,6 +87,72 @@ class Session:
         b64 = base64.b64encode(path.read_bytes()).decode()
         return f"data:{mime};base64,{b64}"
 
+    # -- odhad kontextu / komprese -----------------------------------------
+    IMAGE_TOKENS = 1400  # orientační počet tokenů na obrázek (po downscale)
+
+    def estimate_context_tokens(self) -> int:
+        """Odhad tokenů skutečně odesílaných do API (po omezení obrázků)."""
+        import json as _json
+        total = 0
+        for m in self.to_api_messages():
+            c = m.get("content")
+            if isinstance(c, str):
+                total += len(c)
+            elif isinstance(c, list):
+                for part in c:
+                    if isinstance(part, dict):
+                        if part.get("type") == "text":
+                            total += len(str(part.get("text", "")))
+                        elif part.get("type") == "image_url":
+                            total += self.IMAGE_TOKENS * 4  # v chars, přepočet níže
+            if m.get("tool_calls"):
+                total += len(_json.dumps(m["tool_calls"], ensure_ascii=False))
+        # ~3.6 znaku na token (mix češtiny, kódu, JSON)
+        return total * 10 // 36
+
+    def compress_to_summary(self, summary: str, min_keep: int = 10) -> bool:
+        """Nahraď starší zprávy souhrnem (auto-komprese kontextu).
+
+        Cut vždy na hranici 'user' zprávy, aby se nerozbily dvojice
+        assistant(tool_calls) → tool odpovědi. Vrací True, pokud došlo ke kompresi.
+        """
+        msgs = self.messages
+        head = msgs[:1] if msgs and msgs[0]["role"] == "system" else []
+        rest = msgs[len(head):]
+        if len(rest) <= min_keep:
+            return False
+        cut = None
+        for i in range(len(rest) - min_keep, 0, -1):
+            if rest[i]["role"] == "user":
+                cut = i
+                break
+        if cut is None or cut == 0:
+            return False
+        summary_msg = {
+            "role": "user",
+            "content": ("[SESSION HISTORY SUMMARY - older conversation was auto-compressed. "
+                        "Use it as context, do not re-ask the user about these facts:]\n\n" + summary),
+        }
+        self.messages = head + [summary_msg] + rest[cut:]
+        self._rewrite_jsonl()
+        return True
+
+    def trim_to_budget(self, budget_tokens: int, min_keep: int = 6) -> bool:
+        """Tvrdý fallback: zahod nejstarší zprávy (na user hranici) do rozpočtu."""
+        changed = False
+        while (self.estimate_context_tokens() > budget_tokens
+               and len(self.messages) > min_keep + 1):
+            # najdi první user zprávu po system, kterou lze zahodit
+            idx = next((i for i, m in enumerate(self.messages[1:], 1)
+                        if m["role"] == "user"), None)
+            if idx is None or len(self.messages) - idx < min_keep:
+                break
+            del self.messages[1:idx + 1]
+            changed = True
+        if changed:
+            self._rewrite_jsonl()
+        return self.estimate_context_tokens() <= budget_tokens
+
     # -- perzistence ---------------------------------------------------------
     @property
     def _jsonl(self) -> Path:
@@ -96,6 +162,15 @@ class Session:
         self.dir.mkdir(parents=True, exist_ok=True)
         with open(self._jsonl, "a", encoding="utf-8") as f:
             f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+
+    def _rewrite_jsonl(self) -> None:
+        """Přepiš celý JSONL (po kompresi/seřazení)."""
+        self.dir.mkdir(parents=True, exist_ok=True)
+        tmp = self._jsonl.with_suffix(".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
+            for m in self.messages:
+                f.write(json.dumps(m, ensure_ascii=False) + "\n")
+        tmp.replace(self._jsonl)
 
     @classmethod
     def load(cls, cfg: Config, session_id: str, system_prompt: str | None = None) -> "Session":

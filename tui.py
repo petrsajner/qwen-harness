@@ -89,8 +89,14 @@ class TUIApp:
     def status_line(self) -> str:
         think = "[green]on[/green]" if self.thinking else "[red]off[/red]"
         ws = self.agent.workspace if self.agent else Path.cwd()
+        try:
+            est = self.session.estimate_context_tokens()
+            limit = int(self.cfg.model().get("ctx_size", 32768))
+            ctx = f"  [bold]ctx[/bold]=~{est / 1000:.1f}k/{limit // 1000}k"
+        except Exception:
+            ctx = ""
         return (f"[bold]model[/bold]={self.model_key}  [bold]režim[/bold]={self.mode}  "
-                f"[bold]autonomie[/bold]={self.autonomy}  [bold]thinking[/bold]={think}\n"
+                f"[bold]autonomie[/bold]={self.autonomy}  [bold]thinking[/bold]={think}{ctx}\n"
                 f"[bold]workspace[/bold]={ws}")
 
     def _on_event(self, kind: str, payload) -> None:
@@ -161,6 +167,7 @@ class TUIApp:
             ok = servermgmt.ensure(self.cfg, key)
         if ok:
             self.model_key = key
+            self.cfg.data["default_model"] = key  # ctx limit sleduje model
             console.print(f"[green]✓ Model {key} běží.[/green]")
             console.print(self.status_line())
         else:

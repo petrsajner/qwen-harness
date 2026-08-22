@@ -179,6 +179,36 @@ class Agent:
                               text=f"{type(e).__name__}: {e}",
                               reasoning=tail_s)
 
+    # ------------------------------------------------------------------
+    def _ctx_limit(self) -> int:
+        try:
+            return int(self.cfg.model().get("ctx_size", 32768))
+        except (KeyError, ValueError):
+            return 32768
+
+    def _maybe_compress(self) -> None:
+        """Auto-komprese kontextu při ~85 % limitu (souhrn starší konverzace).
+
+        Fallback při selhání sumarizace: tvrdý trim na 50 % limitu.
+        """
+        limit = self._ctx_limit()
+        est = self.session.estimate_context_tokens()
+        if est < int(limit * 0.85):
+            return
+        self.emit("info", f"📦 Kontext ~{est} tok (>85 % z {limit}) - vytvářím souhrn starší konverzace ...")
+        try:
+            from harness.context import summarize_messages
+            head = self.session.messages[:1]  # system zůstává
+            summary = summarize_messages(self.llm, self.session.messages[1:])
+            ok = self.session.compress_to_summary(summary)
+            if not ok:
+                self.session.trim_to_budget(int(limit * 0.5))
+            new_est = self.session.estimate_context_tokens()
+            self.emit("info", f"📦 Kontext komprimován: ~{est} → ~{new_est} tokenů")
+        except Exception as e:
+            self.session.trim_to_budget(int(limit * 0.5))
+            self.emit("info", f"📦 Sumarizace selhala ({type(e).__name__}: {e}) - aplikován tvrdý trim")
+
     def _step(self, approve: bool | None = None) -> StepResult:
         # 1) čekající potvrzení
         if self._pending:
@@ -205,6 +235,9 @@ class Agent:
         stop = self._check_abort()
         if stop:
             return stop
+
+        # 2b) auto-komprese kontextu (příliš dlouhá konverzace)
+        self._maybe_compress()
 
         # 3) LLM volání
         tools = self.registry.schemas() if self.tools_enabled else None

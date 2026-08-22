@@ -103,23 +103,30 @@ class LLMClient:
 
     # ------------------------------------------------------------------
     def ask(self, messages: list[dict], tools: list[dict] | None = None,
-            max_tokens: int = DEFAULT_MAX_TOKENS, sampling: dict | None = None) -> AssistantResult:
-        """Ne-streamující volání (jednodušší, pro krátké požadavky)."""
+            max_tokens: int = DEFAULT_MAX_TOKENS, sampling: dict | None = None,
+            thinking: bool | None = None) -> AssistantResult:
+        """Ne-streamující volání (jednodušší, pro krátké požadavky).
+
+        thinking=None → podle cfg; False → vynuceně vypnutý thinking (sumarizace).
+        """
         s = dict(sampling or self.cfg.sampling())
-        extra_body = {}
+        extra_body: dict[str, Any] = {}
         if "top_k" in s:
             extra_body["top_k"] = s.pop("top_k")
+        if thinking is not None:
+            extra_body["chat_template_kwargs"] = {"thinking": bool(thinking)}
         params: dict[str, Any] = {
             "model": self.model_name,
             "messages": messages,
             "max_tokens": max_tokens,
             **s,
         }
-        params.setdefault("extra_body", {}).update(_template_kwargs(self.cfg))
+        if thinking is None:
+            params.setdefault("extra_body", {}).update(_template_kwargs(self.cfg))
         if tools:
             params["tools"] = tools
         if extra_body:
-            params["extra_body"] = extra_body
+            params.setdefault("extra_body", {}).update(extra_body)
         resp = self.client.chat.completions.create(**params)
         msg = resp.choices[0].message
         res = AssistantResult(content=msg.content or "")

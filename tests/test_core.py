@@ -238,6 +238,53 @@ def test_shell_readonly() -> None:
     check(tool.risk_for({"command": "rm x"}) == Risk.WRITE, "risk_for rm = WRITE")
 
 
+def test_context_compression() -> None:
+    print("[ctx komprese]")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        data = load_config().data
+        data["paths"]["sessions_dir"] = str(tmp / "sessions")
+        cfg = Config(data, root=ROOT)
+        s = Session(cfg, session_id="ctx-test", system_prompt="SYS")
+        # napodob delsi konverzaci: 6x user/assistant/tool trojice
+        for i in range(6):
+            s.add("user", f"otazka {i} " + "x" * 500)
+            s.add("assistant", "", tool_calls=[{"id": f"c{i}", "type": "function",
+                                                "function": {"name": "read_file", "arguments": "{}"}}])
+            s.add("tool", f"odpoved {i} " + "y" * 300, tool_call_id=f"c{i}", name="read_file")
+        est = s.estimate_context_tokens()
+        check(est > 1000, f"odhad tokenů rozumný ({est})")
+
+        ok = s.compress_to_summary("SOUHRN konverzace.", min_keep=6)
+        check(ok, "komprese proběhla")
+        check(s.messages[0]["role"] == "system", "system prompt zachován")
+        check(s.messages[1]["role"] == "user" and "SUMMARY" in s.messages[1]["content"],
+              "souhrn jako user zpráva")
+        check(s.messages[2]["role"] == "user", "cut na user hranici (žádný osiřelý tool)")
+        # žádná tool zpráva bez předchozího assistant tool_calls
+        dangling = any(m["role"] == "tool" and s.messages[i - 1].get("tool_calls") is None
+                       for i, m in enumerate(s.messages) if i > 0)
+        check(not dangling, "dvojice tool_calls→tool nejsou rozbité")
+        est2 = s.estimate_context_tokens()
+        check(est2 < est, f"tokeny klesly ({est} → {est2})")
+
+        loaded = Session.load(cfg, "ctx-test")
+        check(len(loaded.messages) == len(s.messages), "JSONL přepsán správně (roundtrip)")
+
+        # trim fallback
+        s2 = Session(cfg, session_id="trim-test", system_prompt="SYS")
+        for i in range(10):
+            s2.add("user", f"u{i} " + "z" * 2000)
+            s2.add("assistant", f"a{i} " + "w" * 2000)
+        big = s2.estimate_context_tokens()
+        ok = s2.trim_to_budget(big // 2)
+        check(ok and s2.estimate_context_tokens() <= big // 2,
+              f"trim do rozpočtu ({big} → {s2.estimate_context_tokens()})")
+        check(s2.messages[0]["role"] == "system", "trim zachoval system")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 class LLMStub:
     """Pro konstrukci Agenta bez serveru."""
     pass
@@ -252,5 +299,6 @@ if __name__ == "__main__":
     test_parse_args()
     test_shell_readonly()
     test_workspace()
+    test_context_compression()
     print(f"\n{'=' * 40}\nVÝSLEDEK: {PASS} ✓ / {FAIL} ✗")
     sys.exit(1 if FAIL else 0)

@@ -44,16 +44,44 @@ def _save_ui_state(data: dict) -> None:
 
 class AppState:
     def __init__(self) -> None:
-        self.model_key = cfg.model_key()
-        self.mode = cfg.agent.get("mode", "agent")
-        self.autonomy = cfg.agent.get("autonomy", "supervised")
-        self.thinking = bool(cfg.data.get("thinking", True))
         saved = _load_ui_state()
+        self.model_key = saved.get("model") or cfg.model_key()
+        if self.model_key not in cfg.data["models"]:
+            self.model_key = cfg.model_key()
+        cfg.data["default_model"] = self.model_key  # agent podle toho zná ctx limit
+        self.mode = saved.get("mode") or cfg.agent.get("mode", "agent")
+        if self.mode not in ("chat", "agent", "computer"):
+            self.mode = "agent"
+        self.autonomy = saved.get("autonomy") or cfg.agent.get("autonomy", "supervised")
+        self.thinking = saved.get("thinking", cfg.data.get("thinking", True))
+        cfg.data["thinking"] = bool(self.thinking)
         self.workspace = saved.get("workspace") or cfg.agent.get("workspace")
         self.recent_ws: list[str] = saved.get("recent", [])
         if self.workspace:
             cfg.agent["workspace"] = self.workspace  # převezme každý nový Agent
+        self._restore_session()
+
+    def _restore_session(self) -> None:
+        """Načti poslední session (pokud existuje), jinak nová."""
+        try:
+            latest = Session.list_sessions(cfg)
+            if latest and latest[0]["messages"] > 1:
+                self.session = Session.load(cfg, latest[0]["id"], self._system_prompt())
+                self.rebuild_agent()
+                return
+        except Exception:
+            pass
         self.new_session()
+
+    def save_ui_state(self) -> None:
+        _save_ui_state({
+            "workspace": self.workspace,
+            "recent": self.recent_ws,
+            "model": self.model_key,
+            "mode": self.mode,
+            "autonomy": self.autonomy,
+            "thinking": bool(self.thinking),
+        })
 
     def new_session(self) -> None:
         self.session = Session(cfg, system_prompt=self._system_prompt())
@@ -100,7 +128,7 @@ class AppState:
         cfg.agent["workspace"] = str(p)
         self.recent_ws = [str(p)] + [w for w in self.recent_ws if w != str(p)]
         self.recent_ws = self.recent_ws[:8]
-        _save_ui_state({"workspace": str(p), "recent": self.recent_ws})
+        self.save_ui_state()
         self._refresh_system_prompt()
         return p
 
@@ -191,43 +219,43 @@ def _run_steps(history: list[dict], approve: bool | None = None):
                     icon = TOOL_ICON.get(name, "🔧")
                     short = result if len(result) <= 300 else result[:300] + " …"
                     history.append({"role": "assistant", "content": f"{icon} **{name}** → {short}"})
-                yield history, gr.update(visible=False)
+                yield history, gr.update(visible=False), refresh_status()
             elif r.status is Status.FINAL:
                 history.append({"role": "assistant", "content": r.text or "…"})
-                yield history, gr.update(visible=False)
+                yield history, gr.update(visible=False), refresh_status()
                 return
             elif r.status is Status.NEEDS_CONFIRMATION:
                 lines = "\n".join(f"⚠️ `{a}`" for a in r.pending_summary)
                 history.append({"role": "assistant",
                                 "content": f"**Čekám na potvrzení akce:**\n{lines}"})
-                yield history, gr.update(visible=True)
+                yield history, gr.update(visible=True), refresh_status()
                 return
             else:  # ABORTED / ERROR
                 text = _agent_error_message(r) if r.status is Status.ERROR else f"⛔ {r.text}"
                 history.append({"role": "assistant", "content": text})
-                yield history, gr.update(visible=False)
+                yield history, gr.update(visible=False), refresh_status()
                 return
     except Exception as e:  # pojistka - žádné spadnutí UI
         history.append({"role": "assistant", "content": _error_message(e)})
-        yield history, gr.update(visible=False)
+        yield history, gr.update(visible=False), refresh_status()
 
 
 # ------------------------------------------------------------- handlery
 def send_message(message: str, files, history: list[dict]):
     try:
         if not (message or "").strip() and not files:
-            yield history, gr.update(visible=False)
+            yield history, gr.update(visible=False), refresh_status()
             return
         cfg.data["thinking"] = state.thinking
         imgs = [Path(f) for f in (files or []) if Path(f).suffix.lower() in IMG_MIMES]
         shown = (message.strip() or "") + (f"\n🖼️ +{len(imgs)} obrázek(ky)" if imgs else "")
         history.append({"role": "user", "content": shown})
-        yield history, gr.update(visible=False)
+        yield history, gr.update(visible=False), refresh_status()
         state.agent.new_task(message.strip() or "Please analyze the attached image(s).", images=imgs)
         yield from _run_steps(history)
     except Exception as e:
         history.append({"role": "assistant", "content": _error_message(e)})
-        yield history, gr.update(visible=False)
+        yield history, gr.update(visible=False), refresh_status()
 
 
 def confirm(approve: bool, history: list[dict]):
@@ -237,17 +265,17 @@ def confirm(approve: bool, history: list[dict]):
             # není co potvrzovat (např. po dvojkliku) - jen zavři panel
             if history and _is_pending_question(history[-1]):
                 history.pop()
-            yield history, gr.update(visible=False)
+            yield history, gr.update(visible=False), refresh_status()
             return
         # odeber zprávu s dotazem a zaloguj rozhodnutí uživatele
         if history and _is_pending_question(history[-1]):
             history.pop()
         history.append({"role": "user", "content": "✅ Povolit" if approve else "❌ Zamítnout"})
-        yield history, gr.update(visible=False)
+        yield history, gr.update(visible=False), refresh_status()
         yield from _run_steps(history, approve=approve)
     except Exception as e:
         history.append({"role": "assistant", "content": _error_message(e)})
-        yield history, gr.update(visible=False)
+        yield history, gr.update(visible=False), refresh_status()
 
 
 def confirm_yes(history: list[dict]):
@@ -262,42 +290,101 @@ def confirm_no(history: list[dict]):
 
 def stop_run(history: list[dict]):
     state.abort.set()
-    yield history, gr.update(visible=False)
+    yield history, gr.update(visible=False), refresh_status()
 
 
 def new_chat():
     state.new_session()
-    return [], gr.update(visible=False)
+    return [], gr.update(visible=False), refresh_status()
+
+
+def handoff_to_new_session():
+    """📦 Předat práci do nové session: souhrn stávající konverzace + čistý kontext."""
+    try:
+        if len(state.session.messages) <= 2:
+            gr.Warning("Session je prázdná - není co předávat.")
+            yield chat_view(), gr.update(visible=False), refresh_status()
+            return
+        gr.Info("📦 Vytvářím souhrn konverzace (chvíli trvá) ...")
+        from harness.context import summarize_messages
+        summary = summarize_messages(llm, state.session.messages[1:])
+        state.new_session()
+        state.session.add(
+            "user",
+            "[HANDOFF from previous session]\n" + summary +
+            "\n\nThis is a summary of the previous session. Continue the work from this state.")
+        gr.Info("✅ Nová session se souhrnem připravena")
+        yield chat_view(), gr.update(visible=False), refresh_status()
+    except Exception as e:
+        history_view = chat_view()
+        history_view.append({"role": "assistant", "content": _error_message(e)})
+        yield history_view, gr.update(visible=False), refresh_status()
+
+
+def session_choices() -> list[str]:
+    return [f"{s['id']}  ({s['messages']} zpráv)" for s in Session.list_sessions(cfg)[:15]]
+
+
+def load_session_handler(selection: str):
+    """Načte starou session podle výběru z dropdownu."""
+    try:
+        if not selection:
+            yield chat_view(), gr.update(visible=False), refresh_status()
+            return
+        sid = selection.split("  (")[0].strip()
+        state.session = Session.load(cfg, sid, state._system_prompt())
+        state.rebuild_agent()
+        gr.Info(f"✅ Session načtena: {sid}")
+        yield chat_view(), gr.update(visible=False), refresh_status()
+    except Exception as e:
+        gr.Warning(f"❌ {e}")
+        yield chat_view(), gr.update(visible=False), refresh_status()
 
 
 def change_model(key: str):
     if servermgmt.ensure(cfg, key):
         state.model_key = key
-        return f"✅ Model **{key}** běží ({servermgmt.vram_str()})"
+        cfg.data["default_model"] = key  # agent/ctx-limit sledují aktuální model
+        state.save_ui_state()
+        return refresh_status()
     return "❌ Přepnutí modelu selhalo (viz runtime/llama-server.log)"
 
 
 def change_mode(mode: str):
     state.set_mode(mode)
-    return f"Režim: **{mode}**"
+    state.save_ui_state()
+    return f"Režim: **{mode}** · {refresh_status()}"
 
 
 def change_autonomy(a: str):
     state.autonomy = a
     state.rebuild_agent()
+    state.save_ui_state()
     return f"Autonomie: **{a}**"
 
 
 def change_thinking(on: bool):
     state.thinking = on
     cfg.data["thinking"] = on
+    state.save_ui_state()
     return f"Thinking: **{'on' if on else 'off'}**"
 
 
 def refresh_status():
     if servermgmt.health(cfg):
-        return f"🟢 llama-server běží · model: {servermgmt.running_model(cfg)} · {servermgmt.vram_str()}"
-    return "🔴 llama-server stojí — spusť: python scripts/server.py start"
+        s = f"🟢 {servermgmt.running_model(cfg) or state.model_key} · {servermgmt.vram_str()}"
+    else:
+        s = "🔴 server stojí (▶ start)"
+    # ukazatel kontextu
+    try:
+        est = state.session.estimate_context_tokens()
+        limit = int(cfg.model().get("ctx_size", 32768))
+        pct = min(100, est * 100 // max(limit, 1))
+        warn = " 🟠" if pct >= 70 else (" 🔴" if pct >= 85 else "")
+        s += f" · 📊 ctx ~{est / 1000:.1f}k/{limit // 1000}k{warn}"
+    except Exception:
+        pass
+    return s
 
 
 # ------------------------------------------------------------- workspace
@@ -418,6 +505,7 @@ def build_ui() -> gr.Blocks:
             btn_start = gr.Button("▶", size="sm", min_width=36)
             btn_stop = gr.Button("⏹", size="sm", min_width=36)
             btn_refresh = gr.Button("🔄", size="sm", min_width=36)
+            btn_handoff = gr.Button("📦 Předej", size="sm", min_width=80)
             btn_new = gr.Button("🆕", size="sm", min_width=36)
 
         # --- workspace: jedna řádka (dropdown = naposledy použité + ruční cesta) ---
@@ -431,8 +519,8 @@ def build_ui() -> gr.Blocks:
                 elem_id="ws-pick")
             btn_ws_browse = gr.Button("📂 Vybrat složku", size="sm", min_width=110)
 
-        # --- chat (hlavní plocha) ---
-        chat = gr.Chatbot(label=None, show_label=False, height=600,
+        # --- chat (hlavní plocha; na startu obnovená poslední session) ---
+        chat = gr.Chatbot(value=chat_view(), label=None, show_label=False, height=600,
                           render_markdown=True, elem_id="main-chat")
 
         # --- vstup: tenký textbox + tlačítka (jedna řádka) ---
@@ -456,7 +544,7 @@ def build_ui() -> gr.Blocks:
             btn_no = gr.Button("❌ Zamítnout", variant="stop", size="sm", scale=1)
 
         # --- nastavení (sbalené) ---
-        with gr.Accordion("⚙️ Nastavení — model / režim / autonomie / thinking", open=False):
+        with gr.Accordion("⚙️ Nastavení — model / režim / autonomie / thinking / sessions", open=False):
             with gr.Row():
                 model_dd = gr.Dropdown(model_choices, value=state.model_key,
                                        label="Model (přepnutí = restart serveru)")
@@ -465,6 +553,10 @@ def build_ui() -> gr.Blocks:
                 autonomy_dd = gr.Dropdown(["supervised", "semi", "auto"], value=state.autonomy,
                                           label="Autonomie")
                 thinking_cb = gr.Checkbox(value=state.thinking, label="Thinking režim")
+            with gr.Row():
+                sessions_dd = gr.Dropdown(choices=session_choices(), label="Načíst starou session",
+                                          interactive=True, scale=4)
+                btn_load_session = gr.Button("📂 Načíst", size="sm", scale=1)
             settings_info = gr.Markdown("")
 
         # události - workspace
@@ -474,15 +566,20 @@ def build_ui() -> gr.Blocks:
 
         # události - chat
         btn_send.click(send_message, [msg_in, files_in, chat],
-                       [chat, confirm_row], queue=True)\
+                       [chat, confirm_row, status_box], queue=True)\
             .then(lambda: ("", None), None, [msg_in, files_in])
         msg_in.submit(send_message, [msg_in, files_in, chat],
-                      [chat, confirm_row], queue=True)\
+                      [chat, confirm_row, status_box], queue=True)\
             .then(lambda: ("", None), None, [msg_in, files_in])
-        btn_yes.click(confirm_yes, chat, [chat, confirm_row], queue=True)
-        btn_no.click(confirm_no, chat, [chat, confirm_row], queue=True)
-        btn_stop_run.click(stop_run, chat, [chat, confirm_row], queue=True)
-        btn_new.click(new_chat, None, [chat, confirm_row])
+        btn_yes.click(confirm_yes, chat, [chat, confirm_row, status_box], queue=True)
+        btn_no.click(confirm_no, chat, [chat, confirm_row, status_box], queue=True)
+        btn_stop_run.click(stop_run, chat, [chat, confirm_row, status_box], queue=True)
+        btn_new.click(new_chat, None, [chat, confirm_row, status_box])\
+            .then(lambda: gr.update(choices=session_choices()), None, sessions_dd)
+        btn_handoff.click(handoff_to_new_session, None, [chat, confirm_row, status_box], queue=True)\
+            .then(lambda: gr.update(choices=session_choices()), None, sessions_dd)
+        btn_load_session.click(load_session_handler, sessions_dd, [chat, confirm_row, status_box])\
+            .then(lambda: gr.update(choices=session_choices()), None, sessions_dd)
         model_dd.change(change_model, model_dd, status_box)
         mode_dd.change(change_mode, mode_dd, settings_info)
         autonomy_dd.change(change_autonomy, autonomy_dd, settings_info)
