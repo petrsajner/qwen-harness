@@ -604,7 +604,7 @@ def rename_session(name: str):
 def load_session_handler(selection: str):
     """Načti session; pokud patří jinému projektu, přepni i workspace."""
     try:
-        if not selection:
+        if not selection or selection == state.session.id:
             yield chat_view(), gr.update(visible=False), refresh_status(), gr.update()
             return
         state.session = Session.load(cfg, selection, state._system_prompt())
@@ -1085,6 +1085,7 @@ html, body, gradio-app, .gradio-container {
 }
 body { background: #0b0e14 !important; }
 .gradio-container {
+  width: 100% !important;
   max-width: 1600px !important; margin: 0 auto !important;
   font-family: 'Segoe UI Variable Text','Segoe UI','Segoe UI Symbol','Segoe UI Emoji','Noto Color Emoji',system-ui,sans-serif !important;
   color-scheme: dark !important;
@@ -1154,7 +1155,8 @@ button.primary:hover { filter: brightness(1.12) !important; }
 ::-webkit-scrollbar-thumb { background: #30363d !important; border-radius: 6px; }
 ::-webkit-scrollbar-track { background: transparent !important; }
 /* ===== LAYOUT: sidebar + hlavní chat (styl ZCode/Codex) ===== */
-#app-row { gap: 10px !important; align-items: stretch !important; }
+#app-row { gap: 10px !important; align-items: stretch !important; flex-wrap: nowrap !important; }
+#sidebar > * { flex-shrink: 0 !important; }
 #sidebar {
   min-width: 332px !important; max-width: 332px !important;
   background: #10141b !important; border: 1px solid #21262d !important;
@@ -1162,14 +1164,14 @@ button.primary:hover { filter: brightness(1.12) !important; }
   height: calc(100vh - 40px) !important; overflow-y: auto !important;
   flex-wrap: nowrap !important;   /* jinak Gradio balí přebytecne potomky do sloupcu vedle sebe */
 }
-#main { min-width: 0 !important; }
+#main { flex: 1 1 0 !important; min-width: 0 !important; }
+#main-chat { width: 100% !important; max-width: 100% !important; }
+#main-chat img { max-width: 100% !important; height: auto !important; }
 .side-title { margin-bottom: 2px !important; }
 .side-h { color: #2dd4bf !important; font-weight: 700 !important;
   letter-spacing: .08em !important; margin: 14px 0 4px 2px !important; display: block; }
 .sqsm { min-height: 34px !important; font-size: 12px !important; border-radius: 9px !important; }
 #del-state p { color: #f87171 !important; font-size: 12px !important; margin: 2px 0 0 4px !important; }
-#chats-radio { max-height: 300px; overflow-y: auto; }
-#noproj-radio { max-height: 200px; overflow-y: auto; }
 #chats-radio label, #noproj-radio label { padding: 5px 8px !important; border-radius: 8px !important;
   font-size: 12.5px !important; }
 #chats-radio label:hover, #noproj-radio label:hover { background: #1c2430 !important; }
@@ -1283,10 +1285,10 @@ def build_ui() -> gr.Blocks:
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
 
         # chaty (radio = přepnutí chatu; druhé radio = chaty bez projektu)
-        chats_radio.change(load_session_handler, chats_radio,
+        chats_radio.input(load_session_handler, chats_radio,
                            [chat, confirm_row, status_box, proj_dd], queue=True)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
-        noproj_radio.change(load_session_handler, noproj_radio,
+        noproj_radio.input(load_session_handler, noproj_radio,
                             [chat, confirm_row, status_box, proj_dd], queue=True)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         btn_new.click(new_chat, None, [chat, confirm_row, status_box])\
