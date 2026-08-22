@@ -197,7 +197,7 @@ def _live_message(hub: StreamHub, elapsed_s: int = 0) -> dict:
     elapsed_s = sekundy od posledního toku - roste, i když model mlčí (poctivé:
     uživatel vidí, že se nic neděje; blikající kurzor se obnovuje jen s daty).
     """
-    text, reasoning, _ = hub.snapshot()
+    text, reasoning, _, _ = hub.snapshot()
     cursor = ' <span class="blink-cursor">▍</span>'
     if text:
         suffix = f"\n\n<i>⏳ {elapsed_s}s bez nových tokenů</i>" if elapsed_s >= 5 else ""
