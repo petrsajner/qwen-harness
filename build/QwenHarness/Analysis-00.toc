@@ -2369,11 +2369,11 @@
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\clr_loader\\types.py',
    'PYMODULE'),
-  ('stringprep',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\stringprep.py',
-   'PYMODULE'),
   ('_py_abc',
    'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\_py_abc.py',
+   'PYMODULE'),
+  ('stringprep',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\stringprep.py',
    'PYMODULE'),
   ('tracemalloc',
    'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\tracemalloc.py',
@@ -2459,317 +2459,73 @@
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\webview\\lib\\runtimes\\win-x86\\native\\WebView2Loader.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.IO.FileSystem.Primitives.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.FileSystem.Primitives.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.IO.FileSystem.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.FileSystem.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.IO.MemoryMappedFiles.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.MemoryMappedFiles.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.ComponentModel.EventBasedAsync.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ComponentModel.EventBasedAsync.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Net.WebSockets.Client.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.WebSockets.Client.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Diagnostics.Tracing.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Tracing.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Net.NameResolution.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.NameResolution.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Text.Encoding.Extensions.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Text.Encoding.Extensions.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Collections.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Collections.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Globalization.Calendars.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Globalization.Calendars.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Data.Common.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Data.Common.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Linq.Expressions.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Linq.Expressions.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.ComponentModel.TypeConverter.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ComponentModel.TypeConverter.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Net.Security.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Security.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Net.Primitives.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Primitives.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Diagnostics.TraceSource.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.TraceSource.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Diagnostics.Contracts.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Contracts.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Diagnostics.Debug.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Debug.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Diagnostics.FileVersionInfo.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.FileVersionInfo.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Threading.Tasks.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Tasks.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Security.Claims.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Claims.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Xml.XPath.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.XPath.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Reflection.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Reflection.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Resources.Writer.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Resources.Writer.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Threading.ThreadPool.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.ThreadPool.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\Microsoft.Win32.Primitives.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\Microsoft.Win32.Primitives.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Threading.Tasks.Parallel.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Tasks.Parallel.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Security.SecureString.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.SecureString.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Runtime.Extensions.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Extensions.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.IO.FileSystem.DriveInfo.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.FileSystem.DriveInfo.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.ComponentModel.Primitives.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ComponentModel.Primitives.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Linq.Queryable.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Linq.Queryable.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.IO.Compression.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.Compression.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Threading.Timer.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Timer.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\Python.Runtime.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\Python.Runtime.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Security.Cryptography.Primitives.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Cryptography.Primitives.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Threading.Thread.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Thread.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Diagnostics.Tools.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Tools.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.IO.IsolatedStorage.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.IsolatedStorage.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Runtime.Handles.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Handles.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Diagnostics.Process.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Process.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Net.Http.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Http.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Threading.Overlapped.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Overlapped.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.IO.Pipes.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.Pipes.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Text.Encoding.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Text.Encoding.dll',
-   'BINARY'),
   ('pythonnet\\runtime\\System.Xml.XmlSerializer.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.XmlSerializer.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Runtime.InteropServices.RuntimeInformation.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.InteropServices.RuntimeInformation.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Console.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Console.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Xml.XDocument.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.XDocument.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Runtime.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.ObjectModel.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ObjectModel.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Security.Cryptography.X509Certificates.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Cryptography.X509Certificates.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Diagnostics.TextWriterTraceListener.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.TextWriterTraceListener.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Linq.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Linq.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Globalization.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Globalization.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Reflection.Primitives.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Reflection.Primitives.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Collections.NonGeneric.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Collections.NonGeneric.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Dynamic.Runtime.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Dynamic.Runtime.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Runtime.CompilerServices.VisualC.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.CompilerServices.VisualC.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Net.Requests.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Requests.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Threading.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Runtime.Serialization.Json.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Serialization.Json.dll',
    'BINARY'),
   ('pythonnet\\runtime\\System.Security.Cryptography.Encoding.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Cryptography.Encoding.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.IO.dll',
+  ('pythonnet\\runtime\\System.ObjectModel.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ObjectModel.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.IO.Compression.ZipFile.dll',
+  ('pythonnet\\runtime\\System.Linq.Queryable.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.Compression.ZipFile.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Linq.Queryable.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Collections.Specialized.dll',
+  ('pythonnet\\runtime\\System.Net.Ping.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Collections.Specialized.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Ping.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\netstandard.dll',
+  ('pythonnet\\runtime\\System.Reflection.Primitives.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\netstandard.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Reflection.Primitives.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.AppContext.dll',
+  ('pythonnet\\runtime\\System.Globalization.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.AppContext.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Globalization.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Collections.Concurrent.dll',
+  ('pythonnet\\runtime\\System.Resources.Reader.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Collections.Concurrent.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Resources.Reader.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Text.RegularExpressions.dll',
+  ('pythonnet\\runtime\\System.Runtime.Handles.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Text.RegularExpressions.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Handles.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Runtime.Serialization.Primitives.dll',
+  ('pythonnet\\runtime\\System.Net.Sockets.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Serialization.Primitives.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Sockets.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Runtime.Serialization.Formatters.dll',
+  ('pythonnet\\runtime\\System.ValueTuple.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Serialization.Formatters.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ValueTuple.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Reflection.Extensions.dll',
+  ('pythonnet\\runtime\\System.Diagnostics.Contracts.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Reflection.Extensions.dll',
-   'BINARY'),
-  ('pythonnet\\runtime\\System.Runtime.InteropServices.dll',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.InteropServices.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Contracts.dll',
    'BINARY'),
   ('pythonnet\\runtime\\System.Runtime.Serialization.Xml.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Serialization.Xml.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.IO.FileSystem.Watcher.dll',
+  ('pythonnet\\runtime\\System.IO.IsolatedStorage.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.FileSystem.Watcher.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.IsolatedStorage.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.IO.UnmanagedMemoryStream.dll',
+  ('pythonnet\\runtime\\System.AppContext.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.UnmanagedMemoryStream.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.AppContext.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Xml.XPath.XDocument.dll',
+  ('pythonnet\\runtime\\System.IO.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.XPath.XDocument.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.TextWriterTraceListener.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.TextWriterTraceListener.dll',
    'BINARY'),
   ('pythonnet\\runtime\\System.Security.Principal.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
@@ -2779,73 +2535,317 @@
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Drawing.Primitives.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Net.WebHeaderCollection.dll',
+  ('pythonnet\\runtime\\System.ComponentModel.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.WebHeaderCollection.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ComponentModel.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Linq.Parallel.dll',
+  ('pythonnet\\runtime\\System.Collections.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Linq.Parallel.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Collections.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Net.NetworkInformation.dll',
+  ('pythonnet\\runtime\\System.IO.MemoryMappedFiles.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.NetworkInformation.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.MemoryMappedFiles.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Security.Cryptography.Csp.dll',
+  ('pythonnet\\runtime\\System.Xml.XDocument.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Cryptography.Csp.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.XDocument.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Xml.XmlDocument.dll',
+  ('pythonnet\\runtime\\System.ComponentModel.Primitives.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.XmlDocument.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ComponentModel.Primitives.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.ValueTuple.dll',
+  ('pythonnet\\runtime\\System.Diagnostics.FileVersionInfo.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ValueTuple.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.FileVersionInfo.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Security.Cryptography.Algorithms.dll',
+  ('pythonnet\\runtime\\System.Security.Cryptography.Primitives.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Cryptography.Algorithms.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Cryptography.Primitives.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Net.Sockets.dll',
+  ('pythonnet\\runtime\\System.Xml.XPath.XDocument.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Sockets.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.XPath.XDocument.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Net.Ping.dll',
+  ('pythonnet\\runtime\\System.Diagnostics.Process.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Ping.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Process.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Diagnostics.StackTrace.dll',
+  ('pythonnet\\runtime\\System.Console.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.StackTrace.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Console.dll',
    'BINARY'),
   ('pythonnet\\runtime\\System.Net.WebSockets.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.WebSockets.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Resources.Reader.dll',
+  ('pythonnet\\runtime\\System.Xml.XmlDocument.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Resources.Reader.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.XmlDocument.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.Resources.ResourceManager.dll',
+  ('pythonnet\\runtime\\System.ComponentModel.TypeConverter.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Resources.ResourceManager.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ComponentModel.TypeConverter.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.ComponentModel.EventBasedAsync.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ComponentModel.EventBasedAsync.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.NameResolution.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.NameResolution.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Security.Claims.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Claims.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\netstandard.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\netstandard.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Reflection.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Reflection.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Xml.XPath.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.XPath.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Text.Encoding.Extensions.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Text.Encoding.Extensions.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.Tools.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Tools.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.WebHeaderCollection.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.WebHeaderCollection.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Security.Cryptography.Csp.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Cryptography.Csp.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Threading.Thread.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Thread.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.Compression.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.Compression.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Collections.Concurrent.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Collections.Concurrent.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Resources.Writer.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Resources.Writer.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Linq.Expressions.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Linq.Expressions.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.FileSystem.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.FileSystem.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.Extensions.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Extensions.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.FileSystem.Watcher.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.FileSystem.Watcher.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.CompilerServices.VisualC.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.CompilerServices.VisualC.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.Debug.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Debug.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.FileSystem.DriveInfo.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.FileSystem.DriveInfo.dll',
    'BINARY'),
   ('pythonnet\\runtime\\System.Globalization.Extensions.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Globalization.Extensions.dll',
    'BINARY'),
-  ('pythonnet\\runtime\\System.ComponentModel.dll',
+  ('pythonnet\\runtime\\System.Security.Cryptography.X509Certificates.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.ComponentModel.dll',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Cryptography.X509Certificates.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Threading.Tasks.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Tasks.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.Requests.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Requests.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Threading.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.NetworkInformation.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.NetworkInformation.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.FileSystem.Primitives.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.FileSystem.Primitives.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Text.Encoding.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Text.Encoding.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Reflection.Extensions.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Reflection.Extensions.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.InteropServices.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.InteropServices.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.Serialization.Json.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Serialization.Json.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.Tracing.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.Tracing.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Threading.Tasks.Parallel.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Tasks.Parallel.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.StackTrace.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.StackTrace.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Security.SecureString.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.SecureString.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.UnmanagedMemoryStream.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.UnmanagedMemoryStream.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.Http.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Http.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Collections.NonGeneric.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Collections.NonGeneric.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.Primitives.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Primitives.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Data.Common.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Data.Common.dll',
    'BINARY'),
   ('pythonnet\\runtime\\System.Runtime.Numerics.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Numerics.dll',
    'BINARY'),
+  ('pythonnet\\runtime\\System.IO.Compression.ZipFile.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.Compression.ZipFile.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Linq.Parallel.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Linq.Parallel.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Threading.Overlapped.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Overlapped.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Security.Cryptography.Algorithms.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Security.Cryptography.Algorithms.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Threading.ThreadPool.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.ThreadPool.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.Security.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.Security.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Globalization.Calendars.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Globalization.Calendars.dll',
+   'BINARY'),
   ('pythonnet\\runtime\\System.Xml.ReaderWriter.dll',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Xml.ReaderWriter.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\Python.Runtime.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\Python.Runtime.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Net.WebSockets.Client.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Net.WebSockets.Client.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Linq.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Linq.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Dynamic.Runtime.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Dynamic.Runtime.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.IO.Pipes.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.IO.Pipes.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.Serialization.Formatters.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Serialization.Formatters.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.Serialization.Primitives.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.Serialization.Primitives.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Diagnostics.TraceSource.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Diagnostics.TraceSource.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Collections.Specialized.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Collections.Specialized.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Resources.ResourceManager.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Resources.ResourceManager.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Threading.Timer.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Threading.Timer.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Text.RegularExpressions.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Text.RegularExpressions.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\System.Runtime.InteropServices.RuntimeInformation.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\System.Runtime.InteropServices.RuntimeInformation.dll',
+   'BINARY'),
+  ('pythonnet\\runtime\\Microsoft.Win32.Primitives.dll',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\Microsoft.Win32.Primitives.dll',
    'BINARY'),
   ('python312.dll',
    'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\python312.dll',
@@ -3178,97 +3178,76 @@
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\webview\\window.py',
    'DATA'),
-  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\METADATA',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\METADATA',
-   'DATA'),
-  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\REQUESTED',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\REQUESTED',
-   'DATA'),
-  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\licenses\\LICENSE',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\licenses\\LICENSE',
-   'DATA'),
-  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\WHEEL',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\WHEEL',
-   'DATA'),
   ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\INSTALLER',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\INSTALLER',
+   'DATA'),
+  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\top_level.txt',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\top_level.txt',
+   'DATA'),
+  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\METADATA',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\METADATA',
    'DATA'),
   ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\RECORD',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\RECORD',
    'DATA'),
-  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\top_level.txt',
+  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\WHEEL',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\top_level.txt',
+   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\WHEEL',
+   'DATA'),
+  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\licenses\\LICENSE',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\licenses\\LICENSE',
+   'DATA'),
+  ('setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\REQUESTED',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\importlib_metadata-8.7.1.dist-info\\REQUESTED',
    'DATA'),
   ('setuptools\\_vendor\\jaraco\\text\\Lorem ipsum.txt',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\setuptools\\_vendor\\jaraco\\text\\Lorem '
    'ipsum.txt',
    'DATA'),
-  ('pythonnet\\runtime\\Python.Runtime.deps.json',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\Python.Runtime.deps.json',
-   'DATA'),
   ('pythonnet\\runtime\\Python.Runtime.xml',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\Python.Runtime.xml',
    'DATA'),
-  ('markupsafe-3.0.3.dist-info\\INSTALLER',
+  ('pythonnet\\runtime\\Python.Runtime.deps.json',
    'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\INSTALLER',
-   'DATA'),
-  ('markupsafe-3.0.3.dist-info\\RECORD',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\RECORD',
-   'DATA'),
-  ('markupsafe-3.0.3.dist-info\\licenses\\LICENSE.txt',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\licenses\\LICENSE.txt',
-   'DATA'),
-  ('markupsafe-3.0.3.dist-info\\METADATA',
-   'C:\\Users\\Petr\\Documents\\QWEN '
-   'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\METADATA',
+   'local\\.venv\\Lib\\site-packages\\pythonnet\\runtime\\Python.Runtime.deps.json',
    'DATA'),
   ('markupsafe-3.0.3.dist-info\\top_level.txt',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\top_level.txt',
    'DATA'),
+  ('markupsafe-3.0.3.dist-info\\METADATA',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\METADATA',
+   'DATA'),
   ('markupsafe-3.0.3.dist-info\\WHEEL',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\WHEEL',
+   'DATA'),
+  ('markupsafe-3.0.3.dist-info\\RECORD',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\RECORD',
+   'DATA'),
+  ('markupsafe-3.0.3.dist-info\\INSTALLER',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\INSTALLER',
+   'DATA'),
+  ('markupsafe-3.0.3.dist-info\\licenses\\LICENSE.txt',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\markupsafe-3.0.3.dist-info\\licenses\\LICENSE.txt',
    'DATA'),
   ('base_library.zip',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\build\\QwenHarness\\base_library.zip',
    'DATA')],
- [('types',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\types.py',
-   'PYMODULE'),
-  ('stat',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\stat.py',
-   'PYMODULE'),
-  ('codecs',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\codecs.py',
-   'PYMODULE'),
-  ('sre_compile',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\sre_compile.py',
-   'PYMODULE'),
-  ('linecache',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\linecache.py',
-   'PYMODULE'),
-  ('locale',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\locale.py',
-   'PYMODULE'),
-  ('heapq',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\heapq.py',
-   'PYMODULE'),
-  ('re._parser',
+ [('re._parser',
    'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\re\\_parser.py',
    'PYMODULE'),
   ('re._constants',
@@ -3283,26 +3262,56 @@
   ('genericpath',
    'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\genericpath.py',
    'PYMODULE'),
+  ('locale',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\locale.py',
+   'PYMODULE'),
+  ('sre_parse',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\sre_parse.py',
+   'PYMODULE'),
+  ('collections.abc',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\collections\\abc.py',
+   'PYMODULE'),
+  ('collections',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\collections\\__init__.py',
+   'PYMODULE'),
+  ('weakref',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\weakref.py',
+   'PYMODULE'),
   ('posixpath',
    'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\posixpath.py',
    'PYMODULE'),
   ('_weakrefset',
    'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\_weakrefset.py',
    'PYMODULE'),
-  ('copyreg',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\copyreg.py',
+  ('types',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\types.py',
    'PYMODULE'),
-  ('weakref',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\weakref.py',
+  ('heapq',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\heapq.py',
    'PYMODULE'),
-  ('_collections_abc',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\_collections_abc.py',
+  ('sre_constants',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\sre_constants.py',
+   'PYMODULE'),
+  ('reprlib',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\reprlib.py',
+   'PYMODULE'),
+  ('linecache',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\linecache.py',
+   'PYMODULE'),
+  ('sre_compile',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\sre_compile.py',
    'PYMODULE'),
   ('enum',
    'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\enum.py',
    'PYMODULE'),
-  ('sre_parse',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\sre_parse.py',
+  ('codecs',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\codecs.py',
+   'PYMODULE'),
+  ('abc',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\abc.py',
+   'PYMODULE'),
+  ('keyword',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\keyword.py',
    'PYMODULE'),
   ('encodings.zlib_codec',
    'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\encodings\\zlib_codec.py',
@@ -3670,38 +3679,29 @@
   ('encodings',
    'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\encodings\\__init__.py',
    'PYMODULE'),
-  ('abc',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\abc.py',
+  ('warnings',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\warnings.py',
    'PYMODULE'),
-  ('sre_constants',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\sre_constants.py',
+  ('functools',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\functools.py',
    'PYMODULE'),
-  ('operator',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\operator.py',
-   'PYMODULE'),
-  ('collections.abc',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\collections\\abc.py',
-   'PYMODULE'),
-  ('collections',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\collections\\__init__.py',
-   'PYMODULE'),
-  ('reprlib',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\reprlib.py',
+  ('_collections_abc',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\_collections_abc.py',
    'PYMODULE'),
   ('ntpath',
    'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\ntpath.py',
    'PYMODULE'),
-  ('warnings',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\warnings.py',
+  ('copyreg',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\copyreg.py',
    'PYMODULE'),
-  ('keyword',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\keyword.py',
+  ('stat',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\stat.py',
+   'PYMODULE'),
+  ('operator',
+   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\operator.py',
    'PYMODULE'),
   ('io',
    'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\io.py',
-   'PYMODULE'),
-  ('functools',
-   'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\functools.py',
    'PYMODULE'),
   ('traceback',
    'C:\\Users\\Petr\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\traceback.py',

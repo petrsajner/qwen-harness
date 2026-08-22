@@ -126,26 +126,38 @@ def _run_setup_console() -> bool:
 
 
 def _focus_window() -> None:
-    """Přines okno do popředí (WebView2 občas otevře okno v pozadí)."""
+    """Přines okno do popředí - robustně (Windows zakazují ukrást fokus,
+    proto TOPMOST-toggle trik; 3 pokusy, WebView2 okno se inicializuje pomalu)."""
     import ctypes
-    time.sleep(0.8)
+    import time as _t
+    _t.sleep(2.0)
     try:
         from ctypes import wintypes
-        user32 = ctypes.windll.user32
-        found: list[int] = []
+        u = ctypes.windll.user32
+        SWP_NOSIZE, SWP_NOMOVE = 0x0001, 0x0002
+        HWND_TOPMOST, HWND_NOTOPMOST = -1, -2
+        for _attempt in range(3):
+            found: list[int] = []
 
-        @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
-        def cb(h, l):
-            buf = ctypes.create_unicode_buffer(128)
-            user32.GetWindowTextW(h, buf, 128)
-            if "Qwen3.8-27B Harness" in buf.value:
-                found.append(h)
-            return True
+            @ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+            def cb(h, l):
+                buf = ctypes.create_unicode_buffer(128)
+                u.GetWindowTextW(h, buf, 128)
+                if "Qwen3.8-27B Harness" in buf.value:
+                    found.append(h)
+                return True
 
-        user32.EnumWindows(cb, 0)
-        for h in found:
-            user32.ShowWindow(h, 9)  # SW_RESTORE
-            user32.SetForegroundWindow(h)
+            u.EnumWindows(cb, 0)
+            if found:
+                for h in found:
+                    u.ShowWindow(h, 9)  # SW_RESTORE
+                    # TOPMOST → NOTOPMOST donutí okno vizuálně nahoru i bez focus práv
+                    u.SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
+                    u.SetWindowPos(h, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
+                    u.SetForegroundWindow(h)
+                    u.BringWindowToTop(h)
+                return
+            _t.sleep(1.0)
     except Exception:
         pass
 

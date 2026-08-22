@@ -31,7 +31,7 @@ BANNER = r"""
 """
 
 HELP = """[bold]Příkazy:[/bold]
-  /ws [cesta]            zobraz/nastav složku projektu (workspace)
+  /memory                zobraz trvalou paměť (globální + projektu)
   /model q4|q5           přepnutí modelu (restart serveru)
   /mode chat|agent|computer     režim práce
   /autonomy supervised|semi|auto   úroveň autonomie
@@ -282,6 +282,13 @@ class TUIApp:
                                 console.print(f"[red]{e}[/red]")
                         else:
                             console.print(f"Workspace: [bold]{self.agent.workspace}[/bold]")
+                    elif cmd == "/memory":
+                        from harness.memory import MemoryStore
+                        store = MemoryStore(self.cfg, self.agent.workspace)
+                        console.print(f"[bold]Globální paměť:[/bold] {store.global_path}")
+                        console.print(f"[bold]Projektová paměť:[/bold] "
+                                      f"{store.project_path() or '— (nastav /ws)'}")
+                        console.print(f"[dim]{store.context_block()[:1200]}[/dim]")
                     elif cmd == "/img":
                         p = Path(arg).expanduser()
                         if p.exists():

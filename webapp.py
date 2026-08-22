@@ -6,10 +6,20 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
+
+# pythonw (bez konzole) nemá stdout/stderr → redirect do logu, ať není tichá smrt
+if sys.stdout is None or sys.stderr is None:
+    _logdir = ROOT / "runtime"
+    _logdir.mkdir(parents=True, exist_ok=True)
+    _lf = open(_logdir / "webapp.log", "a", buffering=1, encoding="utf-8")
+    _lf.write(f"\n===== WEBAPP {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n")
+    sys.stdout = _lf
+    sys.stderr = _lf
 
 import gradio as gr
 
@@ -99,7 +109,8 @@ class AppState:
         })
 
     def new_session(self) -> None:
-        self.session = Session(cfg, system_prompt=self._system_prompt())
+        self.session = Session(cfg, system_prompt=self._system_prompt(),
+                               workspace=self.workspace)
         self.rebuild_agent()
         try:
             self.save_ui_state()
@@ -123,13 +134,8 @@ class AppState:
                 pass
 
     def _system_prompt(self) -> str:
-        base = system_prompt(self.mode)
-        if self.workspace:
-            base += (f"\n\nCurrent project workspace: {self.workspace}. "
-                     f"Relative paths in tools resolve against it. "
-                     f"The user keeps project sources and documents there - read them with tools "
-                     f"instead of asking the user to paste content.")
-        return base
+        from harness.prompts import build_system_prompt
+        return build_system_prompt(self.mode, cfg, self.workspace)
 
     def _refresh_system_prompt(self) -> None:
         """Aktualizuj system prompt existující session (změna workspace/režimu)."""
@@ -514,25 +520,104 @@ def handoff_to_new_session():
         yield history_view, gr.update(visible=False), refresh_status()
 
 
-def session_choices() -> list[str]:
-    return [f"{s['id']}  ({s['messages']} zpráv)" for s in Session.list_sessions(cfg)[:15]]
+def _rel_time(ts: float) -> str:
+    if not ts:
+        return ""
+    import time as _t
+    d = _t.time() - ts
+    if d < 90:
+        return "právě teď"
+    if d < 3600:
+        return f"před {int(d // 60)} min"
+    if d < 86400:
+        return f"před {int(d // 3600)} h"
+    return f"před {int(d // 86400)} d"
+
+
+# cache id podle řádku (Dataframe předává hodnoty, ne indexy meta)
+_sessions_rows: list[dict] = []
+
+
+def session_rows() -> list[list]:
+    """Řádky pro 🕘 Historie: seskupeno podle projektu (aktuální první)."""
+    global _sessions_rows
+    try:
+        sessions = Session.list_sessions(cfg)
+    except Exception:
+        _sessions_rows = []
+        return []
+    cur = state.workspace
+    sessions = [s for s in sessions if s["messages"] > 1 or s.get("workspace") == cur]
+    sessions.sort(key=lambda s: (s.get("workspace") != cur, s.get("workspace") or "",
+                                  -s["updated"]))
+    _sessions_rows = sessions
+    rows = []
+    last_ws = object()
+    for s in sessions:
+        ws = s.get("workspace")
+        proj = Path(ws).name if ws else "— bez projektu —"
+        marker = "▶ " if ws == cur else ""
+        rows.append([f"{marker}{proj}", s["title"][:70], _rel_time(s["updated"]),
+                     s["messages"], s["id"]])
+    return rows
+
+
+def sessions_refresh():
+    return gr.update(value=session_rows())
+
+
+def load_from_row(sel_evt, df_value):
+    """Klik na řádek tabulky historie → načti session (přepne i projekt)."""
+    try:
+        idx = sel_evt.index[0] if sel_evt and sel_evt.index is not None else None
+        if idx is None or idx >= len(_sessions_rows):
+            return
+        sid = _sessions_rows[idx]["id"]
+    except Exception:
+        return
+    yield from load_session_handler(sid)
+
+
+def rename_session(name: str):
+    """✏️ Přejmenuj aktuální chat."""
+    try:
+        name = (name or "").strip()
+        if not name:
+            gr.Warning("Zadej nový název chatu.")
+            return gr.update(), sessions_refresh()
+        state.session.meta["title"] = name[:100]
+        state.session._save_meta()
+        gr.Info(f"✅ Chat přejmenován: {name[:60]}")
+        return gr.update(value=""), sessions_refresh()
+    except Exception as e:
+        gr.Warning(f"❌ {e}")
+        return gr.update(), sessions_refresh()
 
 
 def load_session_handler(selection: str):
-    """Načte starou session podle výběru z dropdownu."""
+    """Načti session; pokud patří jinému projektu, přepni i workspace."""
     try:
         if not selection:
-            yield chat_view(), gr.update(visible=False), refresh_status()
+            yield chat_view(), gr.update(visible=False), refresh_status(), gr.update()
             return
-        sid = selection.split("  (")[0].strip()
-        state.session = Session.load(cfg, sid, state._system_prompt())
+        state.session = Session.load(cfg, selection, state._system_prompt())
         state.rebuild_agent()
-        state.save_ui_state()  # aktivní session přežije restart / F5
-        gr.Info(f"✅ Session načtena: {sid}")
-        yield chat_view(), gr.update(visible=False), refresh_status()
+        # session jiného projektu → přepni workspace (multi-project switching)
+        s_ws = state.session.meta.get("workspace")
+        if s_ws and s_ws != state.workspace:
+            try:
+                state.set_workspace(s_ws)
+                gr.Info(f"✅ Session načtena + workspace přepnuta na {Path(s_ws).name}")
+            except ValueError:
+                gr.Info(f"✅ Session načtena (workspace {s_ws} už neexistuje)")
+        else:
+            gr.Info(f"✅ Session načtena: {state.session.meta.get('title', selection)[:50]}")
+        state.save_ui_state()
+        yield chat_view(), gr.update(visible=False), refresh_status(), \
+            gr.update(choices=state.recent_ws, value=state.workspace)
     except Exception as e:
         gr.Warning(f"❌ {e}")
-        yield chat_view(), gr.update(visible=False), refresh_status()
+        yield chat_view(), gr.update(visible=False), refresh_status(), gr.update()
 
 
 def change_model(key: str):
@@ -590,6 +675,46 @@ def _check_ctx_warning() -> None:
         gr.Warning(f"📊 Kontext na {pct} % — auto-komprese proběhne při 85 %")
     elif prev < 85 <= pct:
         gr.Warning(f"📊 Kontext na {pct} % — blízko limitu! Zvaž 📦 Předej (souhrn do nové session)")
+
+
+def _memory_paths():
+    from harness.memory import MemoryStore
+    store = MemoryStore(cfg, Path(state.workspace) if state.workspace else None)
+    return store
+
+
+def load_memory_global() -> str:
+    try:
+        return _memory_paths().read("global")
+    except Exception:
+        return ""
+
+
+def load_memory_project() -> str:
+    try:
+        store = _memory_paths()
+        if store.project_path() is None:
+            return "(nastav workspace - pak se paměť projektu váže k němu)"
+        return store.read("project")
+    except Exception:
+        return ""
+
+
+def save_memory_handler(global_text: str, project_text: str):
+    """Ulož obě paměti (plná uživatelská kontrola) + občerstvi system prompt."""
+    try:
+        store = _memory_paths()
+        store.global_path.parent.mkdir(parents=True, exist_ok=True)
+        store.global_path.write_text(global_text, encoding="utf-8")
+        pp = store.project_path()
+        if pp is not None and not project_text.startswith("(nastav workspace"):
+            pp.write_text(project_text, encoding="utf-8")
+        state._refresh_system_prompt()
+        gr.Info("✅ Paměť uložena - model ji uvidí od další zprávy")
+        return gr.update(), gr.update()
+    except Exception as e:
+        gr.Warning(f"❌ {type(e).__name__}: {e}")
+        return gr.update(), gr.update()
 
 
 def refresh_status():
@@ -788,16 +913,53 @@ def build_ui() -> gr.Blocks:
                     ["xhigh", "medium", "low", "off"],
                     value=("off" if not state.thinking else state.reasoning_effort),
                     label="Přemýšlení", info="hloubka uvažování (rychlost ↔ kvalita)")
-            with gr.Row():
-                sessions_dd = gr.Dropdown(choices=session_choices(), label="Načíst starou session",
-                                          interactive=True, scale=4)
-                btn_load_session = gr.Button("📂 Načíst", size="sm", scale=1)
             settings_info = gr.Markdown("")
+
+        # --- 🕘 historie chatů: projekt → pojmenované sessions ---
+        with gr.Accordion("🕘 Historie chatů (podle projektu)", open=False):
+            sessions_df = gr.Dataframe(
+                headers=["Projekt", "Název chatu", "Aktualizováno", "Zprávy", "id"],
+                datatype=["str", "str", "str", "number", "str"],
+                value=session_rows, interactive=False, wrap=True,
+                column_widths=["16%", "44%", "12%", "8%", "20%"],
+                elem_id="sessions-df")
+            with gr.Row():
+                rename_tb = gr.Textbox(label="✏️ Přejmenovat aktuální chat",
+                                       placeholder="nový název…", scale=3, container=False)
+                btn_rename = gr.Button("Přejmenovat", size="sm", scale=1)
+                btn_hist_reload = gr.Button("🔄 Obnovit", size="sm", scale=1, min_width=90)
+            gr.Markdown("<small>Klikni na řádek = načte chat (u cizího projektu přepne i workspace). "
+                        "Nový chat: 🆕 Nová v hlavičce.</small>", elem_classes=["hdr"])
+
+        # --- 🧠 paměť modelu (uživatel má plnou kontrolu) ---
+        with gr.Accordion("🧠 Paměť modelu — globální / projektová", open=False):
+            gr.Markdown("Model paměti čte na začátku každé úlohy a po kompresi kontextu; "
+                        "sám si do nich ukládá fakta (nástrojem save_memory). Můžeš je tu "
+                        "libovolně upravit — tvoje úpravy vydrží.")
+            with gr.Row():
+                mem_global_tb = gr.Textbox(label="Globální paměť (všechny projekty)",
+                                           value=load_memory_global, lines=10, scale=1,
+                                           elem_id="mem-global")
+                mem_project_tb = gr.Textbox(label="Paměť projektu (aktuální workspace)",
+                                            value=load_memory_project, lines=10, scale=1,
+                                            elem_id="mem-project")
+            with gr.Row():
+                btn_mem_save = gr.Button("💾 Uložit paměti", variant="primary", size="sm")
+                btn_mem_reload = gr.Button("🔄 Načíst znovu", size="sm")
 
         # události - workspace
         # nativní dialog: queue=False, aby nezablokoval chat během otevřeného okna
         btn_ws_browse.click(browse_workspace, None, ws_pick, queue=False)
-        ws_pick.change(set_workspace_handler, ws_pick, ws_pick, queue=False)
+        ws_pick.change(set_workspace_handler, ws_pick, ws_pick, queue=False)\
+            .then(lambda: (load_memory_global(), load_memory_project()),
+                  None, [mem_global_tb, mem_project_tb], queue=False)\
+            .then(sessions_refresh, None, sessions_df, queue=False)
+
+        # události - paměť
+        btn_mem_save.click(save_memory_handler, [mem_global_tb, mem_project_tb],
+                           [mem_global_tb, mem_project_tb], queue=False)
+        btn_mem_reload.click(lambda: (load_memory_global(), load_memory_project()),
+                             None, [mem_global_tb, mem_project_tb], queue=False)
 
         # události - chat
         btn_send.click(send_message, [msg_in, files_in, chat],
@@ -810,12 +972,14 @@ def build_ui() -> gr.Blocks:
         btn_no.click(confirm_no, chat, [chat, confirm_row, status_box], queue=True)
         btn_stop_run.click(stop_run, chat, [chat, confirm_row, status_box], queue=True)
         btn_new.click(new_chat, None, [chat, confirm_row, status_box])\
-            .then(lambda: gr.update(choices=session_choices()), None, sessions_dd)
+            .then(sessions_refresh, None, sessions_df)
         btn_handoff.click(handoff_to_new_session, None, [chat, confirm_row, status_box], queue=True)\
-            .then(lambda: gr.update(choices=session_choices()), None, sessions_dd)
+            .then(sessions_refresh, None, sessions_df)
         btn_compress.click(compress_now, chat, [chat, confirm_row, status_box], queue=True)
-        btn_load_session.click(load_session_handler, sessions_dd, [chat, confirm_row, status_box])\
-            .then(lambda: gr.update(choices=session_choices()), None, sessions_dd)
+        sessions_df.select(load_from_row, sessions_df,
+                           [chat, confirm_row, status_box, ws_pick], queue=True)
+        btn_rename.click(rename_session, rename_tb, [rename_tb, sessions_df], queue=False)
+        btn_hist_reload.click(sessions_refresh, None, sessions_df, queue=False)
         model_dd.change(change_model, model_dd, status_box)
         mode_dd.change(change_mode, mode_dd, settings_info)
         autonomy_dd.change(change_autonomy, autonomy_dd, settings_info)

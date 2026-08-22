@@ -42,3 +42,19 @@ Action rules:
 
 def system_prompt(mode: str) -> str:
     return {"chat": CHAT, "agent": AGENT, "computer": COMPUTER}[mode]
+
+
+def build_system_prompt(mode: str, cfg, workspace) -> str:
+    """Kompletní system prompt: základ režimu + workspace + trvalá paměť.
+
+    Volá se při startu úlohy a po kompresi kontextu (paměť se vždy občerství).
+    """
+    from harness.memory import MemoryStore
+    base = system_prompt(mode)
+    if workspace:
+        base += (f"\n\nCurrent project workspace: {workspace}. "
+                 f"Relative paths in tools resolve against it. "
+                 f"The user keeps project sources and documents there - read them with tools "
+                 f"instead of asking the user to paste content.")
+    base += "\n\n" + MemoryStore(cfg, workspace).context_block()
+    return base

@@ -158,7 +158,8 @@ def test_registry_modes() -> None:
     chat = build_registry("chat")
     agent = build_registry("agent")
     computer = build_registry("computer")
-    check(len(chat.names()) == 0, "chat režim bez nástrojů")
+    check(set(chat.names()) == {"read_memory", "save_memory"},
+          f"chat režim: jen memory nástroje ({chat.names()})")
     check({"list_dir", "run_command", "view_image"} <= set(agent.names()),
           f"agent režim: fs+shell+vision ({len(agent.names())})")
     check({"screenshot", "click", "type_text", "press_key"} <= set(computer.names()),
@@ -336,6 +337,41 @@ def test_reasoning_effort_kwargs() -> None:
     check(_template_kwargs(Config(data, ROOT)) == {}, "neplatný effort → bez kwarg (default šablony)")
 
 
+def test_session_meta() -> None:
+    print("[session meta + historie]")
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        data = load_config().data
+        data["paths"]["sessions_dir"] = str(tmp / "sessions")
+        cfg = Config(data, root=ROOT)
+        # session s workspace + titulkem z prvního dotazu
+        s = Session(cfg, session_id="meta-a", system_prompt="SYS", workspace=r"C:\projekty\Alfa")
+        s.add("user", "Oprav bug v parseru")
+        s.add("assistant", "hotovo")
+        check(s.meta["title"] == "Oprav bug v parseru", "titulek z prvního dotazu")
+        check((tmp / "sessions/meta-a/meta.json").exists(), "meta.json uložen")
+        # protokolová poznámka se titulkem stát nesmí
+        s2 = Session(cfg, session_id="meta-b", system_prompt="SYS")
+        s2.add("user", "[TASK PROTOCOL - follow] abc")
+        s2.add("user", "Skutečný dotaz")
+        check(s2.meta["title"] == "Skutečný dotaz", "poznámka [..] se titulkem nestává")
+        # výpis s metadaty, setříděný podle updated
+        lst = Session.list_sessions(cfg)
+        check({x["id"] for x in lst} == {"meta-a", "meta-b"}, "list_sessions vidí obě")
+        a = next(x for x in lst if x["id"] == "meta-a")
+        check(a["workspace"] == r"C:\projekty\Alfa" and a["title"] == "Oprav bug v parseru",
+              "meta ve výpisu (workspace + titulek)")
+        check(lst[0]["id"] == "meta-b", "novější session první")
+        # stará session bez meta → titulek dohoní z první user zprávy
+        s3 = Session(cfg, session_id="meta-old", system_prompt="SYS")
+        s3.add("user", "Starý dotaz bez mety")
+        (tmp / "sessions/meta-old/meta.json").unlink()
+        loaded = Session.load(cfg, "meta-old")
+        check(loaded.meta["title"] == "Starý dotaz bez mety", "zpětná kompatibilita titulku")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 class LLMStub:
     """Fake LLM se scénářem - vrací předpřipravené odpovědi v pořadí."""
     def __init__(self, script=None):
@@ -471,6 +507,7 @@ if __name__ == "__main__":
     test_reasoning_effort_kwargs()
     test_shell_readonly()
     test_workspace()
+    test_session_meta()
     test_context_compression()
     test_communication_protocol()
     print(f"\n{'=' * 40}\nVÝSLEDEK: {PASS} ✓ / {FAIL} ✗")

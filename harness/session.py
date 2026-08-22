@@ -20,7 +20,8 @@ IMG_MIMES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", "
 
 
 class Session:
-    def __init__(self, cfg: Config, session_id: str | None = None, system_prompt: str | None = None):
+    def __init__(self, cfg: Config, session_id: str | None = None, system_prompt: str | None = None,
+                 workspace: str | None = None):
         self.cfg = cfg
         self.id = session_id or time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
         self.dir = cfg.path("paths.sessions_dir") / self.id
@@ -30,6 +31,8 @@ class Session:
         # uživatel kompletní messages (UI + JSONL zůstávají nedotčené)
         self.compression: dict[str, Any] | None = None  # {"cut": int, "summary": str}
         self.compression_rev = 0  # inkrement při každé změně (pro UI marker)
+        self.meta: dict[str, Any] = {"workspace": workspace, "title": None,
+                                     "created": time.time(), "updated": time.time()}
         if system_prompt:
             self.add("system", system_prompt)
 
@@ -48,6 +51,12 @@ class Session:
             msg["images"] = [str(self._store_image(p)) for p in images]
         self.messages.append(msg)
         self._append_jsonl(msg)
+        # 🧾 meta: titulek z prvního uživatelského dotazu + čas aktualizace
+        if role == "user" and not self.meta.get("title") and isinstance(content, str) \
+                and content.strip() and not content.startswith("["):
+            self.meta["title"] = content.strip().replace("\n", " ")[:70]
+        self.meta["updated"] = time.time()
+        self._save_meta()
         return msg
 
     def _store_image(self, path: Path) -> Path:
@@ -223,6 +232,26 @@ class Session:
     def _compression_file(self) -> Path:
         return self.dir / "compression.json"
 
+    @property
+    def _meta_file(self) -> Path:
+        return self.dir / "meta.json"
+
+    def _save_meta(self) -> None:
+        try:
+            self.dir.mkdir(parents=True, exist_ok=True)
+            self._meta_file.write_text(
+                json.dumps(self.meta, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
+
+    def _load_meta(self) -> None:
+        try:
+            self.meta = json.loads(self._meta_file.read_text(encoding="utf-8"))
+            self.meta.setdefault("workspace", None)
+            self.meta.setdefault("title", None)
+        except (OSError, ValueError):
+            pass
+
     def _save_compression(self) -> None:
         if self.compression:
             self.dir.mkdir(parents=True, exist_ok=True)
@@ -245,6 +274,14 @@ class Session:
         if not f.exists():
             raise FileNotFoundError(f"Session {session_id} nenalezena ({f})")
         s.messages = [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines() if line.strip()]
+        s._load_meta()
+        # titulek pro starší sessions bez meta
+        if not s.meta.get("title"):
+            for m in s.messages:
+                if m["role"] == "user" and isinstance(m.get("content"), str) \
+                        and m["content"].strip() and not m["content"].startswith("["):
+                    s.meta["title"] = m["content"].strip().replace("\n", " ")[:70]
+                    break
         s._load_compression()
         if system_prompt:
             if s.messages and s.messages[0]["role"] == "system":
@@ -254,13 +291,38 @@ class Session:
         return s
 
     @staticmethod
-    def list_sessions(cfg: Config) -> list[dict]:
+    def list_sessions(cfg: Config, limit: int = 60) -> list[dict]:
+        """Sessions s metadaty (workspace, titulek, časy) - nové první."""
         base = cfg.path("paths.sessions_dir")
         if not base.exists():
             return []
-        out = []
-        for d in sorted(base.iterdir(), reverse=True):
-            if d.is_dir() and (d / "messages.jsonl").exists():
-                n = sum(1 for _ in open(d / "messages.jsonl", encoding="utf-8"))
-                out.append({"id": d.name, "messages": n})
-        return out
+        out: list[dict] = []
+        for d in base.iterdir():
+            if not (d.is_dir() and (d / "messages.jsonl").exists()):
+                continue
+            n = sum(1 for _ in open(d / "messages.jsonl", encoding="utf-8"))
+            meta: dict = {}
+            try:
+                meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                pass
+            title = meta.get("title")
+            if not title:
+                try:
+                    for line in open(d / "messages.jsonl", encoding="utf-8"):
+                        m = json.loads(line)
+                        if m.get("role") == "user" and isinstance(m.get("content"), str) \
+                                and m["content"].strip() and not m["content"].startswith("["):
+                            title = m["content"].strip().replace("\n", " ")[:70]
+                            break
+                except (OSError, ValueError):
+                    title = None
+            out.append({
+                "id": d.name,
+                "messages": n,
+                "workspace": meta.get("workspace"),
+                "title": title or "(bez titulku)",
+                "updated": float(meta.get("updated") or 0) or 0,
+            })
+        out.sort(key=lambda s: s["updated"], reverse=True)
+        return out[:limit]

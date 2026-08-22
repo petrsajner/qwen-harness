@@ -149,6 +149,17 @@ class Agent:
         return self.mode != "chat"
 
     # ------------------------------------------------------------------
+    def refresh_system_prompt(self) -> None:
+        """Občerstvi system prompt (režim + workspace + trvalá paměť).
+
+        Volá se na začátku úlohy a po kompresi - model si tak vždy "přečte"
+        aktuální globální i projektovou paměť.
+        """
+        from harness.prompts import build_system_prompt
+        if self.session.messages and self.session.messages[0]["role"] == "system":
+            self.session.messages[0]["content"] = build_system_prompt(
+                self.mode, self.cfg, self.ctx.workspace)
+
     def new_task(self, text: str, images: list[Path] | None = None) -> None:
         """Zaloguje uživatelský vstup a resetuje počítadla."""
         self._steps = 0
@@ -159,6 +170,8 @@ class Agent:
         self._overflow_retried = False
         self.safety.new_task()
         self.session.add("user", text, images=images)
+        # 🧠 paměť do system promptu (start úlohy)
+        self.refresh_system_prompt()
         if self.tools_enabled:
             # jsou-staré protokolové poznámky → jedna čerstvá
             # (poznámky jdou jako user-role: Qwen šablona zakazuje system uprostřed konverzace)
@@ -270,6 +283,8 @@ class Agent:
             if not ok:
                 self.session.trim_to_budget(int(limit * 0.5))
             new_est = self.session.estimate_context_tokens()
+            # 🧠 po kompresi si model znovu "přečte" aktuální paměť
+            self.refresh_system_prompt()
             self.emit("info", f"📦 Kontext komprimován: ~{est} → ~{new_est} tokenů (historie v UI zůstává)")
         except Exception as e:
             self.session.trim_to_budget(int(limit * 0.5))
@@ -305,8 +320,8 @@ class Agent:
         # 2b) auto-komprese kontextu (příliš dlouhá konverzace)
         self._maybe_compress()
 
-        # 3) LLM volání
-        tools = self.registry.schemas() if self.tools_enabled else None
+        # 3) LLM volání (memory nástroje má i chat režim)
+        tools = self.registry.schemas() if self.registry.names() else None
         try:
             res = self.llm.stream(
                 self.session.to_api_messages(),
@@ -397,9 +412,10 @@ class Agent:
 
 
 def build_registry(mode: str) -> ToolRegistry:
-    """Postav registry nástrojů podle režimu."""
-    from harness.tools import computer, fs, shell, vision
+    """Postav registry nástrojů podle režimu (memory nástroje ve všech režimech)."""
+    from harness.tools import computer, fs, memory, shell, vision
     reg = ToolRegistry()
+    memory.register_memory_tools(reg)  # chat má alespoň paměť
     if mode == "chat":
         return reg
     fs.register_fs_tools(reg)
