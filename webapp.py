@@ -440,8 +440,6 @@ def send_message(message: str, files, history: list[dict]):
         history.append({"role": "user", "content": shown})
         yield history, gr.update(visible=False), refresh_status()
         state.agent.new_task(message.strip() or "Please analyze the attached image(s).", images=imgs)
-        # session si osvojí aktuální projekt (objeví se v jeho historii)
-        state.session.adopt_workspace(state.workspace)
         yield from _run_steps(history)
     except Exception as e:
         history.append({"role": "assistant", "content": _error_message(e)})
@@ -762,7 +760,7 @@ def chat_choices() -> list[tuple[str, str]]:
     try:
         cur = state.workspace
         sessions = [s for s in Session.list_sessions(cfg, limit=100)
-                    if (s.get("workspace") == cur) or s["id"] == state.session.id]
+                    if s.get("workspace") == cur]
         sessions.sort(key=lambda s: s["updated"], reverse=True)
         out = []
         for s in sessions[:25]:
@@ -796,9 +794,9 @@ def _del_state(armed: bool = False):
 
 def update_chats_radio():
     """Aktualizuj oba seznamy chatů + stav mazání (3 výstupy)."""
-    cur_noproj = state.session.id if not state.session.meta.get("workspace") else None
-    return (gr.update(choices=chat_choices(), value=state.session.id),
-            gr.update(choices=noproj_chat_choices(), value=cur_noproj),
+    in_proj = bool(state.session.meta.get("workspace"))
+    return (gr.update(choices=chat_choices(), value=state.session.id if in_proj else None),
+            gr.update(choices=noproj_chat_choices(), value=None if in_proj else state.session.id),
             _del_state(False))
 
 
@@ -1368,9 +1366,11 @@ def build_ui() -> gr.Blocks:
 
         # F5: aktuální konverzace
         def on_page_load():
-            return chat_view(), gr.update(visible=False), refresh_status()
+            r1, r2, ds = update_chats_radio()
+            return (chat_view(), gr.update(visible=False), refresh_status(), r1, r2, ds)
 
-        ui.load(on_page_load, None, [chat, confirm_row, status_box])
+        ui.load(on_page_load, None,
+                [chat, confirm_row, status_box, chats_radio, noproj_radio, del_state])
 
         # živý status (⏳ načítám model → 🟢) každých 5 s
         if hasattr(gr, "Timer"):
