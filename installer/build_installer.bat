@@ -2,10 +2,15 @@
 rem ============================================================
 rem  Build instalatoru QwenHarness (Inno Setup 6)
 rem  - najde ISCC, pripadne doinstaluje Inno Setup pres winget
-rem  - vysledek: dist\QwenHarness-Setup-1.0.0.exe
+rem  - verzi cte z installer\version.txt
 rem ============================================================
 setlocal
 cd /d "%~dp0"
+
+set "VERFILE=version.txt"
+if not exist "%VERFILE%" ( echo [CHYBA] Chybi %VERFILE%. & pause & exit /b 1 )
+set /p VERSION=<"%VERFILE%"
+set VERSION=%VERSION: =%
 
 set "ISCC="
 if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
@@ -27,9 +32,9 @@ if not defined ISCC (
 )
 
 echo [BUILD] Kompiluji instalator (%ISCC%)...
-"%ISCC%" "qwen-harness.iss"
+"%ISCC%" "/DMyAppVersion=%VERSION%" "qwen-harness.iss"
 if errorlevel 1 ( echo [CHYBA] Kompilace selhala. & pause & exit /b 1 )
 
 echo.
-echo [BUILD] HOTOVO: dist\QwenHarness-Setup-1.0.0.exe
+echo [BUILD] HOTOVO: dist\QwenHarness-Setup-%VERSION%.exe
 pause

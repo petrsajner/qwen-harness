@@ -5,6 +5,7 @@ Používá se z CLI (scripts/server.py), TUI i web UI.
 from __future__ import annotations
 
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -13,6 +14,7 @@ import requests
 from harness.config import Config
 
 HEALTH_TIMEOUT = 900  # s - první načtení ~17-20GB modelu z disku chvíli trvá
+_start_lock = threading.Lock()
 
 
 def pid_file(cfg: Config) -> Path:
@@ -27,11 +29,14 @@ def health(cfg: Config, timeout: float = 3.0) -> bool:
         return False
 
 
-def wait_health(cfg: Config, timeout: float = HEALTH_TIMEOUT) -> bool:
+def wait_health(cfg: Config, timeout: float = HEALTH_TIMEOUT,
+                proc: subprocess.Popen | None = None) -> bool:
     t0 = time.time()
     while time.time() - t0 < timeout:
         if health(cfg):
             return True
+        if proc is not None and proc.poll() is not None:
+            return False
         time.sleep(2)
     return False
 
@@ -69,15 +74,42 @@ def server_state(cfg: Config) -> str:
     """
     if health(cfg):
         return "running"
-    if pid_file(cfg).exists():
+    if _managed_process(cfg) is not None:
         return "starting"
     return "down"
 
 
 def running_model(cfg: Config) -> str | None:
+    record = _pid_record(cfg)
+    return record[0] if record and _managed_process(cfg) is not None else None
+
+
+def _pid_record(cfg: Config) -> tuple[str, int] | None:
     try:
-        return pid_file(cfg).read_text(encoding="utf-8").strip().split(":")[0] or None
+        model, raw_pid = pid_file(cfg).read_text(encoding="utf-8").strip().split(":", 1)
+        return model, int(raw_pid)
     except (OSError, ValueError, IndexError):
+        return None
+
+
+def _managed_process(cfg: Config):
+    """Vrátí živý llama-server z PID souboru; stale záznam rovnou uklidí."""
+    record = _pid_record(cfg)
+    if record is None:
+        pid_file(cfg).unlink(missing_ok=True)
+        return None
+    _, pid = record
+    try:
+        import psutil
+        proc = psutil.Process(pid)
+        if not proc.is_running() or proc.status() == psutil.STATUS_ZOMBIE:
+            raise psutil.NoSuchProcess(pid)
+        if (proc.name() or "").lower() != "llama-server.exe":
+            pid_file(cfg).unlink(missing_ok=True)
+            return None
+        return proc
+    except Exception:
+        pid_file(cfg).unlink(missing_ok=True)
         return None
 
 
@@ -132,6 +164,12 @@ def stop(cfg: Config, quiet: bool = False) -> bool:
 
 
 def start(cfg: Config, model_key: str | None = None, ctx_size: int | None = None) -> int:
+    with _start_lock:
+        return _start_locked(cfg, model_key, ctx_size)
+
+
+def _start_locked(cfg: Config, model_key: str | None = None,
+                  ctx_size: int | None = None) -> int:
     model_key = model_key or cfg.model_key()
     if model_key not in cfg.data["models"]:
         print(f"[CHYBA] Neznámý model '{model_key}'. Dostupné: {', '.join(cfg.data['models'])}")
@@ -182,19 +220,25 @@ def start(cfg: Config, model_key: str | None = None, ctx_size: int | None = None
     log_path.parent.mkdir(parents=True, exist_ok=True)
     logf = open(log_path, "ab", buffering=0)
     logf.write(f"\n===== START {model_key} {time.strftime('%Y-%m-%d %H:%M:%S')} =====\n".encode())
-    proc = subprocess.Popen(
-        argv, stdout=logf, stderr=subprocess.STDOUT,
-        creationflags=subprocess.CREATE_NO_WINDOW,
-        cwd=str(exe.parent),
-    )
+    try:
+        proc = subprocess.Popen(
+            argv, stdout=logf, stderr=subprocess.STDOUT,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            cwd=str(exe.parent),
+        )
+    finally:
+        logf.close()
     pid_file(cfg).write_text(f"{model_key}:{proc.pid}", encoding="utf-8")
     print(f"[START] model={model_key}  ctx={ctx}  pid={proc.pid}  → {cfg.base_url}")
     print(f"        log: {log_path}")
     print("[ČEKÁM] načítám model do VRAM ...", end="", flush=True)
     t0 = time.time()
-    if not wait_health(cfg):
+    if not wait_health(cfg, proc=proc):
         print(f"\n[CHYBA] Server se nedostavil do {HEALTH_TIMEOUT}s. Poslední řádky logu:")
         print(log_path.read_bytes()[-2000:].decode(errors="replace"))
+        if proc.poll() is None:
+            proc.kill()
+        pid_file(cfg).unlink(missing_ok=True)
         return 1
     print(f" OK ({time.time() - t0:.0f}s)")
     print("   ", vram_str())

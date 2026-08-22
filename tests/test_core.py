@@ -97,6 +97,15 @@ def test_session() -> None:
         check(len(img_msg) == 1 and any(p["type"] == "image_url" for p in img_msg[0]["content"]),
               "obrázek renderován jako image_url data URL")
 
+        original_data_url = Session.__dict__["_data_url"]
+        try:
+            Session._data_url = staticmethod(lambda _path: (_ for _ in ()).throw(
+                AssertionError("estimate nesmí enkódovat obrázky")))
+            check(s.estimate_context_tokens() > Session.IMAGE_TOKENS,
+                  "odhad kontextu nečte ani base64-enkóduje obrázek")
+        finally:
+            Session._data_url = original_data_url
+
         loaded = Session.load(cfg, "test-session")
         check(len(loaded.messages) == 5, f"roundtrip zpráv (={len(loaded.messages)})")
     finally:
@@ -242,6 +251,15 @@ def test_shell_readonly() -> None:
 
 def test_context_compression() -> None:
     print("[ctx komprese - ne-destruktivní]")
+    from harness.context import render_messages_text
+
+    rendered = render_messages_text([
+        {"role": "user", "content": "HEAD " + "a" * 120},
+        {"role": "assistant", "content": "MIDDLE " + "b" * 500},
+        {"role": "user", "content": "TAIL-CONTEXT " + "c" * 120},
+    ], max_chars=240)
+    check("HEAD" in rendered and "TAIL-CONTEXT" in rendered and len(rendered) <= 240,
+          "dlouhý transcript zachová začátek i nejnovější konec")
     tmp = Path(tempfile.mkdtemp())
     try:
         data = load_config().data
@@ -320,7 +338,7 @@ def test_context_compression() -> None:
 
 def test_reasoning_effort_kwargs() -> None:
     print("[reasoning effort]")
-    from harness.llm import _template_kwargs
+    from harness.llm import LLMClient, _template_kwargs
     data = load_config().data
     data["thinking"] = True
     data["reasoning_effort"] = "low"
@@ -335,6 +353,95 @@ def test_reasoning_effort_kwargs() -> None:
     data["thinking"] = True
     data["reasoning_effort"] = "blbost"
     check(_template_kwargs(Config(data, ROOT)) == {}, "neplatný effort → bez kwarg (default šablony)")
+
+    class CaptureCompletions:
+        def __init__(self):
+            self.params = None
+
+        def create(self, **params):
+            self.params = params
+            return []
+
+    data["thinking"] = False
+    cfg = Config(data, ROOT)
+    llm = LLMClient.__new__(LLMClient)
+    llm.cfg = cfg
+    llm.model_name = "local-model"
+    completions = CaptureCompletions()
+    llm.client = type("Client", (), {
+        "chat": type("Chat", (), {"completions": completions})(),
+    })()
+    llm.stream([{"role": "user", "content": "test"}])
+    extra = completions.params["extra_body"]
+    check(extra.get("top_k") == 20, "stream request zachová top_k")
+    check(extra.get("chat_template_kwargs") == {"thinking": False},
+          "stream request zachová thinking/reasoning nastavení")
+
+
+def test_runtime_lifecycle_helpers() -> None:
+    print("[runtime lifecycle]")
+    import socket
+    import time
+    from harness import servermgmt
+    from launcher.launcher_app import _free_web_port
+
+    tmp = Path(tempfile.mkdtemp())
+    original_health = servermgmt.health
+    try:
+        data = load_config().data
+        data["paths"]["runtime_dir"] = str(tmp / "runtime")
+        data["server"]["port"] = 65534
+        cfg = Config(data, root=ROOT)
+        pf = servermgmt.pid_file(cfg)
+        pf.parent.mkdir(parents=True)
+        pf.write_text("q4:99999999", encoding="utf-8")
+        servermgmt.health = lambda *_args, **_kwargs: False
+        check(servermgmt.server_state(cfg) == "down" and not pf.exists(),
+              "stale PID se uklidí a server je down")
+
+        class DeadProcess:
+            @staticmethod
+            def poll():
+                return 1
+
+        started = time.monotonic()
+        check(not servermgmt.wait_health(cfg, timeout=10, proc=DeadProcess())
+              and time.monotonic() - started < 1,
+              "wait_health skončí hned po pádu procesu")
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
+            occupied.bind(("127.0.0.1", 0))
+            occupied.listen(1)
+            busy_port = occupied.getsockname()[1]
+            check(_free_web_port(busy_port) != busy_port,
+                  "launcher přeskočí obsazený Web UI port")
+    finally:
+        servermgmt.health = original_health
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_streaming_bridge() -> None:
+    print("[streaming bridge]")
+    from harness.streaming import StreamHub, step_threaded
+
+    hub = StreamHub()
+    hub.on_event("reasoning", "uva")
+    hub.on_event("reasoning", "žuji")
+    hub.on_event("text", "ho")
+    hub.on_event("text", "tovo")
+    text, reasoning, rev, _ = hub.snapshot()
+    check(text == "hotovo" and reasoning == "uvažuji" and rev == 4,
+          "StreamHub skládá fragmenty bez ztráty pořadí")
+
+    class FakeAgent:
+        @staticmethod
+        def step(approve=None):
+            return f"step:{approve}"
+
+    thread, box = step_threaded(FakeAgent(), True)
+    thread.join(timeout=2)
+    check(not thread.is_alive() and box.get("r") == "step:True",
+          "worker bridge vrátí výsledek agent.step")
 
 
 def test_session_meta() -> None:
@@ -361,6 +468,8 @@ def test_session_meta() -> None:
         a = next(x for x in lst if x["id"] == "meta-a")
         check(a["workspace"] == r"C:\projekty\Alfa" and a["title"] == "Oprav bug v parseru",
               "meta ve výpisu (workspace + titulek)")
+        check(a["messages"] == s.meta["message_count"] == len(s.messages),
+              "počet zpráv se čte z meta indexu")
         check(lst[0]["id"] == "meta-b", "novější session první")
         # stará session bez meta → titulek dohoní z první user zprávy
         s3 = Session(cfg, session_id="meta-old", system_prompt="SYS")
@@ -590,6 +699,8 @@ if __name__ == "__main__":
     test_registry_modes()
     test_parse_args()
     test_reasoning_effort_kwargs()
+    test_runtime_lifecycle_helpers()
+    test_streaming_bridge()
     test_shell_readonly()
     test_workspace()
     test_session_meta()

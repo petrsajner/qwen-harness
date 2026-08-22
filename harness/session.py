@@ -11,6 +11,7 @@ import mimetypes
 import shutil
 import time
 import uuid
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +62,7 @@ class Session:
                 and content.strip() and not content.startswith("["):
             self.meta["title"] = content.strip().replace("\n", " ")[:70]
         self.meta["updated"] = time.time()
+        self.meta["message_count"] = len(self.messages)
         self._save_meta()
         return msg
 
@@ -116,6 +118,13 @@ class Session:
     @staticmethod
     def _data_url(path: str | Path) -> str:
         path = Path(path)
+        stat = path.stat()
+        return Session._cached_data_url(str(path), stat.st_mtime_ns, stat.st_size)
+
+    @staticmethod
+    @lru_cache(maxsize=16)
+    def _cached_data_url(path_str: str, _mtime_ns: int, _size: int) -> str:
+        path = Path(path_str)
         mime = IMG_MIMES.get(path.suffix.lower(), "image/png")
         b64 = base64.b64encode(path.read_bytes()).decode()
         return f"data:{mime};base64,{b64}"
@@ -126,9 +135,12 @@ class Session:
     def estimate_context_tokens(self) -> int:
         """Odhad tokenů skutečně odesílaných do API (po omezení obrázků)."""
         import json as _json
+        view = self._view_messages()
+        image_paths = [p for m in view for p in m.get("images", [])]
+        recent = set(image_paths[-8:])
         total = 0
-        for m in self.to_api_messages():
-            c = m.get("content")
+        for m in view:
+            c = m.get("content") or ""
             if isinstance(c, str):
                 total += len(c)
             elif isinstance(c, list):
@@ -138,6 +150,7 @@ class Session:
                             total += len(str(part.get("text", "")))
                         elif part.get("type") == "image_url":
                             total += self.IMAGE_TOKENS * 4  # v chars, přepočet níže
+            total += sum(1 for p in m.get("images", []) if p in recent) * self.IMAGE_TOKENS * 4
             if m.get("tool_calls"):
                 total += len(_json.dumps(m["tool_calls"], ensure_ascii=False))
         # ~3.6 znaku na token (mix češtiny, kódu, JSON)
@@ -156,8 +169,37 @@ class Session:
             n += len(_json.dumps(m["tool_calls"], ensure_ascii=False)) * 10 // 36
         return n
 
+    def compression_cut(self, min_keep: int = 6,
+                        keep_tokens: int | None = None) -> int | None:
+        """Najde user hranici, od které se má zachovat živý ocas konverzace."""
+        msgs = self.messages
+        head_len = 1 if msgs and msgs[0]["role"] == "system" else 0
+        if len(msgs) - head_len <= min_keep:
+            return None
+        cut = None
+        if keep_tokens is not None:
+            acc = 0
+            for i in range(len(msgs) - 1, head_len - 1, -1):
+                acc += self._msg_tokens(msgs[i])
+                if acc > keep_tokens:
+                    break
+                if msgs[i].get("role") == "user" and (len(msgs) - i) >= min_keep:
+                    cut = i
+        else:
+            rest = msgs[head_len:]
+            for i in range(len(rest) - min_keep, 0, -1):
+                if rest[i]["role"] == "user":
+                    cut = head_len + i
+                    break
+        if cut is None or cut <= head_len:
+            return None
+        if self.compression and cut <= self.compression["cut"]:
+            return None
+        return cut
+
     def compress_to_summary(self, summary: str, min_keep: int = 6,
-                            keep_tokens: int | None = None) -> bool:
+                            keep_tokens: int | None = None,
+                            cut: int | None = None) -> bool:
         """Zaregistruj kompresi kontextu (NE-destruktivně).
 
         Zprávy zůstávají v self.messages (UI + JSONL nedotčené); model od teď
@@ -167,28 +209,8 @@ class Session:
         keep_tokens: cílový rozpočet ponechané části (největší výhodnější cut,
         který se do něj vejde). Bez něj platí jen min_keep zpráv.
         """
-        msgs = self.messages
-        head_len = 1 if msgs and msgs[0]["role"] == "system" else 0
-        if len(msgs) - head_len <= min_keep:
-            return False
-        cut = None
-        if keep_tokens is not None:
-            acc = 0
-            for i in range(len(msgs) - 1, head_len - 1, -1):
-                acc += self._msg_tokens(msgs[i])
-                if acc > keep_tokens:
-                    break
-                if msgs[i].get("role") == "user" and (len(msgs) - i) >= min_keep:
-                    cut = i  # nejhlubší hranice, jejíž ocas se vejde do rozpočtu
-        else:
-            rest = msgs[head_len:]
-            for i in range(len(rest) - min_keep, 0, -1):
-                if rest[i]["role"] == "user":
-                    cut = head_len + i
-                    break
-        if cut is None or cut <= head_len:
-            return False
-        if self.compression and cut <= self.compression["cut"]:
+        cut = cut if cut is not None else self.compression_cut(min_keep, keep_tokens)
+        if cut is None:
             return False  # nový cut musí být za starým
         self.compression = {"cut": cut, "summary": summary}
         self.compression_rev += 1
@@ -342,12 +364,15 @@ class Session:
         for d in base.iterdir():
             if not (d.is_dir() and (d / "messages.jsonl").exists()):
                 continue
-            n = sum(1 for _ in open(d / "messages.jsonl", encoding="utf-8"))
             meta: dict = {}
             try:
                 meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 pass
+            try:
+                n = int(meta["message_count"])
+            except (KeyError, TypeError, ValueError):
+                n = sum(1 for _ in open(d / "messages.jsonl", encoding="utf-8"))
             title = meta.get("title")
             if not title:
                 try:

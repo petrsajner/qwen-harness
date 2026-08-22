@@ -4,6 +4,9 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import sys
+from functools import lru_cache
+from pathlib import Path
 
 from harness.safety import Risk
 from harness.tools.base import AgentContext, Tool, truncate
@@ -19,6 +22,47 @@ BLOCKED_PATTERNS = [
     r"shutdown\s+/s",
     r"Remove-Item\s+-Recurse\s+-Force\s+[A-Z]:\\\s*$",
 ]
+
+
+def _is_windows_bash_shim(path: Path) -> bool:
+    normalized = str(path).replace("/", "\\").lower()
+    return normalized.endswith("\\windows\\system32\\bash.exe") \
+        or "\\windowsapps\\bash.exe" in normalized
+
+
+@lru_cache(maxsize=1)
+def find_bash() -> str | None:
+    """Najde skutečný Git Bash na Windows, jinak běžný bash z PATH."""
+    if sys.platform != "win32":
+        return shutil.which("bash")
+
+    candidates: list[Path] = []
+    git = shutil.which("git")
+    if git:
+        git_path = Path(git)
+        candidates.extend([
+            git_path.parent.parent / "bin" / "bash.exe",
+            git_path.parent / "bash.exe",
+        ])
+
+    import os
+    for env_name in ("ProgramFiles", "ProgramFiles(x86)", "LocalAppData"):
+        base = os.environ.get(env_name)
+        if not base:
+            continue
+        root = Path(base)
+        if env_name == "LocalAppData":
+            root /= "Programs"
+        candidates.append(root / "Git" / "bin" / "bash.exe")
+
+    discovered = shutil.which("bash")
+    if discovered:
+        candidates.append(Path(discovered))
+
+    for candidate in candidates:
+        if candidate.is_file() and not _is_windows_bash_shim(candidate):
+            return str(candidate)
+    return None
 
 
 # Příkazy, které pouze čtou (nepotřebují potvrzení ani v supervised režimu).
@@ -98,8 +142,8 @@ class RunCommandTool(Tool):
         elif shell == "cmd":
             argv = ["cmd", "/c", command]
         else:  # bash (Git Bash)
-            bash = shutil.which("bash") or r"C:\Program Files\Git\bin\bash.exe"
-            if not shutil.which("bash") and not shutil.which(bash):
+            bash = find_bash()
+            if not bash:
                 return "ERROR: bash not found - use shell='powershell' instead"
             argv = [bash, "-lc", command]
 

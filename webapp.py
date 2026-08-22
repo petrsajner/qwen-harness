@@ -30,6 +30,7 @@ from harness.llm import LLMClient
 from harness.prompts import system_prompt
 from harness.safety import SafetyPolicy
 from harness.session import Session, IMG_MIMES
+from harness.streaming import StreamHub, step_threaded
 from harness import servermgmt
 
 cfg = load_config()
@@ -181,49 +182,6 @@ class AppState:
         self.save_ui_state()
 
 
-# ------------------------------------------------------------- live streaming
-import queue as _queue
-import threading as _threading
-
-
-class StreamHub:
-    """Sbírá stream události z agenta (volané z worker vlákna) pro live render."""
-
-    def __init__(self) -> None:
-        import time as _t
-        self._lock = _threading.Lock()
-        self.text = ""
-        self.reasoning = ""
-        self.rev = 0  # inkrement při každé změně
-        self.last_activity = _t.time()  # poslední jakákoli událost (tokeny i nástroje)
-
-    def reset(self) -> None:
-        import time as _t
-        with self._lock:
-            self.text = ""
-            self.reasoning = ""
-            self.rev += 1
-            self.last_activity = _t.time()
-
-    def on_event(self, kind: str, payload) -> None:
-        import time as _t
-        with self._lock:
-            if kind == "text" and payload:
-                self.text += payload
-                self.rev += 1
-                self.last_activity = _t.time()
-            elif kind == "reasoning" and payload:
-                self.reasoning += payload
-                self.rev += 1
-                self.last_activity = _t.time()
-            elif kind in ("tool_start", "tool_result"):
-                self.last_activity = _t.time()
-
-    def snapshot(self) -> tuple[str, str, int, float]:
-        with self._lock:
-            return self.text, self.reasoning, self.rev, self.last_activity
-
-
 def _live_message(hub: StreamHub, elapsed_s: int = 0) -> dict:
     """Živá zpráva: streamovaný text, nebo 'uvažuji' s poctivým indikátorem aktivity.
 
@@ -239,21 +197,6 @@ def _live_message(hub: StreamHub, elapsed_s: int = 0) -> dict:
     head = f"💭 <i>uvažování… ({elapsed_s}s)</i>"
     return {"role": "assistant",
             "content": (head + f" <small>{tail}</small>" if tail else head) + cursor}
-
-
-def _step_threaded(agent, approve: bool | None) -> tuple:
-    """Spusť jeden agent.step ve vlákně; vrať (result, exception)."""
-    box: dict = {}
-
-    def _worker():
-        try:
-            box["r"] = agent.step(approve=approve)
-        except BaseException as e:  # noqa: BLE001 - posíláme ven
-            box["e"] = e
-
-    t = _threading.Thread(target=_worker, daemon=True, name="agent-step")
-    t.start()
-    return t, box
 
 
 state = AppState()
@@ -352,7 +295,7 @@ def _run_steps(history: list[dict], approve: bool | None = None):
         seen_rev = state.session.compression_rev
         while True:
             state.hub.reset()
-            t, box = _step_threaded(state.agent, approve if first else None)
+            t, box = step_threaded(state.agent, approve if first else None)
             first = False
             live_idx: int | None = None
             last_rev = -1
@@ -686,9 +629,9 @@ def _ctx_pct() -> int:
         return 0
 
 
-def _check_ctx_warning() -> None:
+def _check_ctx_warning(pct: int | None = None) -> None:
     """Toast varování při překročení prahů kontextu (jen při přechodu, ne opakovaně)."""
-    pct = _ctx_pct()
+    pct = _ctx_pct() if pct is None else pct
     prev = getattr(state, "last_ctx_pct", 0)
     state.last_ctx_pct = pct
     if prev < 70 <= pct < 85:
@@ -1038,15 +981,16 @@ def refresh_status():
     else:
         line1 = f"🔴 {model_name} — server stojí"
         line2 = "🖥️ GPU VRAM: —"
+    pct = 0
     try:
         est = state.session.estimate_context_tokens()
         limit = int(cfg.data["models"].get(key, {}).get("ctx_size", 32768))
         pct = min(100, est * 100 // max(limit, 1))
-        warn = " 🟠" if pct >= 70 else (" 🔴" if pct >= 85 else "")
+        warn = " 🔴" if pct >= 85 else (" 🟠" if pct >= 70 else "")
         line3 = f"📊 ctx ~{est / 1000:.1f}k / {limit // 1000}k tokenů{warn}"
     except Exception:
         line3 = "📊 ctx —"
-    _check_ctx_warning()
+    _check_ctx_warning(pct)
     return f"{line1}<br>{line2}<br>{line3}"
 
 
@@ -1501,7 +1445,7 @@ if __name__ == "__main__":
     import webbrowser
 
     host = cfg.web["host"]
-    port = int(cfg.web["port"])
+    port = int(os.environ.get("QWEN_WEB_PORT") or cfg.web["port"])
 
     if _port_busy(host, port):
         if _is_our_webui(host, port):

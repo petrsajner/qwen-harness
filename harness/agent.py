@@ -269,17 +269,26 @@ class Agent:
         self.emit("info", f"📦 Kontext ~{est} tok (>85 % z {limit}) - vytvářím souhrn starší konverzace ...")
         try:
             from harness.context import summarize_messages
-            # sumarizuj to, co mizí z modelova pohledu (příp. včetně starého souhrnu)
+            keep_tokens = int(limit * 0.35)
+            cut = self.session.compression_cut(keep_tokens=keep_tokens)
+            if cut is None:
+                self.session.trim_to_budget(int(limit * 0.5))
+                new_est = self.session.estimate_context_tokens()
+                self.refresh_system_prompt()
+                self.emit("info", f"📦 Kontext oříznut: ~{est} → ~{new_est} tokenů")
+                return
+            start = self.session.compression["cut"] if self.session.compression else (
+                1 if self.session.messages and self.session.messages[0].get("role") == "system" else 0
+            )
+            # Sumarizuj přesně rozsah, který po posunu cutu zmizí z modelova pohledu.
             if self.session.compression:
                 to_summarize = ([{"role": "user",
                                   "content": "Previous compression summary:\n" + self.session.compression["summary"]}]
-                                + self.session.messages[self.session.compression["cut"]:-4])
+                                + self.session.messages[start:cut])
             else:
-                to_summarize = self.session.messages[1:-4]
+                to_summarize = self.session.messages[start:cut]
             summary = summarize_messages(self.llm, to_summarize)
-            # cíl: po kompresi model vidí ~35 % limitu (tokenový rozpočet,
-            # ne počet zpráv - obří tool výstupy v ocasu už nezaberou půlku kontextu)
-            ok = self.session.compress_to_summary(summary, keep_tokens=int(limit * 0.35))
+            ok = self.session.compress_to_summary(summary, keep_tokens=keep_tokens, cut=cut)
             if not ok:
                 self.session.trim_to_budget(int(limit * 0.5))
             new_est = self.session.estimate_context_tokens()

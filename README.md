@@ -10,7 +10,7 @@ Harness pro lokální práci s modelem **Qwen3.8-27B** (Apache 2.0) na **RTX 509
   z disku, zdrojové dokumenty nemusíš nahrávat do chatu. Pamatené naposledy použité.
 - 🖼️ **Analýza obrázků** — nativní vision (mmproj), včetně screenshotů
 - 🖱️ **Ovládání počítače** — screenshot → klikání, psaní, klávesy (pyautogui + mss)
-- 🔀 **Přepínatelné modely** — Q4_K_M (96k kontext, ~82 tok/s) ⇄ Q5_K_M (48k, ~73 tok/s)
+- 🔀 **Přepínatelné modely** — Q4_K_M (128k kontext, ~82 tok/s) ⇄ Q5_K_M (96k, ~73 tok/s)
 - 🧠 **Thinking on/off** — režim uvažování modelu (přepínatelný za běhu)
 - 🛡️ **Tři úrovně autonomie** — supervised / semi / auto (kdykoliv přepnutelné);
   čtecí příkazy (`ls`, `cat`, `grep`, `git log`…) nepotřebují potvrzení ani v supervised
@@ -27,8 +27,8 @@ runtime/  (gitignored)                harness/  (Python)
 │ (llama.cpp b10549        │  OpenAI │ • LLM klient (streaming+tools) │
 │  CUDA 13.3, Blackwell)   │         │ • agent loop (step/resume)     │
 │ Qwen3.8-27B GGUF         │         │ • tools: fs/shell/vision/      │
-│  Q4_K_M (16.5 GB, 96k ctx)│        │   computer-use                 │
-│  Q5_K_M (19.8 GB, 48k ctx)│        │ • safety vrstva (autonomie)    │
+│  Q4_K_M (16.5 GB, 128k ctx)│       │   computer-use                 │
+│  Q5_K_M (19.8 GB, 96k ctx)│        │ • safety vrstva (autonomie)    │
 │ mmproj-F16 (vision, 0.9 GB)│       │ • sessions (JSONL + obrázky)   │
 └──────────────────────────┘         ├────────────────────────────────┤
                                      │ UI: tui.py (terminál)          │
@@ -79,7 +79,7 @@ Server se dá ovládat i z TUI (`/server start|stop|status`) a z web UI (tlačí
 ### Instalátor (Setup.exe)
 
 ```bash
-installer/build_installer.bat     # vytvoří dist/QwenHarness-Setup-1.0.0.exe
+installer/build_installer.bat     # vytvoří dist/QwenHarness-Setup-<verze>.exe
 ```
 
 - Instaluje do `%LOCALAPPDATA%\QwenHarness` (bez admin práv), Start Menu +

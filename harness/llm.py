@@ -55,7 +55,7 @@ class LLMClient:
                on_reasoning: Callable[[str], None] | None = None) -> AssistantResult:
         """Streamující volání; vrací složený výsledek (text + tool_calls)."""
         s = dict(sampling or self.cfg.sampling())
-        extra_body = {}
+        extra_body = _template_kwargs(self.cfg)
         if "top_k" in s:
             extra_body["top_k"] = s.pop("top_k")
         params: dict[str, Any] = {
@@ -65,13 +65,14 @@ class LLMClient:
             "max_tokens": max_tokens,
             **s,
         }
-        params.setdefault("extra_body", {}).update(_template_kwargs(self.cfg))
         if tools:
             params["tools"] = tools
         if extra_body:
             params["extra_body"] = extra_body
 
         res = AssistantResult()
+        text_parts: list[str] = []
+        reasoning_parts: list[str] = []
         tc_acc: dict[int, dict] = {}
 
         stream = self.client.chat.completions.create(**params)
@@ -84,11 +85,11 @@ class LLMClient:
             # reasoning (llama.cpp posílá reasoning_content, případně reasoning)
             r = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
             if r:
-                res.reasoning += r
+                reasoning_parts.append(r)
                 if on_reasoning:
                     on_reasoning(r)
             if delta.content:
-                res.content += delta.content
+                text_parts.append(delta.content)
                 if on_text:
                     on_text(delta.content)
             for tc in delta.tool_calls or []:
@@ -103,6 +104,8 @@ class LLMClient:
                     if tc.function.arguments:
                         slot["arguments"] += tc.function.arguments
 
+        res.content = "".join(text_parts)
+        res.reasoning = "".join(reasoning_parts)
         res.tool_calls = [
             {
                 "id": slot["id"] or f"call_{i}",
@@ -134,11 +137,11 @@ class LLMClient:
             **s,
         }
         if thinking is None:
-            params.setdefault("extra_body", {}).update(_template_kwargs(self.cfg))
+            extra_body.update(_template_kwargs(self.cfg))
         if tools:
             params["tools"] = tools
         if extra_body:
-            params.setdefault("extra_body", {}).update(extra_body)
+            params["extra_body"] = extra_body
         resp = self.client.chat.completions.create(**params)
         msg = resp.choices[0].message
         res = AssistantResult(content=msg.content or "")

@@ -12,8 +12,10 @@ Test:   QwenHarness.exe --smoke  (životní cyklus bez okna)
 from __future__ import annotations
 
 import atexit
+import json
 import os
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -61,6 +63,28 @@ def _http_ok(url: str, timeout: float = 2.0) -> bool:
             return r.status == 200
     except Exception:
         return False
+
+
+def _is_our_webui(base_url: str) -> bool:
+    try:
+        with urllib.request.urlopen(base_url.rstrip("/") + "/config", timeout=2.0) as r:
+            payload = json.load(r)
+        return r.status == 200 and isinstance(payload.get("components"), list)
+    except Exception:
+        return False
+
+
+def _port_busy(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _free_web_port(preferred: int) -> int:
+    for port in range(preferred, preferred + 20):
+        if not _port_busy(port):
+            return port
+    raise RuntimeError(f"Žádný volný Web UI port v rozsahu {preferred}-{preferred + 19}")
 
 
 def _cfg_ports() -> tuple[int, int]:
@@ -282,8 +306,13 @@ def main() -> int:
     # ---- 2) Web UI NEJDŘÍV (model se nahodí na pozadí přes autostart) ---------
     # UI-first: okno se otevře hned, status ukazuje ⏳ načítám model → 🟢
     webapp_proc = None
-    env = {**os.environ, "QWEN_NO_BROWSER": "1", "QWEN_AUTOSTART_SERVER": "1"}
-    if not _http_ok(f"{base_web}/config"):
+    webui_running = _is_our_webui(base_web)
+    if not webui_running:
+        web_port = _free_web_port(web_port)
+        base_web = f"http://127.0.0.1:{web_port}"
+    env = {**os.environ, "QWEN_NO_BROWSER": "1", "QWEN_AUTOSTART_SERVER": "1",
+           "QWEN_WEB_PORT": str(web_port)}
+    if not webui_running:
         _log("Startuji Web UI (model se nahodí na pozadí) ...")
         webapp_proc = subprocess.Popen(
             [str(VENV_PYW), "webapp.py"], cwd=str(ROOT), env=env,

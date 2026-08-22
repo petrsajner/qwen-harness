@@ -20,7 +20,6 @@ CONVERSATION TRANSCRIPT:
 def render_messages_text(messages: list[dict], max_chars: int = 60_000) -> str:
     """Zpravy jako compact text pro sumarizaci (obrázky jen jako poznámka)."""
     lines: list[str] = []
-    total = 0
     for m in messages:
         role = m.get("role", "?").upper()
         content = m.get("content") or ""
@@ -33,14 +32,14 @@ def render_messages_text(messages: list[dict], max_chars: int = 60_000) -> str:
             content = (content + f"\n[tool calls: {calls}]").strip()
         if m.get("images"):
             content += f" [+{len(m['images'])} image(s) attached]"
-        line = f"{role}: {content}"
-        if total + len(line) > max_chars:  # ber od začátku, stoříz zbytek
-            line = f"{role}: [...transcript truncated at {max_chars} chars...]"
-            lines.append(line)
-            break
-        lines.append(line)
-        total += len(line)
-    return "\n\n".join(lines)
+        lines.append(f"{role}: {content}")
+    transcript = "\n\n".join(lines)
+    if len(transcript) <= max_chars:
+        return transcript
+    marker = "\n\n[...older transcript middle truncated...]\n\n"
+    head_chars = max_chars // 4
+    tail_chars = max_chars - head_chars - len(marker)
+    return transcript[:head_chars] + marker + transcript[-tail_chars:]
 
 
 def summarize_messages(llm: Any, messages: list[dict]) -> str:

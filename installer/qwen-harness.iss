@@ -1,12 +1,12 @@
 ; ============================================================
 ;  Qwen3.8-27B Harness - instalator (Inno Setup 6)
-;  Build:  installer\build_installer.bat  →  dist\QwenHarness-Setup-1.0.0.exe
+;  Build:  installer\build_installer.bat  →  dist\QwenHarness-Setup-<verze>.exe
 ; ============================================================
 
 ; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
 ; (používá installer\release.bat s verzí z installer\version.txt)
 #ifndef MyAppVersion
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.2.17"
 #endif
 
 #define MyAppName "Qwen3.8-27B Harness"
