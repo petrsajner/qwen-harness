@@ -80,7 +80,7 @@
  [],
  False,
  False,
- 1787369889,
+ 1787380605,
  [('runw.exe',
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\runw.exe',

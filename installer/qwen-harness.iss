@@ -3,8 +3,13 @@
 ;  Build:  installer\build_installer.bat  →  dist\QwenHarness-Setup-1.0.0.exe
 ; ============================================================
 
-#define MyAppName "Qwen3.8-27B Harness"
+; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
+; (používá installer\release.bat s verzí z installer\version.txt)
+#ifndef MyAppVersion
 #define MyAppVersion "1.1.0"
+#endif
+
+#define MyAppName "Qwen3.8-27B Harness"
 #define MyAppPublisher "Petr - lokalni AI harness"
 #define MyAppExeName "QwenHarness.exe"
 #define MyAppIcon "..\app_icon.ico"
