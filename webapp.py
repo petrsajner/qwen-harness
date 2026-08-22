@@ -62,7 +62,15 @@ class AppState:
         self._restore_session()
 
     def _restore_session(self) -> None:
-        """Načti poslední session (pokud existuje), jinak nová."""
+        """Obnov session uloženou jako aktivní (fallback: poslední na disku)."""
+        saved = _load_ui_state().get("session_id")
+        if saved:
+            try:
+                self.session = Session.load(cfg, saved, self._system_prompt())
+                self.rebuild_agent()
+                return
+            except FileNotFoundError:
+                pass
         try:
             latest = Session.list_sessions(cfg)
             if latest and latest[0]["messages"] > 1:
@@ -81,11 +89,16 @@ class AppState:
             "mode": self.mode,
             "autonomy": self.autonomy,
             "thinking": bool(self.thinking),
+            "session_id": getattr(self, "session", None).id if getattr(self, "session", None) else None,
         })
 
     def new_session(self) -> None:
         self.session = Session(cfg, system_prompt=self._system_prompt())
         self.rebuild_agent()
+        try:
+            self.save_ui_state()
+        except Exception:
+            pass
 
     def rebuild_agent(self) -> None:
         safety = SafetyPolicy(
@@ -346,6 +359,7 @@ def load_session_handler(selection: str):
         sid = selection.split("  (")[0].strip()
         state.session = Session.load(cfg, sid, state._system_prompt())
         state.rebuild_agent()
+        state.save_ui_state()  # aktivní session přežije restart / F5
         gr.Info(f"✅ Session načtena: {sid}")
         yield chat_view(), gr.update(visible=False), refresh_status()
     except Exception as e:
@@ -615,6 +629,12 @@ def build_ui() -> gr.Blocks:
           });
         }
         """)
+
+        # F5 / otevření stránky: zobraz aktuální konverzaci (ne stav z doby spuštění)
+        def on_page_load():
+            return chat_view(), gr.update(visible=False), refresh_status()
+
+        ui.load(on_page_load, None, [chat, confirm_row, status_box])
     return ui
 
 
