@@ -43,6 +43,21 @@ class MemoryStore:
             return None
         return Path(self.workspace) / self.project_filename
 
+    def ensure_project(self) -> None:
+        """Založ projektovou paměť s hlavičkou, pokud ještě neexistuje."""
+        p = self.project_path()
+        if p is None:
+            return
+        try:
+            if not p.exists():
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(
+                    f"# 🧠 Paměť projektu ({self.project_filename})\n\n"
+                    "<!-- Fakta platná pro tento projekt. Můžeš ručně upravovat. -->\n",
+                    encoding="utf-8")
+        except OSError:
+            pass
+
     # ------------------------------------------------------------------
     def read(self, scope: str) -> str:
         path = self.global_path if scope == "global" else self.project_path()

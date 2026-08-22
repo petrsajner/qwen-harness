@@ -35,6 +35,10 @@ from harness import servermgmt
 cfg = load_config()
 llm = LLMClient(cfg)
 
+# trvalá paměť: prázdný soubor globální paměti zakládáme hned na startu
+from harness.memory import MemoryStore
+MemoryStore(cfg)
+
 # ------------------------------------------------------------- stav aplikace
 STATE_FILE = cfg.path("paths.runtime_dir") / "webui-state.json"
 
@@ -159,6 +163,10 @@ class AppState:
         self.recent_ws = self.recent_ws[:8]
         self.save_ui_state()
         self._refresh_system_prompt()
+        try:
+            MemoryStore(cfg, p).ensure_project()  # založ projektovou paměť, pokud chybí
+        except Exception:
+            pass
         return p
 
 
@@ -577,19 +585,20 @@ def load_from_row(sel_evt, df_value):
 
 
 def rename_session(name: str):
-    """✏️ Přejmenuj aktuální chat."""
+    """Přejmenuj aktuální chat (potvrdí tlačítko Uložit)."""
     try:
         name = (name or "").strip()
         if not name:
             gr.Warning("Zadej nový název chatu.")
-            return gr.update(), sessions_refresh()
+            return gr.update(), gr.update(), gr.update(), gr.update()
         state.session.meta["title"] = name[:100]
         state.session._save_meta()
         gr.Info(f"✅ Chat přejmenován: {name[:60]}")
-        return gr.update(value=""), sessions_refresh()
+        r1, r2, b = update_chats_radio()
+        return gr.update(value=""), r1, r2, b
     except Exception as e:
         gr.Warning(f"❌ {e}")
-        return gr.update(), sessions_refresh()
+        return gr.update(), gr.update(), gr.update(), gr.update()
 
 
 def load_session_handler(selection: str):
@@ -764,29 +773,54 @@ def chat_choices() -> list[tuple[str, str]]:
         return []
 
 
+def noproj_chat_choices() -> list[tuple[str, str]]:
+    """(popisek, id) chatů BEZ projektu - sekce pod seznamem projektu."""
+    try:
+        in_main = {sid for _, sid in chat_choices()}
+        sessions = [s for s in Session.list_sessions(cfg, limit=100)
+                    if not s.get("workspace") and s["id"] not in in_main]
+        sessions.sort(key=lambda s: s["updated"], reverse=True)
+        out = []
+        for s in sessions[:15]:
+            label = f"💬 {s['title'][:38]}  ·  {_rel_time(s['updated'])}"
+            out.append((label, s["id"]))
+        return out
+    except Exception:
+        return []
+
+
+def _del_state(armed: bool = False):
+    """Viditelný stav mazání pod tlačítkem (tlačítko samo sebe v Gradio 6 updatovat nemůže)."""
+    return gr.update(value="⚠️ **Potvrď smazání — klikni znovu do 6 s**" if armed else "")
+
+
 def update_chats_radio():
-    return gr.update(choices=chat_choices(), value=state.session.id)
+    """Aktualizuj oba seznamy chatů + stav mazání (3 výstupy)."""
+    cur_noproj = state.session.id if not state.session.meta.get("workspace") else None
+    return (gr.update(choices=chat_choices(), value=state.session.id),
+            gr.update(choices=noproj_chat_choices(), value=cur_noproj),
+            _del_state(False))
 
 
 _del_arm: dict = {"ts": 0.0}
 
 
 def delete_current_chat():
-    """🗑 Smaž AKTUÁLNÍ chat - dvojklik ochrana (1. klik nabije, 2. do 5 s smaže)."""
+    """Smaž AKTUÁLNÍ chat - dvojklik ochrana (1. klik zobrazí varování, 2. do 6 s smaže)."""
     import time as _t
     now = _t.time()
-    armed = now - _del_arm["ts"] < 5.0
-    if not armed:
+    if now - _del_arm["ts"] >= 6.0:          # 1. klik → nabít
         _del_arm["ts"] = now
-        gr.Warning("🗑 Potvrď smazání - klikni znovu do 5 s.")
-        yield gr.update(), update_chats_radio(), refresh_status()
-        return
-    _del_arm["ts"] = 0.0
+        gr.Warning("Potvrď smazání: klikni na tlačítko znovu do 6 s.")
+        # no-op pro ostatní komponenty = rychlé apply (jinak Gradio spolkne rychlé 2. kliknutí)
+        return gr.update(), gr.update(), gr.update(), gr.update(), _del_state(True)
+    _del_arm["ts"] = 0.0                     # 2. klik → smazat
     sid = state.session.id
     state.new_session()
     ok = Session.delete(cfg, sid)
     gr.Info("🗑 Chat smazán" if ok else "Chat už neexistuje")
-    yield chat_view(), update_chats_radio(), refresh_status()
+    r1, r2, _ = update_chats_radio()
+    return chat_view(), r1, r2, refresh_status(), _del_state(False)
 
 
 def open_in_editor(path: Path | str):
@@ -1052,7 +1086,7 @@ html, body, gradio-app, .gradio-container {
 body { background: #0b0e14 !important; }
 .gradio-container {
   max-width: 1600px !important; margin: 0 auto !important;
-  font-family: 'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif !important;
+  font-family: 'Segoe UI Variable Text','Segoe UI','Segoe UI Symbol','Segoe UI Emoji','Noto Color Emoji',system-ui,sans-serif !important;
   color-scheme: dark !important;
 }
 /* povrchy do tmavé škály */
@@ -1122,7 +1156,7 @@ button.primary:hover { filter: brightness(1.12) !important; }
 /* ===== LAYOUT: sidebar + hlavní chat (styl ZCode/Codex) ===== */
 #app-row { gap: 10px !important; align-items: stretch !important; }
 #sidebar {
-  min-width: 292px !important; max-width: 292px !important;
+  min-width: 332px !important; max-width: 332px !important;
   background: #10141b !important; border: 1px solid #21262d !important;
   border-radius: 14px !important; padding: 14px 12px !important;
   height: calc(100vh - 40px) !important; overflow-y: auto !important;
@@ -1132,11 +1166,13 @@ button.primary:hover { filter: brightness(1.12) !important; }
 .side-h { color: #2dd4bf !important; font-weight: 700 !important;
   letter-spacing: .08em !important; margin: 14px 0 4px 2px !important; display: block; }
 .sqsm { min-height: 34px !important; font-size: 12px !important; border-radius: 9px !important; }
+#del-state p { color: #f87171 !important; font-size: 12px !important; margin: 2px 0 0 4px !important; }
 #chats-radio { max-height: 300px; overflow-y: auto; }
-#chats-radio label { padding: 5px 8px !important; border-radius: 8px !important;
+#noproj-radio { max-height: 200px; overflow-y: auto; }
+#chats-radio label, #noproj-radio label { padding: 5px 8px !important; border-radius: 8px !important;
   font-size: 12.5px !important; }
-#chats-radio label:hover { background: #1c2430 !important; }
-#chats-radio label.selected { background: #14323c !important; border: 1px solid #2dd4bf55 !important; }
+#chats-radio label:hover, #noproj-radio label:hover { background: #1c2430 !important; }
+#chats-radio label.selected, #noproj-radio label.selected { background: #14323c !important; border: 1px solid #2dd4bf55 !important; }
 #main-chat { height: calc(100vh - 210px) !important; min-height: 340px !important; border-radius: 12px !important; }
 #footer-hint { margin-top: 4px !important; }
 /* blikající kurzor */
@@ -1156,38 +1192,14 @@ def build_ui() -> gr.Blocks:
                             elem_classes=["hdr", "side-title"])
                 status_box = gr.Markdown(refresh_status, elem_id="status-pill")
 
-                gr.Markdown("<small class='side-h'>📁 PROJEKTY</small>", elem_classes=["hdr"])
-                proj_dd = gr.Dropdown(choices=project_choices(), value=current_project_name(),
-                                      interactive=True, show_label=False, container=False,
-                                      elem_id="proj-dd", info=None)
-                with gr.Row(elem_classes=["gap"]):
-                    btn_proj_new = gr.Button("✚ Nový", size="sm", scale=1, elem_classes=["sqsm"])
-                    btn_proj_attach = gr.Button("📂 Připojit", size="sm", scale=1, elem_classes=["sqsm"])
-                with gr.Row(visible=False) as proj_new_row:
-                    proj_new_tb = gr.Textbox(placeholder="název nového projektu…",
-                                             show_label=False, container=False, scale=3)
-                    btn_proj_create = gr.Button("OK", variant="primary", size="sm", scale=1)
-
-                gr.Markdown("<small class='side-h'>💬 CHATY PROJEKTU</small>", elem_classes=["hdr"])
-                chats_radio = gr.Radio(choices=chat_choices(), value=state.session.id,
-                                       show_label=False, container=False, elem_id="chats-radio",
-                                       info=None)
-                with gr.Row(elem_classes=["gap"]):
-                    btn_new = gr.Button("✚ Nový chat", size="sm", scale=2, elem_classes=["sqsm"])
-                    btn_del_chat = gr.Button("🗑", size="sm", scale=1, elem_classes=["sqsm"])
-                with gr.Row(elem_classes=["gap"]):
-                    rename_tb = gr.Textbox(placeholder="přejmenovat aktuální…", show_label=False,
-                                           container=False, scale=3)
-                    btn_rename = gr.Button("✏️", size="sm", scale=1, elem_classes=["sqsm"])
-
                 gr.Markdown("<small class='side-h'>⚙ FUNKCE</small>", elem_classes=["hdr"])
                 with gr.Row(elem_classes=["gap"]):
                     btn_start = gr.Button("Server", size="sm", elem_classes=["sqsm"], scale=1)
                     btn_stop = gr.Button("Stop", size="sm", elem_classes=["sqsm"], scale=1)
-                    btn_refresh = gr.Button("⟳", size="sm", elem_classes=["sqsm"], scale=1)
+                    btn_refresh = gr.Button("Obnov", size="sm", elem_classes=["sqsm"], scale=1)
                 with gr.Row(elem_classes=["gap"]):
-                    btn_compress = gr.Button("🗜 Komprimuj", size="sm", elem_classes=["sqsm"], scale=2)
-                    btn_handoff = gr.Button("📦 Předej", size="sm", elem_classes=["sqsm"], scale=2)
+                    btn_compress = gr.Button("Komprimuj", size="sm", elem_classes=["sqsm"], scale=2)
+                    btn_handoff = gr.Button("Předej", size="sm", elem_classes=["sqsm"], scale=2)
 
                 with gr.Accordion("⚙️ Nastavení", open=False):
                     model_dd = gr.Dropdown(model_choices, value=state.model_key, label="Model")
@@ -1198,14 +1210,44 @@ def build_ui() -> gr.Blocks:
                                               value=("off" if not state.thinking else state.reasoning_effort),
                                               label="Přemýšlení")
                     settings_info = gr.Markdown("")
-                with gr.Accordion("🧠 Paměť", open=False):
+                    gr.Markdown("<small class='side-h'>🧠 PAMĚŤ</small>", elem_classes=["hdr"])
                     gr.Markdown("<small>Model paměti čte při každé úloze a po kompresi; "
                                 "fakta ukládá na požádání („zapamatuj si…“).</small>",
                                 elem_classes=["hdr"])
                     mem_g_info = gr.Markdown(_mem_g_text(), elem_classes=["hdr"])
-                    btn_mem_g = gr.Button("📝 Globální paměť", size="sm")
+                    btn_mem_g = gr.Button("Globální paměť — otevřít", size="sm")
                     mem_p_info = gr.Markdown(_mem_p_text(), elem_classes=["hdr"])
-                    btn_mem_p = gr.Button("📝 Paměť projektu", size="sm")
+                    btn_mem_p = gr.Button("Projektová paměť — otevřít", size="sm")
+
+                gr.Markdown("<small class='side-h'>📁 PROJEKTY</small>", elem_classes=["hdr"])
+                proj_dd = gr.Dropdown(choices=project_choices(), value=current_project_name(),
+                                      interactive=True, show_label=False, container=False,
+                                      elem_id="proj-dd", info=None)
+                with gr.Row(elem_classes=["gap"]):
+                    btn_proj_new = gr.Button("+ Nový", size="sm", scale=1, elem_classes=["sqsm"])
+                    btn_proj_attach = gr.Button("Připojit", size="sm", scale=1, elem_classes=["sqsm"])
+                with gr.Row(visible=False) as proj_new_row:
+                    proj_new_tb = gr.Textbox(placeholder="název nového projektu…",
+                                             show_label=False, container=False, scale=3)
+                    btn_proj_create = gr.Button("OK", variant="primary", size="sm", scale=1)
+
+                gr.Markdown("<small class='side-h'>💬 CHATY PROJEKTU</small>", elem_classes=["hdr"])
+                chats_radio = gr.Radio(choices=chat_choices(), value=state.session.id,
+                                       show_label=False, container=False, elem_id="chats-radio",
+                                       info=None)
+                with gr.Row(elem_classes=["gap"]):
+                    btn_new = gr.Button("+ Nový chat", size="sm", scale=2, elem_classes=["sqsm"])
+                    btn_del_chat = gr.Button("Smaž chat", size="sm", scale=1, elem_classes=["sqsm"])
+                del_state = gr.Markdown("", elem_id="del-state", elem_classes=["hdr"])
+                with gr.Row(elem_classes=["gap"]):
+                    rename_tb = gr.Textbox(placeholder="přejmenovat aktuální…", show_label=False,
+                                           container=False, scale=3)
+                    btn_rename = gr.Button("Uložit", size="sm", scale=1, elem_classes=["sqsm"])
+
+                gr.Markdown("<small class='side-h'>💬 CHATY BEZ PROJEKTU</small>", elem_classes=["hdr"])
+                noproj_radio = gr.Radio(choices=noproj_chat_choices(), value=None,
+                                        show_label=False, container=False, elem_id="noproj-radio",
+                                        info=None)
 
             # ================= HLAVNÍ CHAT =================
             with gr.Column(scale=5, elem_id="main"):
@@ -1216,38 +1258,42 @@ def build_ui() -> gr.Blocks:
                         placeholder="Napiš zprávu…  (Enter / Ctrl+Enter = odeslat, Shift+Enter = nový řádek)",
                         show_label=False, container=False, lines=1, max_lines=8,
                         elem_id="msg-in", scale=6)
-                    btn_send = gr.Button("📨", variant="primary", size="sm", min_width=52,
+                    btn_send = gr.Button("Odeslat", variant="primary", size="sm", min_width=52,
                                          elem_id="btn-send")
-                    btn_stop_run = gr.Button("⏹", size="sm", min_width=40)
+                    btn_stop_run = gr.Button("Stop", size="sm", min_width=40)
                 files_in = gr.File(label=None, show_label=False, container=False,
                                    file_count="multiple", file_types=["image"], type="filepath",
                                    elem_id="files-in")
                 with gr.Row(visible=False) as confirm_row:
                     gr.Markdown("⚠️ **Agent čeká na potvrzení akce**", scale=3)
-                    btn_yes = gr.Button("✅ Povolit", variant="primary", size="sm", scale=1)
-                    btn_no = gr.Button("❌ Zamítnout", variant="stop", size="sm", scale=1)
+                    btn_yes = gr.Button("Povolit", variant="primary", size="sm", scale=1)
+                    btn_no = gr.Button("Zamítnout", variant="stop", size="sm", scale=1)
 
         # ---------------- události ----------------
         # projekty
         proj_dd.change(set_project_handler, proj_dd, proj_dd, queue=False)\
-            .then(update_chats_radio, None, chats_radio, queue=False)
+            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         btn_proj_attach.click(attach_project_handler, None,
                               [proj_dd, proj_new_row], queue=False)\
-            .then(update_chats_radio, None, chats_radio, queue=False)
+            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         btn_proj_new.click(lambda: gr.update(visible=True), None, proj_new_row, queue=False)
         btn_proj_create.click(create_project_handler, proj_new_tb,
                               [proj_dd, proj_new_row, proj_new_tb], queue=False)\
-            .then(update_chats_radio, None, chats_radio, queue=False)
+            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
 
-        # chaty (radio = přepnutí chatu)
+        # chaty (radio = přepnutí chatu; druhé radio = chaty bez projektu)
         chats_radio.change(load_session_handler, chats_radio,
                            [chat, confirm_row, status_box, proj_dd], queue=True)\
-            .then(update_chats_radio, None, chats_radio, queue=False)
+            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
+        noproj_radio.change(load_session_handler, noproj_radio,
+                            [chat, confirm_row, status_box, proj_dd], queue=True)\
+            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         btn_new.click(new_chat, None, [chat, confirm_row, status_box])\
-            .then(update_chats_radio, None, chats_radio, queue=False)
+            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         btn_del_chat.click(delete_current_chat, None,
-                           [chat, chats_radio, status_box], queue=False)
-        btn_rename.click(rename_session, rename_tb, [rename_tb, chats_radio], queue=False)
+                           [chat, chats_radio, noproj_radio, status_box, del_state], queue=False)
+        btn_rename.click(rename_session, rename_tb,
+                         [rename_tb, chats_radio, noproj_radio, del_state], queue=False)
 
         # paměť (otevřít v editoru)
         btn_mem_g.click(lambda: open_in_editor(_memory_paths().global_path),
@@ -1268,7 +1314,7 @@ def build_ui() -> gr.Blocks:
         btn_stop_run.click(stop_run, chat, [chat, confirm_row, status_box], queue=True)
         btn_handoff.click(handoff_to_new_session, None,
                           [chat, confirm_row, status_box], queue=True)\
-            .then(update_chats_radio, None, chats_radio, queue=False)
+            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         btn_compress.click(compress_now, chat, [chat, confirm_row, status_box], queue=True)
         model_dd.change(change_model, model_dd, status_box)
         mode_dd.change(change_mode, mode_dd, settings_info)
