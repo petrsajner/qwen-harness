@@ -138,9 +138,14 @@ state = AppState()
 
 # ------------------------------------------------------------- render helpers
 def chat_view() -> list[dict]:
-    """Převeď session messages do formátu gr.Chatbot (type='messages')."""
+    """Převeď session messages do formátu gr.Chatbot (celá historie včetně komprimované části)."""
     out = []
-    for m in state.session.messages:
+    cut = state.session.compression["cut"] if state.session.compression else None
+    for idx, m in enumerate(state.session.messages):
+        if cut is not None and idx == cut:
+            out.append({"role": "assistant",
+                        "content": "📦 **Kontext komprimován** — vše nad tímto markerem model už nevidí "
+                                   "(pracuje se souhrnem). Pro tebe je historie zachovaná celá."})
         role = m["role"]
         if role == "system" or (role == "assistant" and not m.get("content")):
             continue
@@ -211,9 +216,16 @@ def _run_steps(history: list[dict], approve: bool | None = None):
     """
     try:
         first = True
+        seen_rev = state.session.compression_rev
         while True:
             r = state.agent.step(approve=approve if first else None)
             first = False
+            # live marker, pokud během kroku došlo ke kompresi kontextu
+            if state.session.compression_rev != seen_rev:
+                seen_rev = state.session.compression_rev
+                history.append({"role": "assistant",
+                                "content": "📦 **Kontext automaticky komprimován** — model nyní pracuje se "
+                                           "souhrnem starší konverzace. Celá historie zůstává nahoře k nahlédnutí."})
             if r.status is Status.CONTINUE:
                 for name, args, result in r.tool_trace:
                     icon = TOOL_ICON.get(name, "🔧")

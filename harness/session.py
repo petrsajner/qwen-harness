@@ -26,6 +26,10 @@ class Session:
         self.dir = cfg.path("paths.sessions_dir") / self.id
         self.img_dir = self.dir / "images"
         self.messages: list[dict[str, Any]] = []
+        # ne-destruktivní komprese: model vidí [system + souhrn + messages[cut:]],
+        # uživatel kompletní messages (UI + JSONL zůstávají nedotčené)
+        self.compression: dict[str, Any] | None = None  # {"cut": int, "summary": str}
+        self.compression_rev = 0  # inkrement při každé změně (pro UI marker)
         if system_prompt:
             self.add("system", system_prompt)
 
@@ -56,12 +60,25 @@ class Session:
         return dest
 
     # -- render pro API ----------------------------------------------------
+    SUMMARY_PREFIX = ("[SESSION HISTORY SUMMARY - older conversation was auto-compressed. "
+                      "Use it as context, do not re-ask the user about these facts:]\n\n")
+
+    def _view_messages(self) -> list[dict]:
+        """Zprávy, které VIDÍ MODEL (po aplikaci komprese)."""
+        if not self.compression:
+            return self.messages
+        cut = min(self.compression["cut"], len(self.messages))
+        head = self.messages[:1] if self.messages and self.messages[0]["role"] == "system" else []
+        summary_msg = {"role": "user", "content": self.SUMMARY_PREFIX + self.compression["summary"]}
+        return head + [summary_msg] + self.messages[cut:]
+
     def to_api_messages(self, max_images: int = 8) -> list[dict]:
         """Převeď na OpenAI formát; posledních max_images obrázků jako data URL."""
-        image_paths = [p for m in self.messages for p in m.get("images", [])]
+        view = self._view_messages()
+        image_paths = [p for m in view for p in m.get("images", [])]
         recent = set(image_paths[-max_images:])
         out: list[dict] = []
-        for m in self.messages:
+        for m in view:
             m2 = {k: v for k, v in m.items() if k != "images"}
             imgs = [p for p in m.get("images", []) if p in recent]
             if not imgs:
@@ -111,46 +128,50 @@ class Session:
         return total * 10 // 36
 
     def compress_to_summary(self, summary: str, min_keep: int = 10) -> bool:
-        """Nahraď starší zprávy souhrnem (auto-komprese kontextu).
+        """Zaregistruj kompresi kontextu (NE-destruktivně).
 
-        Cut vždy na hranici 'user' zprávy, aby se nerozbily dvojice
-        assistant(tool_calls) → tool odpovědi. Vrací True, pokud došlo ke kompresi.
+        Zprávy zůstávají v self.messages (UI + JSONL nedotčené); model od teď
+        vidí [system + souhrn + messages[cut:]]. Cut vždy na hranici 'user'
+        zprávy, aby se nerozbily dvojice assistant(tool_calls) → tool.
         """
         msgs = self.messages
-        head = msgs[:1] if msgs and msgs[0]["role"] == "system" else []
-        rest = msgs[len(head):]
+        head_len = 1 if msgs and msgs[0]["role"] == "system" else 0
+        rest = msgs[head_len:]
         if len(rest) <= min_keep:
             return False
         cut = None
         for i in range(len(rest) - min_keep, 0, -1):
             if rest[i]["role"] == "user":
-                cut = i
+                cut = head_len + i
                 break
-        if cut is None or cut == 0:
+        if cut is None:
             return False
-        summary_msg = {
-            "role": "user",
-            "content": ("[SESSION HISTORY SUMMARY - older conversation was auto-compressed. "
-                        "Use it as context, do not re-ask the user about these facts:]\n\n" + summary),
-        }
-        self.messages = head + [summary_msg] + rest[cut:]
-        self._rewrite_jsonl()
+        if self.compression and cut <= self.compression["cut"]:
+            return False  # nový cut musí být za starým
+        self.compression = {"cut": cut, "summary": summary}
+        self.compression_rev += 1
+        self._save_compression()
         return True
 
     def trim_to_budget(self, budget_tokens: int, min_keep: int = 6) -> bool:
-        """Tvrdý fallback: zahod nejstarší zprávy (na user hranici) do rozpočtu."""
+        """Tvrdý fallback: posuň kompresní cut dál (historie zůstává pro UI)."""
         changed = False
-        while (self.estimate_context_tokens() > budget_tokens
-               and len(self.messages) > min_keep + 1):
-            # najdi první user zprávu po system, kterou lze zahodit
-            idx = next((i for i, m in enumerate(self.messages[1:], 1)
-                        if m["role"] == "user"), None)
-            if idx is None or len(self.messages) - idx < min_keep:
+        while self.estimate_context_tokens() > budget_tokens and len(self.messages) > min_keep + 1:
+            cur = self.compression["cut"] if self.compression else 1
+            # nejbližší user hranice za aktuálním cutem
+            nxt = next((i for i in range(cur + 1, len(self.messages) - min_keep + 1)
+                        if self.messages[i]["role"] == "user"), None)
+            if nxt is None:
                 break
-            del self.messages[1:idx + 1]
+            self.compression = {
+                "cut": nxt,
+                "summary": (self.compression["summary"] if self.compression
+                            else "(older context hard-trimmed without summary)"),
+            }
             changed = True
         if changed:
-            self._rewrite_jsonl()
+            self.compression_rev += 1
+            self._save_compression()
         return self.estimate_context_tokens() <= budget_tokens
 
     # -- perzistence ---------------------------------------------------------
@@ -164,13 +185,32 @@ class Session:
             f.write(json.dumps(msg, ensure_ascii=False) + "\n")
 
     def _rewrite_jsonl(self) -> None:
-        """Přepiš celý JSONL (po kompresi/seřazení)."""
+        """Přepiš celý JSONL (po opravách historie)."""
         self.dir.mkdir(parents=True, exist_ok=True)
         tmp = self._jsonl.with_suffix(".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
             for m in self.messages:
                 f.write(json.dumps(m, ensure_ascii=False) + "\n")
         tmp.replace(self._jsonl)
+
+    @property
+    def _compression_file(self) -> Path:
+        return self.dir / "compression.json"
+
+    def _save_compression(self) -> None:
+        if self.compression:
+            self.dir.mkdir(parents=True, exist_ok=True)
+            self._compression_file.write_text(
+                json.dumps(self.compression, ensure_ascii=False), encoding="utf-8")
+
+    def _load_compression(self) -> None:
+        try:
+            data = json.loads(self._compression_file.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and "cut" in data and "summary" in data:
+                self.compression = data
+                self.compression_rev += 1
+        except (OSError, ValueError):
+            pass
 
     @classmethod
     def load(cls, cfg: Config, session_id: str, system_prompt: str | None = None) -> "Session":
@@ -179,6 +219,7 @@ class Session:
         if not f.exists():
             raise FileNotFoundError(f"Session {session_id} nenalezena ({f})")
         s.messages = [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines() if line.strip()]
+        s._load_compression()
         if system_prompt:
             if s.messages and s.messages[0]["role"] == "system":
                 s.messages[0]["content"] = system_prompt

@@ -239,7 +239,7 @@ def test_shell_readonly() -> None:
 
 
 def test_context_compression() -> None:
-    print("[ctx komprese]")
+    print("[ctx komprese - ne-destruktivní]")
     tmp = Path(tempfile.mkdtemp())
     try:
         data = load_config().data
@@ -252,35 +252,50 @@ def test_context_compression() -> None:
             s.add("assistant", "", tool_calls=[{"id": f"c{i}", "type": "function",
                                                 "function": {"name": "read_file", "arguments": "{}"}}])
             s.add("tool", f"odpoved {i} " + "y" * 300, tool_call_id=f"c{i}", name="read_file")
+        n_before = len(s.messages)
         est = s.estimate_context_tokens()
         check(est > 1000, f"odhad tokenů rozumný ({est})")
 
         ok = s.compress_to_summary("SOUHRN konverzace.", min_keep=6)
         check(ok, "komprese proběhla")
-        check(s.messages[0]["role"] == "system", "system prompt zachován")
-        check(s.messages[1]["role"] == "user" and "SUMMARY" in s.messages[1]["content"],
-              "souhrn jako user zpráva")
-        check(s.messages[2]["role"] == "user", "cut na user hranici (žádný osiřelý tool)")
-        # žádná tool zpráva bez předchozího assistant tool_calls
-        dangling = any(m["role"] == "tool" and s.messages[i - 1].get("tool_calls") is None
-                       for i, m in enumerate(s.messages) if i > 0)
-        check(not dangling, "dvojice tool_calls→tool nejsou rozbité")
+        check(len(s.messages) == n_before, f"historie NEDOTČENÁ ({len(s.messages)} == {n_before})")
+        check(s.compression is not None and s.compression["cut"] > 1, "záznam komprese (cut)")
+
+        # model vidí méně, uživatel vše
+        api_view = s._view_messages()
+        check(len(api_view) < n_before, f"modelův view menší ({len(api_view)} < {n_before})")
+        check("SOUHRN konverzace." in api_view[1]["content"], "souhrn v modelově view")
         est2 = s.estimate_context_tokens()
-        check(est2 < est, f"tokeny klesly ({est} → {est2})")
+        check(est2 < est, f"tokeny pro model klesly ({est} → {est2})")
 
+        # view nezačíná osiřelým tool voláním
+        first_role = api_view[2]["role"] if len(api_view) > 2 else None
+        check(first_role in ("user", None), f"cut na user hranici (role={first_role})")
+
+        # persist + roundtrip: historie i komprese
         loaded = Session.load(cfg, "ctx-test")
-        check(len(loaded.messages) == len(s.messages), "JSONL přepsán správně (roundtrip)")
+        check(len(loaded.messages) == n_before, "JSONL kompletní (roundtrip)")
+        check(loaded.compression is not None and loaded.compression["cut"] == s.compression["cut"],
+              "compression.json persistován")
 
-        # trim fallback
+        # druhá komprese posune cut dál
+        s.add("user", "nova otazka " + "a" * 100)
+        s.add("assistant", "nova odpoved " + "b" * 100)
+        ok2 = s.compress_to_summary("SOUHRN 2.", min_keep=2)
+        check(ok2 and s.compression["cut"] > loaded.compression["cut"],
+              "druhá komprese posunula cut vpřed")
+
+        # trim fallback posouvá cut, nemaže historii
         s2 = Session(cfg, session_id="trim-test", system_prompt="SYS")
         for i in range(10):
             s2.add("user", f"u{i} " + "z" * 2000)
             s2.add("assistant", f"a{i} " + "w" * 2000)
         big = s2.estimate_context_tokens()
+        n2 = len(s2.messages)
         ok = s2.trim_to_budget(big // 2)
         check(ok and s2.estimate_context_tokens() <= big // 2,
               f"trim do rozpočtu ({big} → {s2.estimate_context_tokens()})")
-        check(s2.messages[0]["role"] == "system", "trim zachoval system")
+        check(len(s2.messages) == n2, "trim nemaže historii (jen posouvá cut)")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

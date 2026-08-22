@@ -189,7 +189,8 @@ class Agent:
     def _maybe_compress(self) -> None:
         """Auto-komprese kontextu při ~85 % limitu (souhrn starší konverzace).
 
-        Fallback při selhání sumarizace: tvrdý trim na 50 % limitu.
+        Ne-destruktivní: historie zůstává pro UI, model vidí souhrn + poslední zprávy.
+        Fallback při selhání sumarizace: posun cutu (hard trim) na 50 % limitu.
         """
         limit = self._ctx_limit()
         est = self.session.estimate_context_tokens()
@@ -198,13 +199,19 @@ class Agent:
         self.emit("info", f"📦 Kontext ~{est} tok (>85 % z {limit}) - vytvářím souhrn starší konverzace ...")
         try:
             from harness.context import summarize_messages
-            head = self.session.messages[:1]  # system zůstává
-            summary = summarize_messages(self.llm, self.session.messages[1:])
+            # sumarizuj to, co mizí z modelova pohledu (příp. včetně starého souhrnu)
+            if self.session.compression:
+                to_summarize = ([{"role": "user",
+                                  "content": "Previous compression summary:\n" + self.session.compression["summary"]}]
+                                + self.session.messages[self.session.compression["cut"]:-4])
+            else:
+                to_summarize = self.session.messages[1:-4]
+            summary = summarize_messages(self.llm, to_summarize)
             ok = self.session.compress_to_summary(summary)
             if not ok:
                 self.session.trim_to_budget(int(limit * 0.5))
             new_est = self.session.estimate_context_tokens()
-            self.emit("info", f"📦 Kontext komprimován: ~{est} → ~{new_est} tokenů")
+            self.emit("info", f"📦 Kontext komprimován: ~{est} → ~{new_est} tokenů (historie v UI zůstává)")
         except Exception as e:
             self.session.trim_to_budget(int(limit * 0.5))
             self.emit("info", f"📦 Sumarizace selhala ({type(e).__name__}: {e}) - aplikován tvrdý trim")
