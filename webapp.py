@@ -4,6 +4,7 @@ Spuštění:  .venv/Scripts/python webapp.py  →  http://127.0.0.1:7860
 """
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import time
@@ -718,8 +719,11 @@ def save_memory_handler(global_text: str, project_text: str):
 
 
 def refresh_status():
-    if servermgmt.health(cfg):
+    st = servermgmt.server_state(cfg)
+    if st == "running":
         s = f"🟢 {servermgmt.running_model(cfg) or state.model_key} · {servermgmt.vram_str()}"
+    elif st == "starting":
+        s = "⏳ načítám model do VRAM (chvilku to trvá)…"
     else:
         s = "🔴 server stojí (▶ start)"
     # ukazatel kontextu
@@ -733,6 +737,21 @@ def refresh_status():
         pass
     _check_ctx_warning()
     return s
+
+
+def _autostart_server_thread() -> None:
+    """Launcher nastaví QWEN_AUTOSTART_SERVER=1 → model se nahodí na pozadí,
+    UI zobrazuje ⏳ stav (UI first, model second)."""
+    def _run():
+        try:
+            if servermgmt.server_state(cfg) != "down":
+                return  # už běží nebo startuje (někdo jiný)
+            print("[AUTOSTART] na pozadí startuji llama-server ...", flush=True)
+            servermgmt.start(cfg)
+            print("[AUTOSTART] model připraven.", flush=True)
+        except Exception as e:
+            print(f"[AUTOSTART] selhalo: {e}", flush=True)
+    threading.Thread(target=_run, daemon=True, name="autostart-server").start()
 
 
 # ------------------------------------------------------------- workspace
@@ -1033,7 +1052,19 @@ def build_ui() -> gr.Blocks:
             return chat_view(), gr.update(visible=False), refresh_status()
 
         ui.load(on_page_load, None, [chat, confirm_row, status_box])
+
+        # živý status (⏳ načítám model → 🟢) každých 5 s
+        if hasattr(gr, "Timer"):
+            timer = gr.Timer(5.0)
+            timer.tick(refresh_status, outputs=status_box)
     return ui
+
+
+# Launcher (QwenHarness.exe) nastaví QWEN_AUTOSTART_SERVER=1:
+# UI startuje okamžitě, model se nahazuje na pozadí (status ukazuje ⏳).
+# (až zde - po definicích všech funkcí)
+if os.environ.get("QWEN_AUTOSTART_SERVER") == "1":
+    _autostart_server_thread()
 
 
 def _port_busy(host: str, port: int) -> bool:

@@ -52,6 +52,10 @@
    'C:\\Users\\Petr\\Documents\\QWEN '
    'local\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_setuptools.py',
    'PYSOURCE'),
+  ('pyi_rth__tkinter',
+   'C:\\Users\\Petr\\Documents\\QWEN '
+   'local\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth__tkinter.py',
+   'PYSOURCE'),
   ('launcher_app',
    'C:\\Users\\Petr\\Documents\\QWEN local\\launcher\\launcher_app.py',
    'PYSOURCE')],

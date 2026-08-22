@@ -110,7 +110,7 @@ def _port_pid(port: int) -> int | None:
 def _kill_tree(pid: int) -> None:
     try:
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
-                       capture_output=True, creationflags=0x08000000)
+                       capture_output=True, creationflags=0x08000000)  # bez konzole
     except Exception:
         pass
 
@@ -162,13 +162,62 @@ def _focus_window() -> None:
         pass
 
 
+_splash_done: "threading.Event | None" = None
+
+
+def _show_splash() -> None:
+    """Malé okno 'startuji…' okamžitě po spuštění (zavře se s hlavním oknem).
+
+    Tk splash = native, bez konzole; když tkinter chybí, tiše přeskoč.
+    """
+    global _splash_done
+    try:
+        import tkinter as tk
+
+        def _run():
+            global _splash_done
+            try:
+                root = tk.Tk()
+                root.title("Qwen3.8-27B Harness")
+                root.overrideredirect(True)
+                root.attributes("-topmost", True)
+                tk.Label(root, text="Qwen3.8-27B Harness\n\nstartuji …",
+                         font=("Segoe UI", 13), padx=36, pady=22,
+                         bg="#0b0e14", fg="#e8f0ff").pack()
+                root.update_idletasks()
+                w, h = 320, 120
+                x = (root.winfo_screenwidth() - w) // 2
+                y = (root.winfo_screenheight() - h) // 2
+                root.geometry(f"{w}x{h}+{x}+{y}")
+                while not _splash_done.is_set():
+                    root.update()
+                    time.sleep(0.05)
+                root.destroy()
+            except Exception:
+                pass
+
+        import threading
+        _splash_done = threading.Event()
+        threading.Thread(target=_run, daemon=True, name="splash").start()
+    except Exception:
+        pass
+
+
+def _close_splash() -> None:
+    if _splash_done is not None:
+        _splash_done.set()
+
+
 def main() -> int:
     smoke = "--smoke" in sys.argv
     srv_port, web_port = _cfg_ports()
     base_srv = f"http://127.0.0.1:{srv_port}"
     base_web = f"http://127.0.0.1:{web_port}"
 
-    # ---- 1) preflight: venv + llama.cpp + modely (na správném místě!) ---------
+    if not smoke:
+        _show_splash()
+
+    # ---- 1) preflight: venv + llama.cpp + modely (rychlé kontroly souborů) ----
     problems = []
     if not VENV_PY.exists():
         problems.append("Python prostředí (.venv)")
@@ -179,6 +228,7 @@ def main() -> int:
     if not models_ok:
         problems.append(f"modely Qwen3.8-27B ({models_detail})")
     if problems:
+        _close_splash()
         _log("Chybí: " + "; ".join(problems))
         if _alert("Aplikace ještě není dokončená - chybí:\n\n  • " +
                   "\n  • ".join(problems) +
@@ -186,7 +236,6 @@ def main() -> int:
                   question=True):
             if not _run_setup_console():
                 return 1
-            # znovu zkontroluj
             models_ok, _ = _check_model_files()
             if not VENV_PY.exists() or not models_ok:
                 _alert("Instalace se nepodařila - zkus znovu nebo spusť "
@@ -195,46 +244,12 @@ def main() -> int:
         else:
             return 1
 
-    # ---- 2) llama-server ------------------------------------------------------
-    attach_server = False
-    if _http_ok(f"{base_srv}/health"):
-        # na portu už něco běží - zeptat se, čí je (klidně vývojová instance)
-        if smoke:
-            attach_server = True
-        else:
-            attach_server = _alert(
-                "llama-server už na tomto počítači běží (možná jiná instance aplikace).\n\n"
-                "[Ano] = použít běžící server\n"
-                "[Ne] = zastavit ho a spustit VLASTNÍ (modely z této instalace)",
-                question=True)
-        if not attach_server:
-            subprocess.call([str(VENV_PY), "scripts/server.py", "stop"],
-                            cwd=str(ROOT), creationflags=0x08000000)
-            time.sleep(2)
-    if not attach_server:
-        _log(f"Startuji vlastní llama-server (modely: {ROOT / 'runtime' / 'models'}) ...")
-        rc = subprocess.call(
-            [str(VENV_PY), "scripts/server.py", "start"],
-            cwd=str(ROOT), creationflags=0x08000000)  # CREATE_NO_WINDOW
-        if rc != 0 or not _http_ok(f"{base_srv}/health", timeout=5):
-            _alert("llama-server se nepodařilo spustit (viz runtime\\llama-server.log).")
-            return 1
-    else:
-        _log("llama-server už běží - připojuji se.")
-
-    # ---- 3) Web UI (subprocess, bez prohlížeče) -------------------------------
+    # ---- 2) Web UI NEJDŘÍV (model se nahodí na pozadí přes autostart) ---------
+    # UI-first: okno se otevře hned, status ukazuje ⏳ načítám model → 🟢
     webapp_proc = None
-    env = {**os.environ, "QWEN_NO_BROWSER": "1"}
-    if _http_ok(f"{base_web}/config"):
-        if not attach_server:
-            # vlastní server => cizí Web UI ukonči (viselo by na starém)
-            pid = _port_pid(web_port)
-            if pid:
-                _log(f"Ukončuji cizí Web UI (pid {pid}).")
-                _kill_tree(pid)
-                time.sleep(2)
+    env = {**os.environ, "QWEN_NO_BROWSER": "1", "QWEN_AUTOSTART_SERVER": "1"}
     if not _http_ok(f"{base_web}/config"):
-        _log("Startuji Web UI ...")
+        _log("Startuji Web UI (model se nahodí na pozadí) ...")
         webapp_proc = subprocess.Popen(
             [str(VENV_PYW), "webapp.py"], cwd=str(ROOT), env=env,
             creationflags=0x08000000)
@@ -243,8 +258,9 @@ def main() -> int:
                 break
             time.sleep(0.5)
     url = base_web
+    _log(f"Web UI připraveno: {url}")
 
-    # ---- 4) cleanup -----------------------------------------------------------
+    # ---- 3) cleanup (zavření okna = stop všeho + uvolnění VRAM) ---------------
     cleaned = {"done": False}
 
     def cleanup() -> None:
@@ -262,18 +278,25 @@ def main() -> int:
     atexit.register(cleanup)
 
     if smoke:
-        _log(f"SMOKE: vše běží na {url} - za 3 s ukončím (test cleanupu).")
-        time.sleep(3)
+        # počkej na model (autostart na pozadí), pak cleanup - test celého cyklu
+        _log("SMOKE: čekám na model (autostart) ...")
+        for _ in range(90):
+            if _http_ok(f"{base_srv}/health"):
+                break
+            time.sleep(1)
+        ok = _http_ok(f"{base_srv}/health")
+        _log(f"SMOKE: model {'BĚŽÍ' if ok else 'NEBĚŽÍ (timeout)'} - ukončuji.")
         cleanup()
-        return 0
+        return 0 if ok else 1
 
-    # ---- 5) nativní okno --------------------------------------------------------
+    # ---- 4) nativní okno --------------------------------------------------------
+    _close_splash()
     try:
         import webview
         webview.create_window("Qwen3.8-27B Harness", url,
                                width=1440, height=920, min_size=(960, 640),
                                background_color="#0b0e14")
-        _log(f"Okno otevřeno: {url}")
+        _log(f"Okno otevřeno: {url} (model se případně dolaďuje na pozadí)")
         webview.start(_focus_window)
     except ImportError:
         import webbrowser

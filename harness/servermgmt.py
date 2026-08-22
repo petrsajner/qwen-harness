@@ -36,6 +36,8 @@ def wait_health(cfg: Config, timeout: float = HEALTH_TIMEOUT) -> bool:
     return False
 
 
+NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW - žádné problikávající konzole
+
 _vram_cache: dict = {"ts": 0.0, "value": ""}
 
 
@@ -49,6 +51,7 @@ def vram_str() -> str:
         out = subprocess.run(
             ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5,
+            creationflags=NO_WINDOW,
         ).stdout.strip().splitlines()[0]
         used, total = [x.strip() for x in out.split(",")]
         val = f"GPU VRAM: {int(used) / 1024:.1f} / {int(total) / 1024:.1f} GB"
@@ -56,6 +59,19 @@ def vram_str() -> str:
         val = "GPU VRAM: (nvidia-smi nedostupné)"
     _vram_cache.update(ts=now, value=val)
     return val
+
+
+def server_state(cfg: Config) -> str:
+    """Stav serveru: 'down' | 'starting' | 'running'.
+
+    'starting' = pidfile existuje, ale health ještě neodpovídá
+    (typicky načítání modelu do VRAM).
+    """
+    if health(cfg):
+        return "running"
+    if pid_file(cfg).exists():
+        return "starting"
+    return "down"
 
 
 def running_model(cfg: Config) -> str | None:
