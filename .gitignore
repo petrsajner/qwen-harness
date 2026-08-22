@@ -1,0 +1,23 @@
+# Běhový prostředí - modely, binárky, velké soubory (NE v gitu)
+runtime/
+venv/
+.venv/
+env/
+
+# Session historie a logy
+sessions/
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
