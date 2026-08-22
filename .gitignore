@@ -23,3 +23,9 @@ __pycache__/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# build artefakty PyInstalleru
+build/
+
+# agent plans
+.zcode/

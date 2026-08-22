@@ -947,24 +947,31 @@ def save_memory_handler(global_text: str, project_text: str):
 
 
 def refresh_status():
+    """Status ve 3 řádcích: model / VRAM / tokeny."""
     st = servermgmt.server_state(cfg)
+    key = servermgmt.running_model(cfg) or state.model_key
+    mfile = cfg.data["models"].get(key, {}).get("file", "")
+    verze = mfile.replace("Qwen3.8-27B-", "").replace(".gguf", "") or key
+    model_name = f"Qwen3.8-27B · {verze}"
     if st == "running":
-        s = f"🟢 {servermgmt.running_model(cfg) or state.model_key} · {servermgmt.vram_str()}"
+        line1 = f"🟢 {model_name}"
+        line2 = f"🖥️ GPU VRAM: {servermgmt.vram_str()}"
     elif st == "starting":
-        s = "⏳ načítám model do VRAM (chvilku to trvá)…"
+        line1 = f"⏳ načítám {model_name} do VRAM…"
+        line2 = "🖥️ GPU VRAM: —"
     else:
-        s = "🔴 server stojí (▶ start)"
-    # ukazatel kontextu
+        line1 = f"🔴 {model_name} — server stojí"
+        line2 = "🖥️ GPU VRAM: —"
     try:
         est = state.session.estimate_context_tokens()
-        limit = int(cfg.model().get("ctx_size", 32768))
+        limit = int(cfg.data["models"].get(key, {}).get("ctx_size", 32768))
         pct = min(100, est * 100 // max(limit, 1))
         warn = " 🟠" if pct >= 70 else (" 🔴" if pct >= 85 else "")
-        s += f" · 📊 ctx ~{est / 1000:.1f}k/{limit // 1000}k{warn}"
+        line3 = f"📊 ctx ~{est / 1000:.1f}k / {limit // 1000}k tokenů{warn}"
     except Exception:
-        pass
+        line3 = "📊 ctx —"
     _check_ctx_warning()
-    return s
+    return f"{line1}<br>{line2}<br>{line3}"
 
 
 def _autostart_server_thread() -> None:
@@ -1070,6 +1077,9 @@ def server_cmd(cmd: str):
         return change_model(state.model_key)
     if cmd == "stop":
         servermgmt.stop(cfg, quiet=True)
+    if cmd == "restart":
+        servermgmt.stop(cfg, quiet=True)
+        return change_model(state.model_key)
     return refresh_status()
 
 
@@ -1150,7 +1160,9 @@ button.primary:hover { filter: brightness(1.12) !important; }
 /* drobnosti */
 .hdr p { margin: 0 !important; font-size: 0.9em !important; }
 .gap { gap: 6px !important; }
-#status-pill { border: 1px solid #30363d !important; border-radius: 999px !important; padding: 4px 14px !important; }
+#status-pill { border: 1px solid #30363d !important; border-radius: 10px !important;
+  padding: 6px 12px !important; line-height: 1.45 !important; background: #0d1117 !important; }
+#status-pill p { margin: 0 !important; font-size: 12.5px !important; }
 /* scrollbar */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #30363d !important; border-radius: 6px; }
@@ -1198,12 +1210,11 @@ def build_ui() -> gr.Blocks:
 
                 gr.Markdown("<small class='side-h'>⚙ FUNKCE</small>", elem_classes=["hdr"])
                 with gr.Row(elem_classes=["gap"]):
-                    btn_start = gr.Button("Server", size="sm", elem_classes=["sqsm"], scale=1)
-                    btn_stop = gr.Button("Stop", size="sm", elem_classes=["sqsm"], scale=1)
-                    btn_refresh = gr.Button("Obnov", size="sm", elem_classes=["sqsm"], scale=1)
-                with gr.Row(elem_classes=["gap"]):
-                    btn_compress = gr.Button("Komprimuj", size="sm", elem_classes=["sqsm"], scale=2)
-                    btn_handoff = gr.Button("Předej", size="sm", elem_classes=["sqsm"], scale=2)
+                    btn_start = gr.Button("start server", size="sm", elem_classes=["sqsm"], scale=1)
+                    btn_stop = gr.Button("stop server", size="sm", elem_classes=["sqsm"], scale=1)
+                    btn_refresh = gr.Button("restart server", size="sm", elem_classes=["sqsm"], scale=1)
+                btn_compress = gr.Button("komprimuj aktuální chat", size="sm", elem_classes=["sqsm"])
+                btn_handoff = gr.Button("předej novému chatu", size="sm", elem_classes=["sqsm"])
 
                 with gr.Accordion("⚙️ Nastavení", open=False):
                     model_dd = gr.Dropdown(model_choices, value=state.model_key, label="Model")
@@ -1228,8 +1239,8 @@ def build_ui() -> gr.Blocks:
                                       interactive=True, show_label=False, container=False,
                                       elem_id="proj-dd", info=None)
                 with gr.Row(elem_classes=["gap"]):
-                    btn_proj_new = gr.Button("+ Nový", size="sm", scale=1, elem_classes=["sqsm"])
-                    btn_proj_attach = gr.Button("Připojit", size="sm", scale=1, elem_classes=["sqsm"])
+                    btn_proj_new = gr.Button("+ nový projekt", size="sm", scale=1, elem_classes=["sqsm"])
+                    btn_proj_attach = gr.Button("připojit adresář", size="sm", scale=1, elem_classes=["sqsm"])
                 with gr.Row(visible=False) as proj_new_row:
                     proj_new_tb = gr.Textbox(placeholder="název nového projektu…",
                                              show_label=False, container=False, scale=3)
@@ -1328,7 +1339,7 @@ def build_ui() -> gr.Blocks:
         thinking_dd.change(change_thinking, thinking_dd, settings_info)
         btn_start.click(lambda: server_cmd("start"), None, status_box)
         btn_stop.click(lambda: server_cmd("stop"), None, status_box)
-        btn_refresh.click(refresh_status, None, status_box)
+        btn_refresh.click(lambda: server_cmd("restart"), None, status_box)
 
         gr.Markdown("<small>🛡️ FAILSAFE: myš do levého horního rohu přeruší GUI akce · "
                     "čtecí příkazy bez potvrzení · vše lokálně</small>", elem_classes=["hdr"],
