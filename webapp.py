@@ -44,6 +44,7 @@ def _save_ui_state(data: dict) -> None:
 
 class AppState:
     def __init__(self) -> None:
+        self.hub = StreamHub()
         saved = _load_ui_state()
         self.model_key = saved.get("model") or cfg.model_key()
         if self.model_key not in cfg.data["models"]:
@@ -108,7 +109,8 @@ class AppState:
         )
         self.abort = threading.Event()
         self.agent = Agent(cfg, llm, self.session, build_registry(self.mode),
-                           safety, mode=self.mode, abort_flag=self.abort)
+                           safety, mode=self.mode, abort_flag=self.abort,
+                           on_event=self.hub.on_event)
         if self.workspace:
             try:
                 self.agent.set_workspace(self.workspace)
@@ -144,6 +146,66 @@ class AppState:
         self.save_ui_state()
         self._refresh_system_prompt()
         return p
+
+
+# ------------------------------------------------------------- live streaming
+import queue as _queue
+import threading as _threading
+
+
+class StreamHub:
+    """Sbírá stream události z agenta (volané z worker vlákna) pro live render."""
+
+    def __init__(self) -> None:
+        self._lock = _threading.Lock()
+        self.text = ""
+        self.reasoning = ""
+        self.rev = 0  # inkrement při každé změně
+
+    def reset(self) -> None:
+        with self._lock:
+            self.text = ""
+            self.reasoning = ""
+            self.rev += 1
+
+    def on_event(self, kind: str, payload) -> None:
+        with self._lock:
+            if kind == "text" and payload:
+                self.text += payload
+                self.rev += 1
+            elif kind == "reasoning" and payload:
+                self.reasoning += payload
+                self.rev += 1
+
+    def snapshot(self) -> tuple[str, str, int]:
+        with self._lock:
+            return self.text, self.reasoning, self.rev
+
+
+def _live_message(hub: StreamHub) -> dict:
+    """Zpráva pro live render: hotový text, nebo 'uvažuji…' s ocasem reasoningu."""
+    text, reasoning, _ = hub.snapshot()
+    if text:
+        return {"role": "assistant", "content": text}
+    tail = reasoning[-220:].replace("\n", " ") if reasoning else ""
+    return {"role": "assistant",
+            "content": f"💭 <i>uvažování…</i> <small>{tail}</small>" if tail
+                       else "💭 <i>připravuji odpověď…</i>"}
+
+
+def _step_threaded(agent, approve: bool | None) -> tuple:
+    """Spusť jeden agent.step ve vlákně; vrať (result, exception)."""
+    box: dict = {}
+
+    def _worker():
+        try:
+            box["r"] = agent.step(approve=approve)
+        except BaseException as e:  # noqa: BLE001 - posíláme ven
+            box["e"] = e
+
+    t = _threading.Thread(target=_worker, daemon=True, name="agent-step")
+    t.start()
+    return t, box
 
 
 state = AppState()
@@ -222,23 +284,50 @@ def _agent_error_message(r) -> str:
 
 
 def _run_steps(history: list[dict], approve: bool | None = None):
-    """Společný generátor: krokuj agentem dokud FINAL/NEEDS_CONFIRMATION/stop.
+    """Generátor: krokuj agentem; tokeny streamuje živě (~7×/s).
 
+    Krok agenta běží ve vlákně, události (text/reasoning) tečou přes StreamHub,
+    tady se pollingují a promítají do dočasné "live" zprávy v chatu.
     Výjimky zachytává a vrací jako zprávu v chatu (nikdy nenechá spadnout UI).
-    `approve` platí jen pro první krok (schválení čekajících akcí).
     """
+    import time as _time
+
     try:
         first = True
         seen_rev = state.session.compression_rev
         while True:
-            r = state.agent.step(approve=approve if first else None)
+            state.hub.reset()
+            t, box = _step_threaded(state.agent, approve if first else None)
             first = False
+            live_idx: int | None = None
+            last_rev = -1
+            while t.is_alive():
+                text, reasoning, rev = state.hub.snapshot()
+                if rev != last_rev and (text or reasoning):
+                    last_rev = rev
+                    live = _live_message(state.hub)
+                    if live_idx is None:
+                        history.append(live)
+                        live_idx = len(history) - 1
+                    else:
+                        history[live_idx] = live
+                    yield history, gr.update(visible=False), gr.update()
+                _time.sleep(0.15)
+            t.join()
+            # live zprávu odstraň - finální obsah přijdou níže (plný text / tool trace)
+            if live_idx is not None:
+                history.pop(live_idx)
+            if "e" in box:
+                raise box["e"]
+            r = box.get("r")
             # live marker, pokud během kroku došlo ke kompresi kontextu
             if state.session.compression_rev != seen_rev:
                 seen_rev = state.session.compression_rev
                 history.append({"role": "assistant",
                                 "content": "📦 **Kontext automaticky komprimován** — model nyní pracuje se "
                                            "souhrnem starší konverzace. Celá historie zůstává nahoře k nahlédnutí."})
+            if r is None:
+                raise RuntimeError("agent step skončil bez výsledku")
             if r.status is Status.CONTINUE:
                 for name, args, result in r.tool_trace:
                     icon = TOOL_ICON.get(name, "🔧")
@@ -528,11 +617,11 @@ def build_ui() -> gr.Blocks:
         with gr.Row(elem_classes=["hdr", "gap"]):
             gr.Markdown("🤖 **Qwen3.8-27B**", elem_classes=["hdr"], scale=1, min_width=120)
             status_box = gr.Markdown(refresh_status, elem_classes=["hdr"], scale=4)
-            btn_start = gr.Button("▶", size="sm", min_width=36)
-            btn_stop = gr.Button("⏹", size="sm", min_width=36)
-            btn_refresh = gr.Button("🔄", size="sm", min_width=36)
-            btn_handoff = gr.Button("📦 Předej", size="sm", min_width=80)
-            btn_new = gr.Button("🆕", size="sm", min_width=36)
+            btn_start = gr.Button("▶ Start", size="sm", min_width=72)
+            btn_stop = gr.Button("⏹ Stop", size="sm", min_width=68)
+            btn_refresh = gr.Button("🔄 Obnovit", size="sm", min_width=84)
+            btn_handoff = gr.Button("📦 Předej", size="sm", min_width=88)
+            btn_new = gr.Button("🆕 Nová", size="sm", min_width=80)
 
         # --- workspace: jedna řádka (dropdown = naposledy použité + ruční cesta) ---
         with gr.Row(elem_classes=["gap"]):
@@ -555,9 +644,9 @@ def build_ui() -> gr.Blocks:
                 placeholder="Napiš zprávu…  (Enter / Ctrl+Enter = odeslat, Shift+Enter = nový řádek)",
                 show_label=False, container=False, lines=1, max_lines=8,
                 elem_id="msg-in", scale=6)
-            btn_send = gr.Button("📨", variant="primary", size="sm", min_width=48,
+            btn_send = gr.Button("📨 Odeslat", variant="primary", size="sm", min_width=100,
                                  elem_id="btn-send")
-            btn_stop_run = gr.Button("⏹", size="sm", min_width=36)
+            btn_stop_run = gr.Button("⏹ Stop", size="sm", min_width=76)
 
         files_in = gr.File(label=None, show_label=False, container=False,
                            file_count="multiple", file_types=["image"], type="filepath",

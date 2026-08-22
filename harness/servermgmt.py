@@ -36,16 +36,26 @@ def wait_health(cfg: Config, timeout: float = HEALTH_TIMEOUT) -> bool:
     return False
 
 
+_vram_cache: dict = {"ts": 0.0, "value": ""}
+
+
 def vram_str() -> str:
+    """VRAM řetězec s 10s cache (nvidia-smi subprocess je drahý)."""
+    import time as _t
+    now = _t.time()
+    if now - _vram_cache["ts"] < 10 and _vram_cache["value"]:
+        return _vram_cache["value"]
     try:
         out = subprocess.run(
             ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5,
         ).stdout.strip().splitlines()[0]
         used, total = [x.strip() for x in out.split(",")]
-        return f"GPU VRAM: {int(used) / 1024:.1f} / {int(total) / 1024:.1f} GB"
+        val = f"GPU VRAM: {int(used) / 1024:.1f} / {int(total) / 1024:.1f} GB"
     except Exception:
-        return "GPU VRAM: (nvidia-smi nedostupné)"
+        val = "GPU VRAM: (nvidia-smi nedostupné)"
+    _vram_cache.update(ts=now, value=val)
+    return val
 
 
 def running_model(cfg: Config) -> str | None:
