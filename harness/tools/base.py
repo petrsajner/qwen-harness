@@ -16,6 +16,8 @@ class AgentContext:
     cfg: Any                       # harness.config.Config
     session: Any                   # harness.session.Session
     workspace: Path = field(default_factory=Path.cwd)
+    project_workspace: Path | None = None
+    work_mode: str = "development"
     pending_images: list[Path] = field(default_factory=list)  # obrázky k přiložení do další zprávy
     changes: Any = None            # harness.changes.ChangeJournal
     processes: Any = None          # harness.processes.ProcessManager

@@ -22,17 +22,15 @@ from harness.prompts import system_prompt
 from harness.safety import SafetyPolicy
 from harness.session import Session
 from harness.work_modes import WORK_MODES, normalize_work_mode
+from harness.version import APP_VERSION
 
 console = Console()
 
-BANNER = r"""
-[bold cyan]╔══════════════════════════════════════════════════════╗
-║   Qwen3.8-27B  •  lokální harness  •  RTX 5090        ║
-╚══════════════════════════════════════════════════════╝[/bold cyan]
-"""
+BANNER = (f"[bold cyan]Qwen3.8-27B v{APP_VERSION}"
+          "  •  lokální harness  •  RTX 5090[/bold cyan]")
 
 HELP = """[bold]Příkazy:[/bold]
-  /memory                zobraz trvalou paměť (globální + projektu)
+  /memory                zobraz trvalou paměť (globální + režim + projekt)
   /model q4|q5           přepnutí modelu (restart serveru)
   /work discussion|research|writing|development|computer   pracovní režim
   /mode chat|agent|computer     kompatibilní zkratka
@@ -306,8 +304,11 @@ class TUIApp:
                             console.print(f"Workspace: [bold]{self.agent.workspace}[/bold]")
                     elif cmd == "/memory":
                         from harness.memory import MemoryStore
-                        store = MemoryStore(self.cfg, self.agent.workspace)
+                        store = MemoryStore(
+                            self.cfg, self.agent.workspace, self.work_mode)
                         console.print(f"[bold]Globální paměť:[/bold] {store.global_path}")
+                        console.print(f"[bold]Paměť režimu {WORK_MODES[self.work_mode].label}:[/bold] "
+                                      f"{store.mode_path()}")
                         console.print(f"[bold]Projektová paměť:[/bold] "
                                       f"{store.project_path() or '— (nastav /ws)'}")
                         console.print(f"[dim]{store.context_block()[:1200]}[/dim]")

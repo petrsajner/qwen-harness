@@ -2,7 +2,7 @@
 rem ============================================================
 rem  RELEASE: build nove verze QwenHarness (exe + instalator)
 rem  - spusti testy, prebuilduje exe, zkompiluje instalator
-rem    s verzí z version.txt a zvysi patch verzi
+rem    s verzi z version.txt (stejne cislo zobrazuje aplikace)
 rem  - vysledek: dist\QwenHarness-Setup-<verze>.exe
 rem  Reinstall u zakladu: vse je rychle (venv/modely zustavaji,
 rem  setup krok odskrtni - program se jen prekopiruje)
@@ -41,15 +41,9 @@ if not defined ISCC ( echo [CHYBA] ISCC nenalezen. & pause & exit /b 1 )
 "%ISCC%" "/DMyAppVersion=%VERSION%" installer\qwen-harness.iss
 if errorlevel 1 ( echo [CHYBA] Instalator build selhal. & pause & exit /b 1 )
 
-rem inkrement patch verze pro pristi release
-for /f "tokens=1,2,3 delims=." %%a in ("%VERSION%") do (
-    set /a NEXT_PATCH=%%c+1
-    echo %%a.%%b.!NEXT_PATCH!> "%VERFILE%"
-)
-
 echo.
 echo ============================================================
 echo  RELEASE HOTOVO: dist\QwenHarness-Setup-%VERSION%.exe
-echo  (pristi build bude mit verzi automaticky vyssi)
+echo  Verze aplikace i instalatoru: %VERSION%
 echo ============================================================
 endlocal

@@ -8,7 +8,8 @@ from harness.tools.base import AgentContext, Tool
 
 class ExportDocumentTool(Tool):
     name = "export_document"
-    description = "Export final text as Markdown, DOCX, or PDF into the project's exports folder."
+    description = ("Export final text directly as Markdown, DOCX, or PDF. With a project, save "
+                   "into its exports folder; without a project, save inside this chat's session.")
     parameters = {
         "content": {"type": "string", "description": "Complete final document text"},
         "filename": {"type": "string", "description": "Output filename without extension"},
@@ -20,7 +21,8 @@ class ExportDocumentTool(Tool):
 
     def run(self, ctx: AgentContext, content: str, filename: str,
             format: str, title: str = "") -> str:
-        output_dir = ctx.workspace / "exports"
+        output_dir = ((ctx.project_workspace / "exports") if ctx.project_workspace
+                      else (ctx.session.dir / "exports"))
         try:
             expected = document_target(output_dir, filename, format)
         except ValueError as exc:

@@ -23,6 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
+from harness.version import APP_VERSION
+
 # pythonw nemá stdout/stderr → přesměruj do log souboru, ať není tichá smrt
 if sys.stdout is None or sys.stderr is None:
     _logdir = ROOT / "runtime"
@@ -38,7 +40,8 @@ def _alert(msg: str) -> None:
     print(f"[APP] {msg}", file=sys.stderr)
     try:
         import ctypes
-        ctypes.windll.user32.MessageBoxW(None, msg, "Qwen3.8-27B Harness", 0x10)
+        ctypes.windll.user32.MessageBoxW(
+            None, msg, f"Qwen3.8-27B Harness v{APP_VERSION}", 0x10)
     except Exception:
         pass
 
@@ -153,7 +156,7 @@ def main() -> int:
         import webview  # pywebview (WebView2)
         model = servermgmt.running_model(cfg) or cfg.model_key()
         webview.create_window(
-            f"🤖 Qwen3.8-27B Harness — {model}",
+            f"Qwen3.8-27B Harness v{APP_VERSION} - {model}",
             url, width=1440, height=920, min_size=(960, 640),
             background_color="#0b0e14",
         )

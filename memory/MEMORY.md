@@ -1,5 +1,5 @@
-# 🧠 Globální paměť (platí pro všechny projekty)
+# Paměť pracovního režimu: Vývoj
 
-<!-- Model sem ukládá obecná pravidla a preference uživatele (nástrojem save_memory,
-     scope="global"). Tento soubor můžeš libovolně upravovat - model změnu uvidí
+<!-- Model sem ukládá pravidla a preference pro vývoj a coding (nástrojem save_memory,
+     scope="mode"). Tento soubor můžeš libovolně upravovat - model změnu uvidí
      při dalším startu úlohy. Piš stručně, po jednom faktu na řádek. -->

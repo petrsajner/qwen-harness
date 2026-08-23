@@ -38,6 +38,13 @@ DEFAULTS: dict[str, Any] = {
         "failsafe": True,
         "pause_between_actions": 0.15,
     },
+    "memory": {
+        "directory": "memory",
+        "global_filename": "GLOBAL.md",
+        "modes_directory": "modes",
+        "development_filename": "MEMORY.md",
+        "project_filename": "QWEN_MEMORY.md",
+    },
     "web": {"host": "127.0.0.1", "port": 7860},
     "paths": {
         "runtime_dir": "runtime",

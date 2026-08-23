@@ -30,6 +30,12 @@ def _app_root() -> Path:
 
 
 ROOT = _app_root()
+if not getattr(sys, "frozen", False):
+    sys.path.insert(0, str(ROOT))
+
+from harness.dependencies import dependencies_current
+from harness.version import APP_VERSION
+
 VENV_PY = ROOT / ".venv" / "Scripts" / "python.exe"
 VENV_PYW = ROOT / ".venv" / "Scripts" / "pythonw.exe"
 
@@ -52,7 +58,8 @@ def _alert(msg: str, question: bool = False) -> bool:
     try:
         import ctypes
         flags = 0x24 if question else 0x10  # YESNO+QUESTION | ICON_ERROR
-        return ctypes.windll.user32.MessageBoxW(None, msg, "Qwen3.8-27B Harness", flags) == 6
+        return ctypes.windll.user32.MessageBoxW(
+            None, msg, f"Qwen3.8-27B Harness v{APP_VERSION}", flags) == 6
     except Exception:
         return False
 
@@ -202,10 +209,10 @@ def _show_splash() -> None:
             global _splash_done
             try:
                 root = tk.Tk()
-                root.title("Qwen3.8-27B Harness")
+                root.title(f"Qwen3.8-27B Harness v{APP_VERSION}")
                 root.overrideredirect(True)
                 root.attributes("-topmost", True)
-                tk.Label(root, text="Qwen3.8-27B Harness\n\nstartuji …",
+                tk.Label(root, text=f"Qwen3.8-27B Harness v{APP_VERSION}\n\nstartuji …",
                          font=("Segoe UI", 13), padx=36, pady=22,
                          bg="#0b0e14", fg="#e8f0ff").pack()
                 root.update_idletasks()
@@ -252,7 +259,7 @@ h1{{font-size:21px;font-weight:600;margin:0}} h1 b{{color:#2dd4bf}}
 small{{color:#8b949e}}
 </style></head><body>
 <div class="r"></div>
-<h1><b>Qwen</b>3.8-27B Harness</h1>
+<h1><b>Qwen</b>3.8-27B Harness <small>v{APP_VERSION}</small></h1>
 <small id="s">startuji rozhraní… (první spuštění chvíli trvá)</small>
 <script>
 const APP='http://127.0.0.1:{web_port}/';
@@ -280,6 +287,8 @@ def main() -> int:
     problems = []
     if not VENV_PY.exists():
         problems.append("Python prostředí (.venv)")
+    elif not dependencies_current(ROOT / "requirements.txt", ROOT / ".venv"):
+        problems.append("Python závislosti (nová verze requirements.txt)")
     if not (ROOT / "runtime" / "llama").exists() or not any(
             (ROOT / "runtime" / "llama").rglob("llama-server.exe")):
         problems.append("llama.cpp (runtime\\llama)")
@@ -296,7 +305,8 @@ def main() -> int:
             if not _run_setup_console():
                 return 1
             models_ok, _ = _check_model_files()
-            if not VENV_PY.exists() or not models_ok:
+            deps_ok = dependencies_current(ROOT / "requirements.txt", ROOT / ".venv")
+            if not VENV_PY.exists() or not deps_ok or not models_ok:
                 _alert("Instalace se nepodařila - zkus znovu nebo spusť "
                        "'Instalace prostředí a modelů' ze Start Menu.")
                 return 1
@@ -367,7 +377,7 @@ def main() -> int:
     _close_splash()
     try:
         import webview
-        webview.create_window("Qwen3.8-27B Harness", url,
+        webview.create_window(f"Qwen3.8-27B Harness v{APP_VERSION}", url,
                                width=1440, height=920, min_size=(960, 640),
                                background_color="#0b0e14")
         _log(f"Okno otevřeno: {url} (model se případně dolaďuje na pozadí)")

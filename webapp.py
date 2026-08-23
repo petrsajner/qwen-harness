@@ -41,6 +41,7 @@ llm = LLMClient(cfg)
 
 # trvalá paměť: prázdný soubor globální paměti zakládáme hned na startu
 from harness.memory import MemoryStore
+from harness.version import APP_VERSION
 MemoryStore(cfg)
 
 # ------------------------------------------------------------- stav aplikace
@@ -120,12 +121,16 @@ class AppState:
         self.new_session()
 
     def _adopt_session_work_mode(self) -> None:
+        """Převezmi z chatu režim i projekt, včetně explicitního 'bez projektu'."""
         session_mode = self.session.meta.get("work_mode")
         if session_mode in WORK_MODES:
             self.work_mode = session_mode
             self.mode = WORK_MODES[session_mode].agent_mode
             cfg.data["work_mode"] = session_mode
             cfg.agent["mode"] = self.mode
+        session_workspace = self.session.meta.get("workspace")
+        self.workspace = str(session_workspace) if session_workspace else None
+        cfg.agent["workspace"] = self.workspace
 
     def save_ui_state(self) -> None:
         _save_ui_state({
@@ -216,7 +221,7 @@ class AppState:
         self.save_ui_state()
         self._refresh_system_prompt()
         try:
-            MemoryStore(cfg, p).ensure_project()  # založ projektovou paměť, pokud chybí
+            MemoryStore(cfg, p, self.work_mode).ensure_project()
         except Exception:
             pass
         return p
@@ -290,10 +295,6 @@ def chat_view() -> list[dict]:
     return out
 
 
-TOOL_ICON = {"screenshot": "📸", "click": "🖱️", "type_text": "⌨️", "press_key": "⌨️",
-             "scroll": "🖱️", "move_mouse": "🖱️", "run_command": "💻", "view_image": "🖼️"}
-
-
 def _content_str(msg: dict) -> str:
     """Obsah zprávy jako string - zvládá plain string i Gradio list-of-parts formát."""
     c = msg.get("content", "")
@@ -331,7 +332,7 @@ def _agent_error_message(r) -> str:
 
 
 def _run_steps(history: list[dict], approve: bool | None = None):
-    """Generátor: krokuj agentem; tokeny streamuje živě (~7×/s).
+    """Generátor: krokuj agentem; živý text obnovuje klidným tempem (~2×/s).
 
     Krok agenta běží ve vlákně, události (text/reasoning) tečou přes StreamHub,
     tady se pollingují a promítají do dočasné "live" zprávy v chatu.
@@ -351,6 +352,7 @@ def _run_steps(history: list[dict], approve: bool | None = None):
             last_change = _time.time()
             shown_sec = -1
             prev_yield_rev = -1
+            last_yield_at = 0.0
             idle_strikes = 0  # počítadla pro dead-man detekci zombie streamu
             while t.is_alive():
                 _, _, rev, last_activity = state.hub.snapshot()
@@ -360,9 +362,12 @@ def _run_steps(history: list[dict], approve: bool | None = None):
                     last_change = now
                 elapsed = int(now - last_change)
                 # yield při nových datech, nebo každou sekundu (poctivý indikátor)
-                if rev != prev_yield_rev or elapsed != shown_sec:
+                has_new_content = rev != prev_yield_rev and now - last_yield_at >= 0.6
+                idle_tick = elapsed != shown_sec and elapsed > 0
+                if has_new_content or idle_tick:
                     prev_yield_rev = rev
                     shown_sec = elapsed
+                    last_yield_at = now
                     live = _live_message(state.hub, elapsed)
                     if live_idx is None:
                         history.append(live)
@@ -391,7 +396,7 @@ def _run_steps(history: list[dict], approve: bool | None = None):
                     idle_strikes = 0
                 _time.sleep(0.15)
             t.join()
-            # live zprávu odstraň - finální obsah přijdou níže (plný text / tool trace)
+            # Dočasný kurzor odstraň; stabilní text se níže obnoví z autoritativní session.
             if live_idx is not None:
                 history.pop(live_idx)
             if "e" in box:
@@ -400,52 +405,49 @@ def _run_steps(history: list[dict], approve: bool | None = None):
             # live marker, pokud během kroku došlo ke kompresi kontextu
             if state.session.compression_rev != seen_rev:
                 seen_rev = state.session.compression_rev
-                history.append({"role": "assistant",
-                                "content": "📦 **Kontext automaticky komprimován** — model nyní pracuje se "
-                                           "souhrnem starší konverzace. Celá historie zůstává nahoře k nahlédnutí."})
             if r is None:
                 raise RuntimeError("agent step skončil bez výsledku")
             if r.status is Status.CONTINUE:
-                for name, args, result in r.tool_trace:
-                    if state.work_mode == "research" and name in ("web_search", "web_fetch"):
-                        continue
-                    icon = TOOL_ICON.get(name, "🔧")
-                    short = result if len(result) <= 300 else result[:300] + " …"
-                    history.append({"role": "assistant", "content": f"{icon} **{name}** → {short}"})
+                history = chat_view()
                 yield history, gr.update(visible=False), refresh_status()
             elif r.status is Status.FINAL:
-                history.append({"role": "assistant", "content": r.text or "…"})
+                history = chat_view()
                 yield history, gr.update(visible=False), refresh_status()
                 return
             elif r.status is Status.NEEDS_CONFIRMATION:
+                history = chat_view()
+                if r.text:
+                    history.append({"role": "assistant", "content": r.text})
                 lines = "\n".join(f"⚠️ `{a}`" for a in r.pending_summary)
                 history.append({"role": "assistant",
                                 "content": f"**Čekám na potvrzení akce:**\n{lines}"})
                 yield history, gr.update(visible=True), refresh_status()
                 return
             else:  # ABORTED / ERROR
+                history = chat_view()
                 text = _agent_error_message(r) if r.status is Status.ERROR else f"⛔ {r.text}"
                 history.append({"role": "assistant", "content": text})
                 yield history, gr.update(visible=False), refresh_status()
                 return
     except Exception as e:  # pojistka - žádné spadnutí UI
+        history = chat_view()
         history.append({"role": "assistant", "content": _error_message(e)})
         yield history, gr.update(visible=False), refresh_status()
 
 
 # ------------------------------------------------------------- handlery
-def send_message(message: str, files, history: list[dict]):
+def send_message(message: str, files, _browser_history: list[dict]):
     try:
+        history = chat_view()
         if not (message or "").strip() and not files:
             yield history, gr.update(visible=False), refresh_status()
             return
         cfg.data["thinking"] = state.thinking
         state.suppress_active_entry = False  # zpráva = chat začíná být skutečný
         imgs = [Path(f) for f in (files or []) if Path(f).suffix.lower() in IMG_MIMES]
-        shown = (message.strip() or "") + (f"\n🖼️ +{len(imgs)} obrázek(ky)" if imgs else "")
-        history.append({"role": "user", "content": shown})
-        yield history, gr.update(visible=False), refresh_status()
         state.agent.new_task(message.strip() or "Please analyze the attached image(s).", images=imgs)
+        history = chat_view()
+        yield history, gr.update(visible=False), refresh_status()
         yield from _run_steps(history)
     except Exception as e:
         history.append({"role": "assistant", "content": _error_message(e)})
@@ -455,6 +457,7 @@ def send_message(message: str, files, history: list[dict]):
 def confirm(approve: bool, history: list[dict]):
     """Reakce na tlačítka Povolit/Zamítnout."""
     try:
+        history = chat_view()
         if not state.agent._pending:
             # není co potvrzovat (např. po dvojkliku) - jen zavři panel
             if history and _is_pending_question(history[-1]):
@@ -482,9 +485,10 @@ def confirm_no(history: list[dict]):
     yield from confirm(False, history)
 
 
-def stop_run(history: list[dict]):
+def stop_run(_history: list[dict]):
     state.abort.set()
-    yield history, gr.update(visible=False), refresh_status()
+    gr.Info("Stop přijat - dokončuji nejbližší větu.")
+    return gr.update(), gr.update(visible=False), refresh_status()
 
 
 def retry_last_answer():
@@ -691,19 +695,17 @@ def load_session_handler(selection: str):
             yield (chat_view(), gr.update(visible=False), refresh_status(), gr.update(),
                    gr.update(value=state.work_mode))
             return
+        previous_workspace = state.workspace
         state.session = Session.load(cfg, selection, state._system_prompt())
         state._adopt_session_work_mode()
         state.rebuild_agent()
         state._refresh_system_prompt()
         state.suppress_active_entry = False
-        # session jiného projektu → přepni workspace (multi-project switching)
+        # Session je autorita: projekt se přepne i tehdy, když cílem je "bez projektu".
         s_ws = state.session.meta.get("workspace")
-        if s_ws and s_ws != state.workspace:
-            try:
-                state.set_workspace(s_ws, adopt_project_mode=False)
-                gr.Info(f"✅ Session načtena + workspace přepnuta na {Path(s_ws).name}")
-            except ValueError:
-                gr.Info(f"✅ Session načtena (workspace {s_ws} už neexistuje)")
+        if s_ws != previous_workspace:
+            target = Path(s_ws).name if s_ws else "bez projektu"
+            gr.Info(f"✅ Session načtena + kontext přepnut na {target}")
         else:
             gr.Info(f"✅ Session načtena: {state.session.meta.get('title', selection)[:50]}")
         state.save_ui_state()
@@ -739,6 +741,7 @@ def import_chat_file(path: str | None):
         gr.Warning("Nejdřív vyber JSONL export chatu.")
         return chat_view(), gr.update(), refresh_status()
     try:
+        history = chat_view()
         imported = Session.import_jsonl(
             cfg, Path(path), state._system_prompt(), workspace=state.workspace,
             work_mode=state.work_mode)
@@ -775,8 +778,10 @@ def change_work_mode(work_mode: str):
     state.set_work_mode(work_mode)
     state.save_ui_state()
     changes, processes, research = work_mode_panel_updates()
+    memory = _mem_infos()
     return (f"Pracovní režim: **{WORK_MODES[state.work_mode].label}**",
-            changes, processes, research)
+            changes, processes, research,
+            *(gr.update(value=value) for value in memory))
 
 
 def work_mode_panel_updates():
@@ -831,7 +836,8 @@ def _check_ctx_warning(pct: int | None = None) -> None:
 
 def _memory_paths():
     from harness.memory import MemoryStore
-    store = MemoryStore(cfg, Path(state.workspace) if state.workspace else None)
+    store = MemoryStore(
+        cfg, Path(state.workspace) if state.workspace else None, state.work_mode)
     return store
 
 
@@ -1012,24 +1018,33 @@ def move_chat_to(project_name: str):
         s = state.session
         if s.transient:
             gr.Warning("Chat není uložený - pošli nejdřív zprávu.")
-            return gr.update(), gr.update(), gr.update()
+            return gr.update(), gr.update(), gr.update(), gr.update()
         if not project_name or project_name == NOPROJ_NAME:
             s.meta["workspace"] = None
             target = "bez projektu"
+            target_workspace = None
         else:
             proj = next((p for p in _projects().list_all() if p["name"] == project_name), None)
             if not proj:
                 gr.Warning(f"Projekt '{project_name}' nenalezen.")
-                return gr.update(), gr.update(), gr.update()
+                return gr.update(), gr.update(), gr.update(), gr.update()
             s.meta["workspace"] = proj["path"]
             target = proj["name"]
+            target_workspace = proj["path"]
         s._save_meta()
+        if target_workspace:
+            state.set_workspace(target_workspace, adopt_project_mode=False)
+        else:
+            state.clear_workspace()
+        state._refresh_system_prompt()
+        state.save_ui_state()
         gr.Info(f"📁 Chat přesunut → {target}")
         r1, r2, ds = update_chats_radio()
-        return r1, r2, ds
+        return r1, r2, ds, gr.update(
+            choices=project_choices(), value=current_project_name())
     except Exception as e:
         gr.Warning(f"❌ {e}")
-        return gr.update(), gr.update(), gr.update()
+        return gr.update(), gr.update(), gr.update(), gr.update()
 
 
 def open_in_editor(path: Path | str):
@@ -1104,12 +1119,15 @@ def _mem_infos():
     """Info texty o souborech paměti (cesty k otevření)."""
     try:
         store = _memory_paths()
-        g = f"**Globální:** `{store.global_path}`"
+        g = f"**Globální pro vše:** `{store.global_path}`"
+        mode = WORK_MODES[state.work_mode].label
+        m = f"**Pro režim {mode}:** `{store.mode_path()}`"
         p = store.project_path()
         p_txt = f"**Projektová:** `{p}`" if p else "**Projektová:** — nejdřív vyber projekt"
     except Exception:
-        g, p_txt = "—", "—"
-    return f"<small>{g}</small>", f"<small>{p_txt}</small>"
+        g, m, p_txt = "—", "—", "—"
+    return (f"<small>{g}</small>", f"<small>{m}</small>",
+            f"<small>{p_txt}</small>")
 
 
 def _mem_g_text() -> str:
@@ -1117,7 +1135,15 @@ def _mem_g_text() -> str:
 
 
 def _mem_p_text() -> str:
+    return _mem_infos()[2]
+
+
+def _mem_mode_text() -> str:
     return _mem_infos()[1]
+
+
+def memory_info_updates():
+    return tuple(gr.update(value=value) for value in _mem_infos())
 
 
 def load_memory_global() -> str:
@@ -1137,21 +1163,29 @@ def load_memory_project() -> str:
         return ""
 
 
-def save_memory_handler(global_text: str, project_text: str):
-    """Ulož obě paměti (plná uživatelská kontrola) + občerstvi system prompt."""
+def load_memory_mode() -> str:
+    try:
+        return _memory_paths().read("mode")
+    except Exception:
+        return ""
+
+
+def save_memory_handler(global_text: str, mode_text: str, project_text: str):
+    """Ulož tři vrstvy paměti a občerstvi system prompt."""
     try:
         store = _memory_paths()
         store.global_path.parent.mkdir(parents=True, exist_ok=True)
         store.global_path.write_text(global_text, encoding="utf-8")
+        store.mode_path().write_text(mode_text, encoding="utf-8")
         pp = store.project_path()
         if pp is not None and not project_text.startswith("(nastav workspace"):
             pp.write_text(project_text, encoding="utf-8")
         state._refresh_system_prompt()
         gr.Info("✅ Paměť uložena - model ji uvidí od další zprávy")
-        return gr.update(), gr.update()
+        return gr.update(), gr.update(), gr.update()
     except Exception as e:
         gr.Warning(f"❌ {type(e).__name__}: {e}")
-        return gr.update(), gr.update()
+        return gr.update(), gr.update(), gr.update()
 
 
 def refresh_status():
@@ -1538,6 +1572,7 @@ button.primary:hover { filter: brightness(1.12) !important; }
 #main-chat { width: 100% !important; max-width: 100% !important; }
 #main-chat img { max-width: 100% !important; height: auto !important; }
 .side-title { margin-bottom: 2px !important; }
+.app-version { color: #8b949e; font-size: 12px; font-weight: 500; }
 .side-h { color: #2dd4bf !important; font-weight: 700 !important;
   letter-spacing: .08em !important; margin: 14px 0 4px 2px !important; display: block; }
 .sqsm { min-height: 34px !important; font-size: 12px !important; border-radius: 9px !important; }
@@ -1557,11 +1592,13 @@ button.primary:hover { filter: brightness(1.12) !important; }
 # Nový build_ui - layout ve stylu ZCode/Codex: levý sidebar + hlavní chat
 def build_ui() -> gr.Blocks:
     model_choices = list(cfg.data["models"].keys())
-    with gr.Blocks(title="Qwen3.8-27B Harness") as ui:
+    with gr.Blocks(title=f"Qwen3.8-27B Harness v{APP_VERSION}") as ui:
         with gr.Row(elem_id="app-row", elem_classes=["gap"]):
             # ================= LEVÝ SIDEBAR =================
             with gr.Column(scale=0, elem_id="sidebar"):
-                gr.Markdown("## 🤖 <span style='color:#2dd4bf'>Qwen</span>3.8",
+                gr.Markdown(
+                    f"## 🤖 <span style='color:#2dd4bf'>Qwen</span>3.8 "
+                    f"<small class='app-version'>v{APP_VERSION}</small>",
                             elem_classes=["hdr", "side-title"])
                 status_box = gr.Markdown(refresh_status, elem_id="status-pill")
                 work_mode_dd = gr.Dropdown(
@@ -1639,6 +1676,8 @@ def build_ui() -> gr.Blocks:
                                 elem_classes=["hdr"])
                     mem_g_info = gr.Markdown(_mem_g_text(), elem_classes=["hdr"])
                     btn_mem_g = gr.Button("Globální paměť — otevřít", size="sm")
+                    mem_mode_info = gr.Markdown(_mem_mode_text(), elem_classes=["hdr"])
+                    btn_mem_mode = gr.Button("Paměť režimu — otevřít", size="sm")
                     mem_p_info = gr.Markdown(_mem_p_text(), elem_classes=["hdr"])
                     btn_mem_p = gr.Button("Projektová paměť — otevřít", size="sm")
 
@@ -1724,45 +1763,68 @@ def build_ui() -> gr.Blocks:
 
         # ---------------- události ----------------
         # projekty
-        proj_dd.change(set_project_handler, proj_dd, proj_dd, queue=False)\
+        proj_dd.change(set_project_handler, proj_dd, proj_dd, queue=True,
+                       concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)\
             .then(lambda: gr.update(value=state.work_mode), None, work_mode_dd, queue=False)\
             .then(work_mode_panel_updates, None,
-                  [changes_panel, process_panel, research_panel], queue=False)
+                  [changes_panel, process_panel, research_panel], queue=False)\
+            .then(memory_info_updates, None,
+                  [mem_g_info, mem_mode_info, mem_p_info], queue=False)
         btn_proj_attach.click(attach_project_handler, None,
-                              [proj_dd, proj_new_row], queue=False)\
-            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
+                              [proj_dd, proj_new_row], queue=True,
+                              concurrency_id="chat-run", concurrency_limit=1)\
+            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)\
+            .then(memory_info_updates, None,
+                  [mem_g_info, mem_mode_info, mem_p_info], queue=False)
         btn_proj_new.click(lambda: gr.update(visible=True), None, proj_new_row, queue=False)
         btn_proj_create.click(create_project_handler, proj_new_tb,
-                              [proj_dd, proj_new_row, proj_new_tb], queue=False)\
-            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
+                              [proj_dd, proj_new_row, proj_new_tb], queue=True,
+                              concurrency_id="chat-run", concurrency_limit=1)\
+            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)\
+            .then(memory_info_updates, None,
+                  [mem_g_info, mem_mode_info, mem_p_info], queue=False)
 
         # chaty (radio = přepnutí chatu; druhé radio = chaty bez projektu)
         chats_radio.input(load_session_handler, chats_radio,
-                           [chat, confirm_row, status_box, proj_dd, work_mode_dd], queue=True)\
+                           [chat, confirm_row, status_box, proj_dd, work_mode_dd], queue=True,
+                           concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)\
             .then(work_mode_panel_updates, None,
-                  [changes_panel, process_panel, research_panel], queue=False)
+                  [changes_panel, process_panel, research_panel], queue=False)\
+            .then(memory_info_updates, None,
+                  [mem_g_info, mem_mode_info, mem_p_info], queue=False)
         noproj_radio.input(load_session_handler, noproj_radio,
-                            [chat, confirm_row, status_box, proj_dd, work_mode_dd], queue=True)\
+                            [chat, confirm_row, status_box, proj_dd, work_mode_dd], queue=True,
+                            concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)\
             .then(work_mode_panel_updates, None,
-                  [changes_panel, process_panel, research_panel], queue=False)
+                  [changes_panel, process_panel, research_panel], queue=False)\
+            .then(memory_info_updates, None,
+                  [mem_g_info, mem_mode_info, mem_p_info], queue=False)
         btn_history_search.click(search_chat_history, history_query, history_results, queue=False)
         history_query.submit(search_chat_history, history_query, history_results, queue=False)
         history_results.input(load_session_handler, history_results,
-                              [chat, confirm_row, status_box, proj_dd, work_mode_dd], queue=True)\
+                              [chat, confirm_row, status_box, proj_dd, work_mode_dd], queue=True,
+                              concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)\
             .then(work_mode_panel_updates, None,
-                  [changes_panel, process_panel, research_panel], queue=False)
-        btn_new.click(new_chat, None, [chat, confirm_row, status_box])\
+                  [changes_panel, process_panel, research_panel], queue=False)\
+            .then(memory_info_updates, None,
+                  [mem_g_info, mem_mode_info, mem_p_info], queue=False)
+        btn_new.click(new_chat, None, [chat, confirm_row, status_box], queue=True,
+                      concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         btn_del_chat.click(delete_current_chat, None,
-                           [chat, chats_radio, noproj_radio, status_box, del_state], queue=False)
+                           [chat, chats_radio, noproj_radio, status_box, del_state], queue=True,
+                           concurrency_id="chat-run", concurrency_limit=1)
         btn_rename.click(rename_session, rename_tb,
                          [rename_tb, chats_radio, noproj_radio, del_state], queue=False)
         btn_move.click(move_chat_to, move_dd,
-                       [chats_radio, noproj_radio, del_state], queue=False)
+                       [chats_radio, noproj_radio, del_state, proj_dd], queue=True,
+                       concurrency_id="chat-run", concurrency_limit=1)\
+            .then(memory_info_updates, None,
+                  [mem_g_info, mem_mode_info, mem_p_info], queue=False)
         btn_export_md.click(lambda: export_current_chat("md"), None, export_file, queue=False)
         btn_export_jsonl.click(lambda: export_current_chat("jsonl"), None, export_file, queue=False)
         btn_import_chat.click(import_chat_file, import_file,
@@ -1772,36 +1834,49 @@ def build_ui() -> gr.Blocks:
         # paměť (otevřít v editoru)
         btn_mem_g.click(lambda: open_in_editor(_memory_paths().global_path),
                         None, mem_g_info, queue=False)
+        btn_mem_mode.click(lambda: open_in_editor(_memory_paths().mode_path()),
+                           None, mem_mode_info, queue=False)
         btn_mem_p.click(lambda: (open_in_editor(_memory_paths().project_path())
                                  if _memory_paths().project_path() else "Nejdřív vyber projekt"),
                         None, mem_p_info, queue=False)
 
         # chat zprávy
         btn_send.click(send_message, [msg_in, files_in, chat],
-                       [chat, confirm_row, status_box], queue=True)\
+                       [chat, confirm_row, status_box], queue=True,
+                       concurrency_id="chat-run", concurrency_limit=1)\
             .then(_clear_inputs, None, [msg_in, files_in])\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         msg_in.submit(send_message, [msg_in, files_in, chat],
-                      [chat, confirm_row, status_box], queue=True)\
+                      [chat, confirm_row, status_box], queue=True,
+                      concurrency_id="chat-run", concurrency_limit=1)\
             .then(_clear_inputs, None, [msg_in, files_in])\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
-        btn_yes.click(confirm_yes, chat, [chat, confirm_row, status_box], queue=True)
-        btn_no.click(confirm_no, chat, [chat, confirm_row, status_box], queue=True)
-        btn_stop_run.click(stop_run, chat, [chat, confirm_row, status_box], queue=True)
-        btn_retry.click(retry_last_answer, None, [chat, confirm_row, status_box], queue=True)
+        btn_yes.click(confirm_yes, chat, [chat, confirm_row, status_box], queue=True,
+                      concurrency_id="chat-run", concurrency_limit=1)
+        btn_no.click(confirm_no, chat, [chat, confirm_row, status_box], queue=True,
+                     concurrency_id="chat-run", concurrency_limit=1)
+        btn_stop_run.click(stop_run, chat, [chat, confirm_row, status_box], queue=False)
+        btn_retry.click(retry_last_answer, None, [chat, confirm_row, status_box], queue=True,
+                        concurrency_id="chat-run", concurrency_limit=1)
         btn_edit_last.click(edit_last_question, None,
-                            [chat, msg_in, confirm_row, status_box], queue=False)
+                            [chat, msg_in, confirm_row, status_box], queue=True,
+                            concurrency_id="chat-run", concurrency_limit=1)
         btn_undo_round.click(undo_last_round, None,
-                             [chat, confirm_row, status_box], queue=False)
-        btn_fork.click(fork_last_round, None, [chat, confirm_row, status_box], queue=True)\
+                             [chat, confirm_row, status_box], queue=True,
+                             concurrency_id="chat-run", concurrency_limit=1)
+        btn_fork.click(fork_last_round, None, [chat, confirm_row, status_box], queue=True,
+                       concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         btn_handoff.click(handoff_to_new_session, None,
-                          [chat, confirm_row, status_box], queue=True)\
+                          [chat, confirm_row, status_box], queue=True,
+                          concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
-        btn_compress.click(compress_now, chat, [chat, confirm_row, status_box], queue=True)
+        btn_compress.click(compress_now, chat, [chat, confirm_row, status_box], queue=True,
+                           concurrency_id="chat-run", concurrency_limit=1)
         btn_undo_task.click(undo_current_task, None, [task_changes, btn_undo_task], queue=False)
         btn_resume_task.click(continue_saved_task, None,
-                              [chat, confirm_row, status_box], queue=True)
+                              [chat, confirm_row, status_box], queue=True,
+                              concurrency_id="chat-run", concurrency_limit=1)
         btn_stop_processes.click(stop_all_processes, None,
                                  [process_status, btn_stop_processes], queue=False)
         btn_clear_pins.click(clear_pinned_context, None,
@@ -1817,7 +1892,9 @@ def build_ui() -> gr.Blocks:
         model_dd.input(change_model, model_dd, [status_box, model_dd])
         work_mode_dd.change(
             change_work_mode, work_mode_dd,
-            [settings_info, changes_panel, process_panel, research_panel])
+            [settings_info, changes_panel, process_panel, research_panel,
+             mem_g_info, mem_mode_info, mem_p_info],
+            concurrency_id="chat-run", concurrency_limit=1)
         autonomy_dd.change(change_autonomy, autonomy_dd, settings_info)
         thinking_dd.change(change_thinking, thinking_dd, settings_info)
         btn_start.click(lambda: server_cmd("start"), None, [status_box, model_dd])
@@ -1871,7 +1948,9 @@ def build_ui() -> gr.Blocks:
 
         ui.load(on_page_load, None,
                 [chat, confirm_row, status_box, chats_radio, noproj_radio, del_state,
-                 work_mode_dd])
+                 work_mode_dd])\
+            .then(memory_info_updates, None,
+                  [mem_g_info, mem_mode_info, mem_p_info], queue=False)
 
         # živý status (⏳ načítám model → 🟢) každých 5 s
         if hasattr(gr, "Timer"):

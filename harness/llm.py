@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -9,14 +10,12 @@ from openai import OpenAI
 
 from harness.config import Config
 
-DEFAULT_MAX_TOKENS = 16384
-
-
 @dataclass
 class AssistantResult:
     content: str = ""
     reasoning: str = ""
     tool_calls: list[dict] = field(default_factory=list)
+    stopped: bool = False
 
     @property
     def has_tool_calls(self) -> bool:
@@ -24,12 +23,13 @@ class AssistantResult:
 
 
 REASONING_EFFORTS = ("xhigh", "high", "medium", "low")
+SENTENCE_END_RE = re.compile(r"[.!?…](?:[\"'»”\)\]]*)\s*$")
 
 
 def _template_kwargs(cfg: Config) -> dict:
     """Thinking on/off + hloubka uvažování (reasoning_effort) přes chat template."""
     if not cfg.data.get("thinking", True):
-        return {"chat_template_kwargs": {"thinking": False}}
+        return {"chat_template_kwargs": {"enable_thinking": False}}
     effort = cfg.data.get("reasoning_effort")
     if effort in REASONING_EFFORTS:
         return {"chat_template_kwargs": {"reasoning_effort": effort}}
@@ -50,19 +50,22 @@ class LLMClient:
 
     # ------------------------------------------------------------------
     def stream(self, messages: list[dict], tools: list[dict] | None = None,
-               max_tokens: int = DEFAULT_MAX_TOKENS, sampling: dict | None = None,
+               sampling: dict | None = None,
+               thinking: bool | None = None,
                on_text: Callable[[str], None] | None = None,
-               on_reasoning: Callable[[str], None] | None = None) -> AssistantResult:
+               on_reasoning: Callable[[str], None] | None = None,
+               should_stop: Callable[[], bool] | None = None) -> AssistantResult:
         """Streamující volání; vrací složený výsledek (text + tool_calls)."""
         s = dict(sampling or self.cfg.sampling())
         extra_body = _template_kwargs(self.cfg)
+        if thinking is not None:
+            extra_body["chat_template_kwargs"] = {"enable_thinking": bool(thinking)}
         if "top_k" in s:
             extra_body["top_k"] = s.pop("top_k")
         params: dict[str, Any] = {
             "model": self.model_name,
             "messages": messages,
             "stream": True,
-            "max_tokens": max_tokens,
             **s,
         }
         if tools:
@@ -74,39 +77,59 @@ class LLMClient:
         text_parts: list[str] = []
         reasoning_parts: list[str] = []
         tc_acc: dict[int, dict] = {}
+        stop_requested = False
+        chars_after_stop = 0
 
         stream = self.client.chat.completions.create(**params)
-        for chunk in stream:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            if delta is None:
-                continue
-            # reasoning (llama.cpp posílá reasoning_content, případně reasoning)
-            r = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
-            if r:
-                reasoning_parts.append(r)
-                if on_reasoning:
-                    on_reasoning(r)
-            if delta.content:
-                text_parts.append(delta.content)
-                if on_text:
-                    on_text(delta.content)
-            for tc in delta.tool_calls or []:
-                if tc.index is None:
-                    tc.index = 0
-                slot = tc_acc.setdefault(tc.index, {"id": "", "name": "", "arguments": ""})
-                if tc.id:
-                    slot["id"] = tc.id
-                if tc.function:
-                    if tc.function.name:
-                        slot["name"] += tc.function.name
-                    if tc.function.arguments:
-                        slot["arguments"] += tc.function.arguments
+        try:
+            for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta is None:
+                    continue
+                # reasoning (llama.cpp posílá reasoning_content, případně reasoning)
+                r = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)
+                if r:
+                    reasoning_parts.append(r)
+                    if on_reasoning:
+                        on_reasoning(r)
+                if delta.content:
+                    text_parts.append(delta.content)
+                    if on_text:
+                        on_text(delta.content)
+                for tc in delta.tool_calls or []:
+                    if tc.index is None:
+                        tc.index = 0
+                    slot = tc_acc.setdefault(
+                        tc.index, {"id": "", "name": "", "arguments": ""})
+                    if tc.id:
+                        slot["id"] = tc.id
+                    if tc.function:
+                        if tc.function.name:
+                            slot["name"] += tc.function.name
+                        if tc.function.arguments:
+                            slot["arguments"] += tc.function.arguments
+
+                if should_stop and should_stop():
+                    if not stop_requested:
+                        stop_requested = True
+                    if delta.content:
+                        chars_after_stop += len(delta.content)
+                    visible = "".join(text_parts)
+                    if (not visible or SENTENCE_END_RE.search(visible)
+                            or chars_after_stop >= 240):
+                        res.stopped = True
+                        break
+        finally:
+            if res.stopped:
+                close = getattr(stream, "close", None)
+                if callable(close):
+                    close()
 
         res.content = "".join(text_parts)
         res.reasoning = "".join(reasoning_parts)
-        res.tool_calls = [
+        res.tool_calls = [] if res.stopped else [
             {
                 "id": slot["id"] or f"call_{i}",
                 "type": "function",
@@ -118,7 +141,7 @@ class LLMClient:
 
     # ------------------------------------------------------------------
     def ask(self, messages: list[dict], tools: list[dict] | None = None,
-            max_tokens: int = DEFAULT_MAX_TOKENS, sampling: dict | None = None,
+            sampling: dict | None = None,
             thinking: bool | None = None) -> AssistantResult:
         """Ne-streamující volání (jednodušší, pro krátké požadavky).
 
@@ -129,11 +152,10 @@ class LLMClient:
         if "top_k" in s:
             extra_body["top_k"] = s.pop("top_k")
         if thinking is not None:
-            extra_body["chat_template_kwargs"] = {"thinking": bool(thinking)}
+            extra_body["chat_template_kwargs"] = {"enable_thinking": bool(thinking)}
         params: dict[str, Any] = {
             "model": self.model_name,
             "messages": messages,
-            "max_tokens": max_tokens,
             **s,
         }
         if thinking is None:

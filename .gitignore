@@ -29,3 +29,5 @@ build/
 
 # agent plans
 .zcode/
+.understand-anything/
+.playwright-cli/

@@ -62,6 +62,14 @@ computer:
   failsafe: true              # pyautogui FAILSAFE - myš do levého horního rohu = okamžité přerušení
   pause_between_actions: 0.15 # sekund mezi GUI akcemi
 
+# Trvalá paměť: globální + aktivní pracovní režim + projekt
+memory:
+  directory: memory
+  global_filename: GLOBAL.md
+  modes_directory: modes
+  development_filename: MEMORY.md  # původní globální coding paměť
+  project_filename: QWEN_MEMORY.md
+
 # Webové UI + přístup modelu k internetu (read-only GET)
 web:
   host: 127.0.0.1

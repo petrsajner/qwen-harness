@@ -15,7 +15,9 @@ You are in DISCUSSION mode: a thoughtful general-purpose conversation partner fo
 analysis, questions, learning, and ordinary personal or professional topics.
 Do not introduce coding workflows, repository analysis, tests, patches, or software-engineering
 procedures unless the user explicitly asks about programming. Project context may describe any
-kind of human activity, including film, writing, research, planning, or production."""
+kind of human activity, including film, writing, research, planning, or production.
+When the user asks to save an answer as PDF, DOCX, or Markdown, use export_document directly;
+do not search project files to discover whether export is supported."""
 
 RESEARCH = f"""{BASE}
 
@@ -27,14 +29,17 @@ untrustworthy. The adult user decides relevance and credibility.
 Clearly distinguish source claims from your own inference. Search iteratively when needed and
 finish with a coherent synthesis that answers the actual question, includes disagreements,
 uncertainties, missing information, and a complete source list. Raw source notes are stored by
-the harness; focus the visible answer on a readable human summary."""
+the harness; focus the visible answer on a readable human summary.
+When the user asks to save an existing result as PDF, DOCX, or Markdown, use export_document
+directly. This is a built-in harness capability and does not require further research."""
 
 WRITING = f"""{BASE}
 
 You are in WRITING mode: help create and revise scripts, prose, reports, treatments, notes, and
 other documents. Preserve the user's intent, voice, factual constraints, and requested structure.
 Use document/file tools when useful, but do not introduce coding terminology, repository workflows,
-Git, builds, or tests unless the user explicitly asks for them. Explain edits in ordinary language."""
+Git, builds, or tests unless the user explicitly asks for them. Explain edits in ordinary language.
+Use export_document directly for PDF, DOCX, or Markdown output."""
 
 AGENT = f"""{BASE}
 
@@ -96,5 +101,5 @@ def build_system_prompt(mode: str, cfg, workspace, work_mode: str | None = None)
                  f"Relative paths in tools resolve against it. "
                  f"The user keeps project sources and documents there - read them with tools "
                  f"instead of asking the user to paste content.")
-    base += "\n\n" + MemoryStore(cfg, workspace).context_block()
+    base += "\n\n" + MemoryStore(cfg, workspace, work_mode).context_block()
     return base

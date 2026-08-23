@@ -6,7 +6,7 @@ import os
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 class ResearchLedger:
@@ -130,8 +130,16 @@ class ResearchLedger:
         os.replace(temporary, self.path)
 
 
-def _ask(llm, prompt: str, max_tokens: int) -> str:
-    result = llm.ask(
+class GenerationStopped(RuntimeError):
+    def __init__(self, text: str = ""):
+        super().__init__("Generování zastaveno uživatelem")
+        self.text = text
+
+
+def _ask(llm, prompt: str, should_stop: Callable[[], bool] | None = None,
+         on_text: Callable[[str], None] | None = None,
+         on_reasoning: Callable[[str], None] | None = None) -> str:
+    result = llm.stream(
         [
             {"role": "system", "content": (
                 "You are a loss-aware research synthesizer. Preserve all information relevant "
@@ -140,17 +148,37 @@ def _ask(llm, prompt: str, max_tokens: int) -> str:
             )},
             {"role": "user", "content": prompt},
         ],
-        max_tokens=max_tokens,
         sampling=llm.cfg.sampling(False),
         thinking=False,
+        on_text=on_text,
+        on_reasoning=on_reasoning,
+        should_stop=should_stop,
     )
     text = (result.content or "").strip()
+    if result.stopped:
+        raise GenerationStopped(text)
     if not text:
-        raise RuntimeError("Model vrátil prázdnou research syntézu")
+        raise RuntimeError("Model vrátil prázdnou odpověď")
     return text
 
 
-def plan_research(llm, question: str, project_catalog: str = "") -> dict:
+def _fallback_plan(question: str) -> dict:
+    return {
+        "subquestions": [question],
+        "search_angles": [
+            "direct evidence and explanations",
+            "conflicting, negative, and minority findings",
+            "limitations, uncertainty, and missing information",
+        ],
+        "source_types_to_include": ["all relevant web and project sources"],
+        "known_constraints": [
+            "The automatic planner returned no usable structured response; fallback plan applied."
+        ],
+    }
+
+
+def plan_research(llm, question: str, project_catalog: str = "",
+                  should_stop: Callable[[], bool] | None = None) -> dict:
     prompt = f"""Create a research plan for the user's question:
 {question}
 
@@ -169,7 +197,12 @@ Cover the question broadly. Do not rank, filter, or exclude possible sources by 
 credibility, origin, popularity, or official status. Include angles that could reveal conflicting,
 negative, uncertain, or minority information.
 """
-    raw = _ask(llm, prompt, 1800)
+    try:
+        raw = _ask(llm, prompt, should_stop=should_stop)
+    except RuntimeError as exc:
+        if "prázdnou odpověď" not in str(exc):
+            raise
+        return _fallback_plan(question)
     try:
         plan = json.loads(raw)
     except ValueError:
@@ -188,7 +221,10 @@ negative, uncertain, or minority information.
     return plan
 
 
-def synthesize_research(llm, run: dict) -> str:
+def synthesize_research(llm, run: dict,
+                        should_stop: Callable[[], bool] | None = None,
+                        on_text: Callable[[str], None] | None = None,
+                        on_reasoning: Callable[[str], None] | None = None) -> str:
     question = run.get("question", "")
     evidence: list[str] = []
     for source in run.get("sources", []):
@@ -205,7 +241,7 @@ def synthesize_research(llm, run: dict) -> str:
                 f"Research question: {question}\n\nSource {source_id}, chunk {index}/{len(chunks)}:\n"
                 f"{chunk}\n\nExtract every detail relevant to the question. Preserve conflicting, "
                 "negative, uncertain, or unusual claims. Do not judge source credibility."
-            ), 1800))
+            ), should_stop=should_stop))
         evidence.append(f"{header}\n" + "\n".join(notes))
 
     candidate_lines = [
@@ -223,7 +259,7 @@ def synthesize_research(llm, run: dict) -> str:
                 f"Research question: {question}\n\nEvidence bundle {index + 1}/{len(bundles)}:\n"
                 f"{bundle}\n\nCreate a loss-aware evidence synthesis. Preserve every source ID, "
                 "all relevant claims, contradictions, uncertainty, and negative findings."
-            ), 3000)
+            ), should_stop=should_stop)
             for index, bundle in enumerate(bundles)
         ]
         combined = "\n\n".join(partials)
@@ -255,7 +291,8 @@ Pravidla:
 - U každého tvrzení používej odkazy [{'], ['.join(source_ids)}] podle zdroje.
 - V závěrečném seznamu uveď každý zpracovaný source ID a URL.
 """
-    synthesis = _ask(llm, final_prompt, 6000)
+    synthesis = _ask(llm, final_prompt, should_stop=should_stop,
+                     on_text=on_text, on_reasoning=on_reasoning)
     missing = [source_id for source_id in source_ids if f"[{source_id}]" not in synthesis]
     if missing:
         synthesis = _ask(llm, (
@@ -263,5 +300,5 @@ Pravidla:
             f"Chybějící zdroje v coverage kontrole: {', '.join(missing)}\n\n"
             "Oprav syntézu tak, aby zachovala předchozí obsah a výslovně zahrnula každý "
             "chybějící source ID v textu nebo seznamu zdrojů. Nic nefiltruj podle důvěryhodnosti."
-        ), 6500)
+        ), should_stop=should_stop, on_text=on_text, on_reasoning=on_reasoning)
     return synthesis

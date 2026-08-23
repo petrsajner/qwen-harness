@@ -15,10 +15,11 @@ if not exist ".venv\Scripts\python.exe" (
         pause
         exit /b 1
     )
-    echo [SETUP] Instaluji zavislosti...
-    .venv\Scripts\python.exe -m pip install -r requirements.txt
-    if errorlevel 1 ( echo [CHYBA] Instalace zavislosti selhala. & pause & exit /b 1 )
 )
+
+echo [SETUP] Kontroluji zavislosti...
+.venv\Scripts\python.exe scripts\sync_deps.py
+if errorlevel 1 ( echo [CHYBA] Instalace zavislosti selhala. & pause & exit /b 1 )
 
 if not exist "runtime\llama\llama-server.exe" (
     echo [SETUP] Stahuji llama.cpp CUDA binarky (~540 MB)...

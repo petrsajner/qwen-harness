@@ -19,10 +19,10 @@ from harness.llm import LLMClient  # noqa: E402
 from harness import servermgmt  # noqa: E402
 
 PROMPTS = [
-    ("krátká odpověď", "Reply with exactly: OK", 32),
-    ("generování", "Write numbers from 1 to 300, one per line.", 700),
+    ("krátká odpověď", "Reply with exactly: OK"),
+    ("generování", "Write numbers from 1 to 300, one per line."),
     ("prompt eval", "Summarize the following: " + ("Lorem ipsum dolor sit amet, consectetur adipiscing elit. " * 60)
-     + "\nOne sentence summary:", 200),
+     + "\nOne sentence summary:"),
 ]
 
 
@@ -31,7 +31,7 @@ def bench(llm: LLMClient, thinking: bool) -> None:
     extra_body = {}
     if "top_k" in sampling:
         extra_body["top_k"] = sampling.pop("top_k")
-    for label, prompt, max_tokens in PROMPTS:
+    for label, prompt in PROMPTS:
         # TTFT (streaming)
         t0 = time.time()
         first = None
@@ -39,7 +39,7 @@ def bench(llm: LLMClient, thinking: bool) -> None:
         usage = None
         try:
             stream = llm.client.chat.completions.create(
-                model=llm.model_name, stream=True, max_tokens=max_tokens,
+                model=llm.model_name, stream=True,
                 stream_options={"include_usage": True},
                 messages=[{"role": "user", "content": prompt}],
                 extra_body=extra_body, **sampling,

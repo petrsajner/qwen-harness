@@ -229,7 +229,7 @@ def _start_locked(cfg: Config, model_key: str | None = None,
     finally:
         logf.close()
     pid_file(cfg).write_text(f"{model_key}:{proc.pid}", encoding="utf-8")
-    print(f"[START] model={model_key}  ctx={ctx}  pid={proc.pid}  → {cfg.base_url}")
+    print(f"[START] model={model_key}  ctx={ctx}  pid={proc.pid}  -> {cfg.base_url}")
     print(f"        log: {log_path}")
     print("[ČEKÁM] načítám model do VRAM ...", end="", flush=True)
     t0 = time.time()

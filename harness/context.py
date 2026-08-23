@@ -42,18 +42,20 @@ def render_messages_text(messages: list[dict], max_chars: int = 60_000) -> str:
     return transcript[:head_chars] + marker + transcript[-tail_chars:]
 
 
-def summarize_messages(llm: Any, messages: list[dict]) -> str:
+def summarize_messages(llm: Any, messages: list[dict], should_stop=None) -> str:
     """Nech model vytvořit souhrn konverzace (rychle, bez thinking, bez nástrojů)."""
     transcript = render_messages_text(messages)
-    res = llm.ask(
+    res = llm.stream(
         [
             {"role": "system", "content": "You are a precise technical summarizer. Output only the summary."},
             {"role": "user", "content": SUMMARIZE_PROMPT + transcript},
         ],
-        max_tokens=1400,
         sampling=llm.cfg.sampling(False),
         thinking=False,
+        should_stop=should_stop,
     )
+    if res.stopped:
+        raise RuntimeError("sumarizace zastavena uživatelem")
     text = (res.content or "").strip()
     if not text:
         raise RuntimeError("model vrátil prázdný souhrn")

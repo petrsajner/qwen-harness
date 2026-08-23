@@ -1,124 +1,160 @@
-"""Trvalá paměť modelu - globální (instalace) a projektová (workspace).
+"""Trvala pamet modelu: globalni, pro pracovni rezim a projektova.
 
 Soubory:
-  global:  {app}/memory/MEMORY.md            - preference, obecná pravidla
-  project: {workspace}/QWEN_MEMORY.md        - fakta platná pro daný projekt
+  global:      {app}/memory/GLOBAL.md
+  development: {app}/memory/MEMORY.md (puvodni globalni coding pamet)
+  other modes: {app}/memory/modes/<work_mode>.md
+  project:     {workspace}/QWEN_MEMORY.md
 
-Paměť se vkládá do system promptu (start úlohy + po kompresi); model ji
-doplňuje přes nástroj save_memory, uživatel ji může libovolně upravovat.
+Vsechny tri aktivni vrstvy se vkladaji cele do system promptu pri startu ulohy
+a po kompresi. Model je muze cist a doplnovat pres memory nastroje.
 """
 from __future__ import annotations
 
-import time
 from pathlib import Path
 
 from harness.config import Config
+from harness.work_modes import WORK_MODES, normalize_work_mode
 
-GLOBAL_TEMPLATE = """# 🧠 Globální paměť (platí pro všechny projekty)
 
-<!-- Model sem ukládá obecná pravidla a preference uživatele (nástrojem save_memory,
-     scope="global"). Tento soubor můžeš libovolně upravovat - model změnu uvidí
-     při dalším startu úlohy. Piš stručně, po jednom faktu na řádek. -->
+GLOBAL_TEMPLATE = """# Globální paměť
+
+<!-- Fakta a preference platné napříč všemi pracovními režimy a projekty.
+     Pro zápis použij save_memory se scope="global". Piš stručně, jeden fakt na řádek. -->
+"""
+
+
+def _mode_template(work_mode: str) -> str:
+    label = WORK_MODES[work_mode].label
+    return f"""# Paměť pracovního režimu: {label}
+
+<!-- Fakta, pravidla a preference platné pro režim {label} napříč projekty.
+     Pro zápis použij save_memory se scope="mode". Piš stručně, jeden fakt na řádek. -->
 """
 
 
 class MemoryStore:
-    def __init__(self, cfg: Config, workspace: Path | None = None):
+    def __init__(self, cfg: Config, workspace: Path | None = None,
+                 work_mode: str | None = None):
         self.cfg = cfg
-        self.workspace = workspace
-        m = cfg.data.get("memory", {})
-        self.global_path = cfg.root / m.get("global_dir", "memory") / "MEMORY.md"
-        self.project_filename: str = m.get("project_filename", "QWEN_MEMORY.md")
-        self.max_chars = int(m.get("max_chars", 6000))
+        self.workspace = Path(workspace) if workspace else None
+        self.work_mode = normalize_work_mode(
+            work_mode or cfg.data.get("work_mode"), cfg.agent.get("mode", "agent"))
+        settings = cfg.data.get("memory", {})
+        directory = settings.get("directory", settings.get("global_dir", "memory"))
+        self.base_dir = cfg.root / directory
+        self.global_path = self.base_dir / settings.get("global_filename", "GLOBAL.md")
+        self.modes_dir = self.base_dir / settings.get("modes_directory", "modes")
+        self.development_filename = settings.get("development_filename", "MEMORY.md")
+        self.project_filename = settings.get("project_filename", "QWEN_MEMORY.md")
         self._ensure_global()
+        self._ensure_mode()
 
-    # ------------------------------------------------------------------
     def _ensure_global(self) -> None:
         self.global_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.global_path.exists():
             self.global_path.write_text(GLOBAL_TEMPLATE, encoding="utf-8")
 
-    def project_path(self) -> Path | None:
-        if not self.workspace:
-            return None
-        return Path(self.workspace) / self.project_filename
+    def mode_path(self) -> Path:
+        if self.work_mode == "development":
+            return self.base_dir / self.development_filename
+        return self.modes_dir / f"{self.work_mode}.md"
 
-    def ensure_project(self) -> None:
-        """Založ projektovou paměť s hlavičkou, pokud ještě neexistuje."""
-        p = self.project_path()
-        if p is None:
+    def _ensure_mode(self) -> None:
+        path = self.mode_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists():
+            path.write_text(_mode_template(self.work_mode), encoding="utf-8")
+            return
+        if self.work_mode != "development":
             return
         try:
-            if not p.exists():
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(
-                    f"# 🧠 Paměť projektu ({self.project_filename})\n\n"
-                    "<!-- Fakta platná pro tento projekt. Můžeš ručně upravovat. -->\n",
+            text = path.read_text(encoding="utf-8")
+            legacy = "# 🧠 Globální paměť (platí pro všechny projekty)"
+            if text.startswith(legacy):
+                text = text.replace(legacy, "# Paměť pracovního režimu: Vývoj", 1)
+                text = text.replace('scope="global"', 'scope="mode"', 1)
+                path.write_text(text, encoding="utf-8")
+        except OSError:
+            pass
+
+    def project_path(self) -> Path | None:
+        if self.workspace is None:
+            return None
+        return self.workspace / self.project_filename
+
+    def ensure_project(self) -> None:
+        path = self.project_path()
+        if path is None:
+            return
+        try:
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    f"# Paměť projektu ({self.project_filename})\n\n"
+                    "<!-- Fakta platná pouze pro tento projekt. "
+                    "Pro zápis použij save_memory se scope=\"project\". -->\n",
                     encoding="utf-8")
         except OSError:
             pass
 
-    # ------------------------------------------------------------------
+    def _path_for(self, scope: str) -> Path | None:
+        if scope == "global":
+            return self.global_path
+        if scope == "mode":
+            return self.mode_path()
+        if scope == "project":
+            return self.project_path()
+        return None
+
     def read(self, scope: str) -> str:
-        path = self.global_path if scope == "global" else self.project_path()
+        if scope not in ("global", "mode", "project"):
+            return f"ERROR: Neznámá vrstva paměti: {scope}"
+        path = self._path_for(scope)
         if path is None:
-            return "ERROR: Není nastavený workspace (projektová paměť bez projektu neexistuje)."
+            return "ERROR: Není nastavený projekt; projektová paměť není aktivní."
         if not path.exists():
-            return ("(prázdné - paměť pro tento projekt dosud neexistuje; "
-                    "první uložení ji vytvoří)" if scope == "project" else "(prázdné)")
+            return "(prázdné)"
         try:
             return path.read_text(encoding="utf-8")
-        except OSError as e:
-            return f"ERROR: nelze číst {path}: {e}"
+        except OSError as exc:
+            return f"ERROR: nelze číst {path}: {exc}"
 
     def append(self, fact: str, scope: str) -> str:
         fact = (fact or "").strip()
         if not fact:
             return "ERROR: prázdný fakt - není co uložit."
-        if scope == "global":
-            path = self.global_path
-        else:
-            path = self.project_path()
-            if path is None:
-                return "ERROR: Není nastavený workspace - projektovou paměť nelze použít."
+        if scope not in ("global", "mode", "project"):
+            return f"ERROR: Neznámá vrstva paměti: {scope}"
+        path = self._path_for(scope)
+        if path is None:
+            return "ERROR: Není nastavený projekt; projektovou paměť nelze použít."
+        if scope == "project":
+            self.ensure_project()
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            existed = path.exists()
-            line = f"- {fact}\n"
-            if not existed and scope == "project":
-                path.write_text(
-                    f"# 🧠 Paměť projektu ({self.project_filename})\n\n"
-                    f"<!-- Fakta platná pro tento projekt. Můžeš ručně upravovat. -->\n\n{line}",
-                    encoding="utf-8")
-            else:
-                with open(path, "a", encoding="utf-8") as f:
-                    f.write(line)
-            return f"OK: uloženo do {'globální' if scope == 'global' else 'projektové'} paměti: {fact[:80]}"
-        except OSError as e:
-            return f"ERROR: nelze zapsat {path}: {e}"
-
-    # ------------------------------------------------------------------
-    def _trunc(self, text: str) -> str:
-        text = text.strip()
-        if len(text) <= self.max_chars:
-            return text
-        return text[:self.max_chars] + f"\n… (zkráceno na {self.max_chars} znaků; plný obsah přes read_memory)"
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(f"- {fact}\n")
+            labels = {"global": "globální", "mode": "režimové", "project": "projektové"}
+            return f"OK: uloženo do {labels[scope]} paměti: {fact[:80]}"
+        except OSError as exc:
+            return f"ERROR: nelze zapsat {path}: {exc}"
 
     def context_block(self) -> str:
-        """Blok pro system prompt - obě paměti, zkrácené."""
-        parts = ["## PERSISTENT MEMORY",
-                 "Facts below were saved by you earlier or by the user (durable knowledge - "
-                 "apply without re-asking). To store a new fact use the save_memory tool "
-                 "(scope 'project' for workspace-specific facts, 'global' for general "
-                 "preferences/rules) when the user asks or when a fact is clearly worth "
-                 "persisting. Prefer concise one-line entries."]
-        g = self._trunc(self.read("global"))
-        parts.append(f"### GLOBAL MEMORY (all projects)\n{g}")
-        p = self.project_path()
-        if p is not None:
-            pv = self._trunc(self.read("project"))
-            ws_name = Path(self.workspace).name
-            parts.append(f"### PROJECT MEMORY (workspace: {ws_name})\n{pv}")
+        """Vsechny tri aktivni vrstvy pameti, bez umeleho zkracovani."""
+        label = WORK_MODES[self.work_mode].label
+        parts = [
+            "## PERSISTENT MEMORY",
+            "The following durable memory layers all apply to this chat. Use all of them. "
+            "Store universal user facts in scope 'global', facts shared by this work mode "
+            "in scope 'mode', and project-specific facts in scope 'project'.",
+            f"### GLOBAL MEMORY (all work modes and projects)\n{self.read('global').strip()}",
+            f"### WORK MODE MEMORY ({label})\n{self.read('mode').strip()}",
+        ]
+        if self.project_path() is not None:
+            parts.append(
+                f"### PROJECT MEMORY (workspace: {self.workspace.name})\n"
+                f"{self.read('project').strip()}")
         else:
-            parts.append("### PROJECT MEMORY: no workspace set (project memory inactive)")
+            parts.append("### PROJECT MEMORY: no project selected (project layer inactive)")
         return "\n\n".join(parts)

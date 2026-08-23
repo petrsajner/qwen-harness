@@ -6,7 +6,7 @@
 ; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
 ; (používá installer\release.bat s verzí z installer\version.txt)
 #ifndef MyAppVersion
-#define MyAppVersion "1.2.17"
+#define MyAppVersion "1.2.19"
 #endif
 
 #define MyAppName "Qwen3.8-27B Harness"
@@ -50,6 +50,7 @@ Source: "..\webapp.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\tui.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\run_app.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "version.txt"; DestDir: "{app}"; DestName: "version.txt"; Flags: ignoreversion
 Source: "..\config.yaml"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\app_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
@@ -57,6 +58,7 @@ Source: "..\harness\*.py"; DestDir: "{app}\harness"; Flags: ignoreversion recurs
 Source: "..\harness\tools\*.py"; DestDir: "{app}\harness\tools"; Flags: ignoreversion
 Source: "..\scripts\*.py"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "..\tests\*.py"; DestDir: "{app}\tests"; Flags: ignoreversion
+Source: "..\memory\*.md"; DestDir: "{app}\memory"; Flags: ignoreversion onlyifdoesntexist recursesubdirs createallsubdirs
 ; setup skript (venv + modely) - spouští se po instalaci
 Source: "run_setup.bat"; DestDir: "{app}"; Flags: ignoreversion
 
@@ -72,4 +74,4 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 Filename: "{app}\run_setup.bat"; Description: "Nainstalovat prostředí a stáhnout modely (~37 GB, nutné pro provoz)"; Flags: postinstall shellexec runasoriginaluser; WorkingDir: "{app}"
 
 [Messages]
-cze.WelcomeLabel2=Tento pruvodce nainstaluje [name/ver] - lokalni AI harness pro Qwen3.8-27B (RTX 5090).%n%nPo instalaci se pri prvem spusteni automaticky stahne prostredi a modely (~37 GB).%n%nPOKRAČOVAT?
+cze.WelcomeLabel2=Tento pruvodce nainstaluje [name/ver] - lokalni AI harness pro Qwen3.8-27B (RTX 5090).%n%nPo instalaci se pri prvnim spusteni automaticky stahne prostredi a modely (~37 GB).%n%nPOKRACOVAT?

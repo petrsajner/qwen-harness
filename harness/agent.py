@@ -26,7 +26,8 @@ from harness.changes import ChangeJournal
 from harness.llm import LLMClient, parse_tool_arguments
 from harness.processes import ProcessManager
 from harness.repo_index import RepoIndex
-from harness.research import ResearchLedger, plan_research, synthesize_research
+from harness.research import (GenerationStopped, ResearchLedger, plan_research,
+                              synthesize_research)
 from harness.prompts import system_prompt
 from harness.safety import Risk, SafetyPolicy
 from harness.session import Session
@@ -100,6 +101,12 @@ OVERFLOW_RE = re.compile(
     r"prompt is too long|maximum context",
     re.IGNORECASE,
 )
+DOCUMENT_OPERATION_RE = re.compile(
+    r"(?:ulož|ulozit|uložit|export|vyexport|save|vytvoř|vytvor).{0,80}"
+    r"(?:pdf|docx|markdown|soubor)|"
+    r"(?:pdf|docx|markdown).{0,80}(?:ulož|ulozit|uložit|export|vyexport|save|vytvoř|vytvor)",
+    re.IGNORECASE,
+)
 
 
 def _looks_structured(text: str) -> bool:
@@ -123,17 +130,25 @@ class Agent:
         self.mode = WORK_MODES[self.work_mode].agent_mode
         self.on_event = on_event
         self.abort_flag = abort_flag or threading.Event()
+        configured_workspace = cfg.agent.get("workspace")
+        candidate_workspace = (Path(configured_workspace).resolve()
+                               if configured_workspace else None)
+        project_workspace = (candidate_workspace
+                             if candidate_workspace and candidate_workspace.is_dir() else None)
         self.ctx = AgentContext(
             cfg=cfg, session=session,
-            workspace=Path(cfg.agent.get("workspace") or Path.cwd()).resolve(),
+            workspace=project_workspace or Path.cwd().resolve(),
+            project_workspace=project_workspace,
+            work_mode=self.work_mode,
         )
         self.ctx.changes = ChangeJournal(session, self.ctx.workspace)
         self.ctx.processes = process_manager or ProcessManager()
         self.ctx.processes.bind_session(session)
-        self.ctx.repo_index = RepoIndex(self.ctx.workspace)
+        self.ctx.repo_index = RepoIndex(project_workspace) if project_workspace else None
         self.ctx.research = ResearchLedger(session)
         self._steps = 0
         self._pending: list[dict] = []          # tool_calls čekající na potvrzení
+        self._pending_text = ""
         self._tools_used_this_task = 0
         self._tool_steps_since_update = 0
         self._summary_requested = False
@@ -141,6 +156,7 @@ class Agent:
         if restored.get("status") in ("running", "waiting_confirmation"):
             self._steps = int(restored.get("steps", 0))
             self._pending = list(restored.get("pending_calls") or [])
+            self._pending_text = str(restored.get("pending_text") or "")
 
     # ------------------------------------------------------------------
     def emit(self, kind: str, payload) -> None:
@@ -155,10 +171,12 @@ class Agent:
             raise ValueError(f"Neznámý režim: {mode}")
         self.mode = mode
         self.work_mode = normalize_work_mode(None, mode)
+        self.ctx.work_mode = self.work_mode
 
     def set_work_mode(self, work_mode: str) -> None:
         self.work_mode = normalize_work_mode(work_mode, self.mode)
         self.mode = WORK_MODES[self.work_mode].agent_mode
+        self.ctx.work_mode = self.work_mode
 
     def set_workspace(self, path: str | Path) -> Path:
         """Nastaví pracovní adresář (workspace) pro nástroje.
@@ -173,8 +191,12 @@ class Agent:
         if not p.is_dir():
             raise ValueError(f"Adresář neexistuje: {p}")
         self.ctx.workspace = p
+        self.ctx.project_workspace = p
         self.ctx.changes.set_workspace(p)
-        self.ctx.repo_index.set_workspace(p)
+        if self.ctx.repo_index is None:
+            self.ctx.repo_index = RepoIndex(p)
+        else:
+            self.ctx.repo_index.set_workspace(p)
         return p
 
     @property
@@ -195,7 +217,7 @@ class Agent:
         from harness.prompts import build_system_prompt
         if self.session.messages and self.session.messages[0]["role"] == "system":
             prompt = build_system_prompt(
-                self.mode, self.cfg, self.ctx.workspace, self.work_mode)
+                self.mode, self.cfg, self.ctx.project_workspace, self.work_mode)
             if self.ctx.repo_index and WORK_MODES[self.work_mode].repo_snapshot:
                 prompt += "\n\n## AUTOMATIC PROJECT SNAPSHOT\n" + self.ctx.repo_index.summary()
             elif self.ctx.repo_index:
@@ -204,8 +226,10 @@ class Agent:
 
     def new_task(self, text: str, images: list[Path] | None = None) -> None:
         """Zaloguje uživatelský vstup a resetuje počítadla."""
+        self.abort_flag.clear()
         self._steps = 0
         self._pending = []
+        self._pending_text = ""
         self._tools_used_this_task = 0
         self._tool_steps_since_update = 0
         self._summary_requested = False
@@ -213,7 +237,7 @@ class Agent:
         self.safety.new_task()
         self.session.add("user", text, images=images)
         self.ctx.changes.begin_task(text)
-        if self.work_mode == "research":
+        if self.work_mode == "research" and not DOCUMENT_OPERATION_RE.search(text):
             self.ctx.research.begin(text)
         self._save_task_state("running", label=text)
         # 🧠 paměť do system promptu (start úlohy)
@@ -233,8 +257,10 @@ class Agent:
 
     def resume_task(self, label: str) -> None:
         """Resetuje agentní stav nad již existující poslední user zprávou (retry/fork)."""
+        self.abort_flag.clear()
         self._steps = 0
         self._pending = []
+        self._pending_text = ""
         self._tools_used_this_task = 0
         self._tool_steps_since_update = 0
         self._summary_requested = False
@@ -267,10 +293,10 @@ class Agent:
         return None
 
     # ------------------------------------------------------------------
-    def _execute_calls(self, calls: list[dict]) -> list[tuple]:
+    def _execute_calls(self, calls: list[dict], assistant_text: str = "") -> list[tuple]:
         """Vykoná tool calls a přidá výsledky do session. Vrátí trace."""
         # asistentova zpráva s tool_calls (přesně jak ji vrátil model)
-        self.session.add("assistant", "", tool_calls=calls)
+        self.session.add("assistant", assistant_text, tool_calls=calls)
         prepared = []
         for call in calls:
             name = call["function"]["name"]
@@ -385,7 +411,8 @@ class Agent:
                                 + self.session.messages[start:cut])
             else:
                 to_summarize = self.session.messages[start:cut]
-            summary = summarize_messages(self.llm, to_summarize)
+            summary = summarize_messages(
+                self.llm, to_summarize, should_stop=self.abort_flag.is_set)
             ok = self.session.compress_to_summary(summary, keep_tokens=keep_tokens, cut=cut)
             if not ok:
                 self.session.trim_to_budget(int(limit * 0.5))
@@ -394,6 +421,8 @@ class Agent:
             self.refresh_system_prompt()
             self.emit("info", f"📦 Kontext komprimován: ~{est} → ~{new_est} tokenů (historie v UI zůstává)")
         except Exception as e:
+            if self.abort_flag.is_set():
+                return
             self.session.trim_to_budget(int(limit * 0.5))
             self.emit("info", f"📦 Sumarizace selhala ({type(e).__name__}: {e}) - aplikován tvrdý trim")
 
@@ -404,11 +433,14 @@ class Agent:
                 self._save_task_state("waiting_confirmation", pending_calls=self._pending)
                 return StepResult(Status.NEEDS_CONFIRMATION,
                                   pending_calls=self._pending,
-                                  pending_summary=self._summarize_calls(self._pending))
+                                  pending_summary=self._summarize_calls(self._pending),
+                                  text=self._pending_text)
             if not approve:
                 calls = self._pending
                 self._pending = []
-                self.session.add("assistant", "", tool_calls=calls)
+                pending_text = self._pending_text
+                self._pending_text = ""
+                self.session.add("assistant", pending_text, tool_calls=calls)
                 for c in calls:
                     self.session.add("tool", "User DECLINED this action. Do not retry it; "
                                              "ask the user or propose an alternative.",
@@ -417,8 +449,10 @@ class Agent:
                 return StepResult(Status.CONTINUE, text="Akce zamítnuta uživatelem.")
             calls = self._pending
             self._pending = []
+            pending_text = self._pending_text
+            self._pending_text = ""
             self.safety.mark_confirmed()
-            trace = self._execute_calls(calls)
+            trace = self._execute_calls(calls, pending_text)
             self._save_task_state("running")
             return StepResult(Status.CONTINUE, tool_trace=trace)
 
@@ -429,6 +463,9 @@ class Agent:
 
         # 2b) auto-komprese kontextu (příliš dlouhá konverzace)
         self._maybe_compress()
+        stop = self._check_abort()
+        if stop:
+            return stop
 
         if self.work_mode == "research":
             run = self.ctx.research.current()
@@ -437,11 +474,15 @@ class Agent:
                 try:
                     plan = plan_research(
                         self.llm, run.get("question", ""),
-                        self.ctx.repo_index.document_catalog() if self.ctx.repo_index else "")
+                        self.ctx.repo_index.document_catalog() if self.ctx.repo_index else "",
+                        should_stop=self.abort_flag.is_set)
                     self.ctx.research.set_plan(plan)
                     self.session.add(
                         "user", "[RESEARCH PLAN - internal, follow systematically]\n"
                         + json.dumps(plan, ensure_ascii=False, indent=2))
+                except GenerationStopped:
+                    self._save_task_state("aborted", result="Zastaveno uživatelem.")
+                    return StepResult(Status.ABORTED, text="Zastaveno uživatelem.")
                 except Exception as exc:
                     self._save_task_state("error", result=f"Research planning failed: {exc}")
                     return StepResult(Status.ERROR, text=f"Plán výzkumu selhal: {exc}")
@@ -452,9 +493,9 @@ class Agent:
             res = self.llm.stream(
                 self.session.to_api_messages(),
                 tools=tools,
-                max_tokens=int(self.cfg.agent.get("max_tokens", 16384)),
                 on_text=lambda t: self.emit("text", t),
                 on_reasoning=lambda t: self.emit("reasoning", t),
+                should_stop=self.abort_flag.is_set,
             )
         except KeyboardInterrupt:
             raise
@@ -470,6 +511,13 @@ class Agent:
             return StepResult(Status.ERROR, text=f"LLM chyba: {type(e).__name__}: {e}")
 
         self._steps += 1
+
+        if res.stopped:
+            if (res.content or "").strip():
+                self.session.add("assistant", res.content)
+            self._save_task_state("aborted", result="Zastaveno uživatelem.")
+            return StepResult(Status.ABORTED, text="Zastaveno uživatelem.",
+                              reasoning=res.reasoning)
 
         # 4) tool calls?
         if res.has_tool_calls:
@@ -492,12 +540,14 @@ class Agent:
                     risky.append(c)
             if risky:
                 self._pending = res.tool_calls
+                self._pending_text = res.content or ""
                 self._save_task_state("waiting_confirmation", pending_calls=self._pending)
                 return StepResult(Status.NEEDS_CONFIRMATION,
                                   pending_calls=res.tool_calls,
                                   pending_summary=self._summarize_calls(res.tool_calls),
+                                  text=res.content,
                                   reasoning=res.reasoning)
-            trace = self._execute_calls(res.tool_calls)
+            trace = self._execute_calls(res.tool_calls, res.content or "")
             # 📢 progress nudge: dlouhá série kroků bez slov k uživateli
             self._tools_used_this_task += len(trace)
             self._tool_steps_since_update += 1
@@ -505,16 +555,27 @@ class Agent:
                 self._tool_steps_since_update = 0
                 self.session.add("user", PROGRESS_NOTE)
             self._save_task_state("running")
-            return StepResult(Status.CONTINUE, tool_trace=trace, reasoning=res.reasoning)
+            return StepResult(Status.CONTINUE, text=res.content, tool_trace=trace,
+                              reasoning=res.reasoning)
 
         # 5) finální odpověď (+ 📋 vynucení strukturovaného souhrnu)
         if self.work_mode == "research":
             run = self.ctx.research.current()
             if run and run.get("status") == "collecting" and run.get("sources"):
+                if (res.content or "").strip():
+                    self.session.add("assistant", res.content)
                 self.emit("info", "Sestavuji závěrečnou syntézu ze všech načtených zdrojů...")
                 try:
-                    res.content = synthesize_research(self.llm, run)
+                    res.content = synthesize_research(
+                        self.llm, run, should_stop=self.abort_flag.is_set,
+                        on_text=lambda text: self.emit("text", text),
+                        on_reasoning=lambda text: self.emit("reasoning", text))
                     self.ctx.research.complete(res.content)
+                except GenerationStopped as exc:
+                    if exc.text:
+                        self.session.add("assistant", exc.text)
+                    self._save_task_state("aborted", result="Zastaveno uživatelem.")
+                    return StepResult(Status.ABORTED, text="Zastaveno uživatelem.")
                 except Exception as exc:
                     self._save_task_state("error", result=str(exc))
                     return StepResult(
@@ -550,6 +611,7 @@ class Agent:
             "work_mode": self.work_mode,
             "steps": self._steps,
             "pending_calls": list(self._pending if pending_calls is None else pending_calls),
+            "pending_text": self._pending_text,
             "result": result,
         })
 
@@ -582,12 +644,12 @@ def build_registry(mode: str, work_mode: str | None = None) -> ToolRegistry:
     memory.register_memory_tools(reg)  # chat má alespoň paměť
     web.register_web_tools(reg)        # internet: web_search + web_fetch (všude)
     context.register_context_tools(reg)
+    documents.register_document_tools(reg)
     if selected in ("discussion", "research"):
         return reg
     fs.register_fs_tools(reg)
     vision.register_vision_tools(reg)
     if selected == "writing":
-        documents.register_document_tools(reg)
         return reg
     context.register_coding_context_tools(reg)
     git.register_git_tools(reg)

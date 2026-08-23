@@ -91,6 +91,8 @@ installer/build_installer.bat     # vytvoří dist/QwenHarness-Setup-<verze>.exe
   volitelně desktop ikona, čeština, odinstalace standardně přes Windows
 - **První spuštění** (`run_app.bat` zástupcem) automaticky: vytvoří venv,
   stáhne závislosti, llama.cpp (~540 MB) a modely (~37 GB) — pak už jen otvírá appku
+- Při aktualizaci se změna `requirements.txt` pozná automaticky a doinstalují se jen
+  potřebné Python balíčky; modely ani ostatní runtime data se nestahují znovu.
 - Pozn.: odinstalace nechá stažené modely a sessions
   (`%LOCALAPPDATA%\QwenHarness\runtime`, `\sessions`) — smaž ručně, pokud nechceš.
 
@@ -101,7 +103,7 @@ installer/build_installer.bat     # vytvoří dist/QwenHarness-Setup-<verze>.exe
 /model q4|q5            přepnutí modelu (restart serveru, ~10 s)
 /mode chat|agent|computer     režim: chat | coding nástroje | + ovládání PC
 /autonomy supervised|semi|auto   úroveň autonomie
-/thinking on|off        režim uvažování modelu
+/thinking xhigh|medium|low|off   hloubka uvažování modelu
 /img <cesta>            přiložit obrázek k další zprávě
 /screenshot             přiložit screenshot obrazovky
 /new /sessions /load <id>   správa session
@@ -121,6 +123,18 @@ installer/build_installer.bat     # vytvoří dist/QwenHarness-Setup-<verze>.exe
 Každá konverzace si ukládá vlastní pracovní režim. Projekt může obsahovat libovolný počet
 konverzací v různých režimech a pamatuje si svůj výchozí režim pro nové chaty.
 
+### Tři vrstvy paměti
+
+Každý chat dostává do system promptu celé tři paměťové dokumenty, které se na něj vztahují:
+
+1. `memory/GLOBAL.md` — společné preference a fakta pro všechny druhy práce a projekty.
+2. Paměť aktivního pracovního režimu — společná napříč projekty stejného typu. Původní
+   `memory/MEMORY.md` je zachovaný jako paměť režimu Vývoj; ostatní jsou v `memory/modes/`.
+3. `<projekt>/QWEN_MEMORY.md` — fakta a rozhodnutí platná jen pro konkrétní projekt.
+
+Model ukládá nové informace přes `save_memory` s explicitním scope `global`, `mode` nebo
+`project`. Přepnutí chatu automaticky přepne i jeho režimovou a projektovou vrstvu.
+
 ### Výzkumný režim
 
 - `web_search`, `web_fetch` a lokální dokumenty se zapisují do persistentního `research.json`.
@@ -131,11 +145,14 @@ konverzací v různých režimech a pamatuje si svůj výchozí režim pro nové
 - Před prvním hledáním vznikne persistentní plán dílčích otázek a vyhledávacích úhlů.
 - Internetové HTML, text, PDF a DOCX se extrahují a ukládají do stejného ledgeru.
 - Hotovou syntézu lze exportovat do DOCX nebo PDF.
+- Krátké průběžné komentáře modelu a pracovní draft před syntézou zůstávají v historii chatu.
+- Požadavek na uložení hotového výsledku používá přímo `export_document` a nezakládá nový výzkum.
 
 ### Psaní
 
 - Finální text lze exportovat do Markdownu, strukturovaného DOCX nebo PDF s podporou češtiny.
 - Exportované dokumenty jsou součástí task checkpointu a lze je vrátit stejným rollbackem.
+- Dokumentový export je dostupný ve všech pracovních režimech; bez projektu se ukládá k session.
 
 ### Obnovení a výkon
 
@@ -143,6 +160,9 @@ konverzací v různých režimech a pamatuje si svůj výchozí režim pro nové
 - Background procesy zapisují do persistentních logů a po restartu se znovu připojí podle PID.
 - Nezávislé read-only tool calls běží bounded paralelně; každá sada se zápisem zůstává sekvenční.
 - Hledání v historii používá SQLite FTS5 index místo opakovaného skenování všech JSONL.
+- Generování nemá aplikační limit výstupních tokenů; končí přirozeně nebo na fyzické hranici kontextu modelu.
+- Stop obchází frontu, ukončí generování na nejbližší větě a zachová hotovou část odpovědi.
+- Zprávy a změny kontextu sdílejí jednu frontu, takže nový dotaz ani přesun chatu nepřepíše běžící úlohu.
 
 ## Autonomie a bezpečnost
 
@@ -174,6 +194,7 @@ TTFT ~1–2 s. Vlastní benchmark: `.venv/Scripts/python scripts/bench.py [--mod
 .venv/Scripts/python tests/e2e_model_switch.py      # E2E: Q4 → Q5 background switch
 .venv/Scripts/python tests/e2e_coding_workflow.py   # E2E: patch → test → rollback
 .venv/Scripts/python tests/e2e_research_workflow.py # E2E: protichůdné zdroje → syntéza
+.venv/Scripts/python tests/e2e_document_export.py   # E2E: Research výsledek → PDF bez nového hledání
 ```
 
 ## Coding workflow

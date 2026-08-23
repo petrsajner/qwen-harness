@@ -19,6 +19,7 @@ echo [BUILD] Kompiluji QwenHarness.exe...
     --noconfirm --clean --onedir --noconsole ^
     --name QwenHarness ^
     --icon app_icon.ico ^
+    --add-data "installer\version.txt;." ^
     --collect-all webview ^
     --hidden-import clr ^
     launcher\launcher_app.py

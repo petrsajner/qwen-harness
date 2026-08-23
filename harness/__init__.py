@@ -1,3 +1,5 @@
 """Qwen3.8-27B lokální harness - jádro aplikace."""
 
-__version__ = "0.1.0"
+from harness.version import APP_VERSION
+
+__version__ = APP_VERSION

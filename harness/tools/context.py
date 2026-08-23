@@ -126,6 +126,8 @@ class StartProjectCheckTool(Tool):
     risk = Risk.WRITE
 
     def run(self, ctx: AgentContext, timeout: int = 900) -> str:
+        if ctx.project_workspace is None:
+            return "ERROR: no project selected"
         detected = detect_project_check(ctx.workspace)
         if detected is None:
             return "ERROR: no supported project test command detected"

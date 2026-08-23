@@ -26,14 +26,8 @@ if not exist ".venv\Scripts\python.exe" (
 echo ============================================================
 echo  [2/4] Python zavislosti
 echo ============================================================
-if exist ".venv\.deps.ok" (
-    echo  Uz nainstalovane ^(marker .venv\.deps.ok^) - preskakuji.
-    echo  Pro vynuceni: smaz .venv\.deps.ok a spust znovu.
-) else (
-    ".venv\Scripts\python.exe" -m pip install -r requirements.txt
-    if errorlevel 1 ( echo [CHYBA] Instalace zavislosti selhala - zkontroluj internet. & pause & exit /b 1 )
-    type nul > ".venv\.deps.ok"
-)
+".venv\Scripts\python.exe" scripts\sync_deps.py
+if errorlevel 1 ( echo [CHYBA] Instalace zavislosti selhala - zkontroluj internet. & pause & exit /b 1 )
 
 echo ============================================================
 echo  [3/4] llama.cpp CUDA binarky (~540 MB)
