@@ -1305,6 +1305,26 @@ def open_skills_folder() -> None:
         gr.Warning(t("Skills folder cannot be opened: {error}", error=exc))
 
 
+def open_user_manual(language: str) -> None:
+    """Open the packaged user manual in the system PDF viewer."""
+    import os as _os
+    filename = ("QwenHarness-Manual-CS.pdf" if language == "cs"
+                else "QwenHarness-Manual-EN.pdf")
+    candidates = [
+        cfg.root / "docs" / filename,
+        cfg.root / "output" / "pdf" / filename,
+    ]
+    manual = next((path for path in candidates if path.is_file()), None)
+    if manual is None:
+        gr.Warning(t("Manual not found. Reinstall or repair the application."))
+        return
+    try:
+        _os.startfile(str(manual))  # noqa: S606 - local packaged PDF
+        gr.Info(t("Opening manual: {path}", path=manual))
+    except OSError as exc:
+        gr.Warning(t("Manual cannot be opened: {error}", error=exc))
+
+
 # ------------------------------------------------------------- mazání chatů
 _selected_sid: dict = {"id": None}
 
@@ -2117,6 +2137,15 @@ def build_ui() -> gr.Blocks:
                     btn_open_skills = gr.Button(t("Open skills folder"), size="sm")
 
                 with gr.Accordion(
+                        t("Help & manuals"), open=False,
+                        elem_classes=["sidebar-section", "info-section"]):
+                    with gr.Row(elem_classes=["gap"]):
+                        btn_manual_en = gr.Button(
+                            t("English manual (PDF)"), size="sm", scale=1)
+                        btn_manual_cs = gr.Button(
+                            t("Czech manual (PDF)"), size="sm", scale=1)
+
+                with gr.Accordion(
                         t("Research progress"), open=False,
                         visible=state.work_mode == "research",
                         elem_classes=["sidebar-section", "info-section"]) as research_panel:
@@ -2415,6 +2444,8 @@ def build_ui() -> gr.Blocks:
         btn_pin_file.click(pin_context_file_dialog, None,
                            [context_info, btn_clear_pins], queue=False)
         btn_open_skills.click(open_skills_folder, None, None, queue=False)
+        btn_manual_en.click(lambda: open_user_manual("en"), None, None, queue=False)
+        btn_manual_cs.click(lambda: open_user_manual("cs"), None, None, queue=False)
         btn_export_research.click(export_research_ledger, None,
                                   research_export_file, queue=False)
         btn_export_research_docx.click(

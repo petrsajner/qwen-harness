@@ -1,10 +1,20 @@
 # Local AI Harness
 
 A harness for local work with **Qwen3.8-27B** and **Ornith 1.5 35B-A3B** models on an
-**RTX 5090 (32 GB)** — 100% offline, no data ever leaves your machine.
+**RTX 5090 (32 GB)**. Model inference, projects, memories and chats stay local.
+When you use web or research tools, the app makes ordinary internet requests to
+the selected websites and search services.
 
 The UI language is **English by default**; the installer offers a language choice
 (English / Czech) and the app can be switched at runtime in Settings.
+
+## User manuals
+
+- [English user manual](output/pdf/QwenHarness-Manual-EN.pdf)
+- [Český uživatelský manuál](output/pdf/QwenHarness-Manual-CS.pdf)
+
+Both manuals are also installed with the application and can be opened from
+**Help & manuals** in the left sidebar.
 
 ## Features
 
@@ -42,6 +52,18 @@ The UI language is **English by default**; the installer offers a language choic
   Computer, each with its own prompt and tools
 - 🌐 **UI language switching** — English base, Czech available (installer choice or
   the Settings dropdown; applies without losing the session)
+
+## Interface
+
+The main workspace keeps model status, work mode and server controls visible while
+leaving most of the window to the conversation and prompt composer.
+
+![Qwen Harness main workspace](docs/images/qwen-harness-overview.jpg)
+
+| Model and memory settings | Context and built-in manuals |
+|---|---|
+| Select the model, KV precision, autonomy, thinking depth and language. The same panel exposes all three memory layers. | Inspect exactly what the model currently sees, pin important files and open either PDF manual from the application. |
+| ![Qwen Harness settings and memory](docs/images/qwen-harness-settings-memory.jpg) | ![Qwen Harness context inspector and manuals](docs/images/qwen-harness-context-manuals.jpg) |
 
 ## Architecture
 

@@ -113,8 +113,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.0",
-          "viditelná verze aplikace odpovídá instalátoru 1.3.0")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.1",
+          "viditelná verze aplikace odpovídá instalátoru 1.3.1")
 
 
 def test_memory_layers() -> None:
@@ -1718,6 +1718,32 @@ def test_communication_protocol() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_user_manuals() -> None:
+    print("[user manuals]")
+    from pypdf import PdfReader
+
+    expected = {
+        "QwenHarness-Manual-EN.pdf": (
+            15, ("1.3.1", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
+        "QwenHarness-Manual-CS.pdf": (
+            10, ("1.3.1", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
+    }
+    for filename, (minimum_pages, required_text) in expected.items():
+        path = ROOT / "output" / "pdf" / filename
+        check(path.is_file() and path.stat().st_size > 50_000,
+              f"{filename} existuje a není prázdný")
+        if not path.is_file():
+            continue
+        reader = PdfReader(path)
+        text = "".join((page.extract_text() or "") for page in reader.pages)
+        check(len(reader.pages) >= minimum_pages,
+              f"{filename} má úplný rozsah ({len(reader.pages)} stran)")
+        check(all((page.extract_text() or "").strip() for page in reader.pages),
+              f"{filename} nemá prázdné stránky")
+        check(all(item in text for item in required_text),
+              f"{filename} obsahuje verzi a klíčové kapitoly")
+
+
 if __name__ == "__main__":
     test_config()
     test_memory_layers()
@@ -1747,5 +1773,6 @@ if __name__ == "__main__":
     test_skill_library()
     test_context_compression()
     test_communication_protocol()
+    test_user_manuals()
     print(f"\n{'=' * 40}\nVÝSLEDEK: {PASS} ✓ / {FAIL} ✗")
     sys.exit(1 if FAIL else 0)

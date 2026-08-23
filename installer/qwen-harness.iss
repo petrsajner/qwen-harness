@@ -10,7 +10,7 @@
 ; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
 ; (používá installer\release.bat s verzí z installer\version.txt)
 #ifndef MyAppVersion
-#define MyAppVersion "1.3.0"
+#define MyAppVersion "1.3.1"
 #endif
 
 #define MyAppName "Qwen3.8-27B Harness"
@@ -71,6 +71,8 @@ Source: "..\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "version.txt"; DestDir: "{app}"; DestName: "version.txt"; Flags: ignoreversion
 Source: "..\config.yaml"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\output\pdf\QwenHarness-Manual-EN.pdf"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "..\output\pdf\QwenHarness-Manual-CS.pdf"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\app_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\harness\*.py"; DestDir: "{app}\harness"; Flags: ignoreversion recursesubdirs
 Source: "..\harness\tools\*.py"; DestDir: "{app}\harness\tools"; Flags: ignoreversion

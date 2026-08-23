@@ -289,6 +289,13 @@ _CS = {
     "Unpin all": "Odepnout vše",
     "Available skills": "Dostupné skills",
     "Open skills folder": "Otevřít složku skills",
+    "Help & manuals": "Nápověda a manuály",
+    "English manual (PDF)": "Anglický manuál (PDF)",
+    "Czech manual (PDF)": "Český manuál (PDF)",
+    "Opening manual: {path}": "Otevírám manuál: {path}",
+    "Manual not found. Reinstall or repair the application.":
+        "Manuál nebyl nalezen. Přeinstalujte nebo opravte aplikaci.",
+    "Manual cannot be opened: {error}": "Manuál nelze otevřít: {error}",
     "Research progress": "Průběh výzkumu",
     "Export all sources": "Exportovat všechny podklady",
     "Synthesis DOCX": "Syntéza DOCX",
