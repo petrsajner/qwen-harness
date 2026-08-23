@@ -62,6 +62,9 @@ def test_config() -> None:
     try:
         legacy_file.write_text(
             "models:\n  q4:\n    ctx_size: 131072\n"
+            "    kv_cache_profiles:\n"
+            "      f16: {label: \"16 bit - přesnější, kontext 128k\", ctx_size: 131072}\n"
+            "      q8_0: {label: \"8 bit - větší kontext 256k\", ctx_size: 262144}\n"
             "  q5:\n    ctx_size: 98304\n"
             "agent:\n  max_steps: 40\n  semi_max_steps: 15\n",
             encoding="utf-8")
@@ -71,6 +74,11 @@ def test_config() -> None:
               and migrated.kv_cache_mode("q4") == "f16"
               and migrated.kv_cache_mode("q5") == "q8_0",
               "starý config převezme nový hlavní Q5/Q8 profil bez změny Q4")
+        legacy_q4 = migrated.data["models"]["q4"]["kv_cache_profiles"]
+        check(legacy_q4["f16"]["label"] == "16-bit - more precise, context 128k"
+              and legacy_q4["f16"].get("label_cs") == "16 bit - přesnější, kontext 128k"
+              and legacy_q4["q8_0"]["label"] == "8-bit - larger context 256k",
+              "legacy české KV labely se migrací převedou na EN label + label_cs")
         migrated.set_kv_cache_mode("q4", "q8_0")
         check(migrated.context_size("q4") == 262144
               and migrated.kv_cache_server_args("q4")[-1] == "q8_0",

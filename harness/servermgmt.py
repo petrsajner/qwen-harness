@@ -61,9 +61,14 @@ def vram_str() -> str:
         used, total = [x.strip() for x in out.split(",")]
         val = f"GPU VRAM: {int(used) / 1024:.1f} / {int(total) / 1024:.1f} GB"
     except Exception:
-        val = "GPU VRAM: (nvidia-smi nedostupné)"
+        val = "GPU VRAM: (nvidia-smi unavailable)"
     _vram_cache.update(ts=now, value=val)
     return val
+
+
+def vram_value() -> str:
+    """Samotná hodnota VRAM bez "GPU VRAM:" prefixu (pro složené UI řádky)."""
+    return vram_str().removeprefix("GPU VRAM: ")
 
 
 def server_state(cfg: Config) -> str:

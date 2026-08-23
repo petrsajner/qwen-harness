@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 BUILTIN_MODELS: dict[str, dict[str, Any]] = {
     "q4": {
-        "alias": "Qwen3.8-27B Q4_K_M (16.5 GB, rychlá)",
+        "alias": "Qwen3.8-27B Q4_K_M (16.5 GB, fast)",
         "status_label": "Qwen 3.8 27B · Q4",
         "repo": "unsloth/Qwen3.8-27B-GGUF",
         "file": "Qwen3.8-27B-UD-Q4_K_M.gguf",
@@ -19,13 +19,15 @@ BUILTIN_MODELS: dict[str, dict[str, Any]] = {
         "ctx_size": 131072,
         "kv_cache": "f16",
         "kv_cache_profiles": {
-            "f16": {"label": "16 bit - přesnější, kontext 128k", "ctx_size": 131072},
-            "q8_0": {"label": "8 bit - větší kontext 256k", "ctx_size": 262144},
+            "f16": {"label": "16-bit - more precise, context 128k",
+                    "label_cs": "16 bit - přesnější, kontext 128k", "ctx_size": 131072},
+            "q8_0": {"label": "8-bit - larger context 256k",
+                     "label_cs": "8 bit - větší kontext 256k", "ctx_size": 262144},
         },
         "server_args": ["-fa", "on"],
     },
     "q5": {
-        "alias": "Qwen3.8-27B Q5_K_M (19.8 GB, kvalitní)",
+        "alias": "Qwen3.8-27B Q5_K_M (19.8 GB, high quality)",
         "status_label": "Qwen 3.8 27B · Q5",
         "repo": "unsloth/Qwen3.8-27B-GGUF",
         "file": "Qwen3.8-27B-UD-Q5_K_M.gguf",
@@ -33,13 +35,15 @@ BUILTIN_MODELS: dict[str, dict[str, Any]] = {
         "ctx_size": 98304,
         "kv_cache": "q8_0",
         "kv_cache_profiles": {
-            "f16": {"label": "16 bit - přesnější, kontext 96k", "ctx_size": 98304},
-            "q8_0": {"label": "8 bit - větší kontext 192k", "ctx_size": 196608},
+            "f16": {"label": "16-bit - more precise, context 96k",
+                    "label_cs": "16 bit - přesnější, kontext 96k", "ctx_size": 98304},
+            "q8_0": {"label": "8-bit - larger context 192k",
+                     "label_cs": "8 bit - větší kontext 192k", "ctx_size": 196608},
         },
         "server_args": ["-fa", "on"],
     },
     "ornith_q5": {
-        "alias": "Ornith 1.5 35B-A3B Abliterated Q5 (23.0 GB, reasoning, kontext 128k)",
+        "alias": "Ornith 1.5 35B-A3B Abliterated Q5 (23.0 GB, reasoning, context 128k)",
         "status_label": "Ornith 1.5 35B-A3B · Abliterated Q5",
         "family": "ornith",
         "repo": "alztrk/Ornith-1.5-35B-A3B-Abliterated-GGUF",
@@ -49,7 +53,8 @@ BUILTIN_MODELS: dict[str, dict[str, Any]] = {
         "ctx_size": 131072,
         "kv_cache": "q8_0",
         "kv_cache_profiles": {
-            "q8_0": {"label": "8 bit - pevné, kontext 128k", "ctx_size": 131072},
+            "q8_0": {"label": "8-bit - solid, context 128k",
+                     "label_cs": "8 bit - pevné, kontext 128k", "ctx_size": 131072},
         },
         "server_args": ["-fa", "on"],
         "sampling": {
@@ -147,6 +152,40 @@ def _migrate_builtin_models(user: dict[str, Any]) -> None:
                 and model.get("server_args") == q8_args):
             model["ctx_size"] = f16_ctx[key]
             model.pop("server_args", None)
+
+
+# staré české labely z configů před verzí 1.3.0 (angličtina se stala základem)
+_LEGACY_KV_LABELS = {
+    "16 bit - přesnější, kontext 128k": "16-bit - more precise, context 128k",
+    "8 bit - větší kontext 256k": "8-bit - larger context 256k",
+    "16 bit - přesnější, kontext 96k": "16-bit - more precise, context 96k",
+    "8 bit - větší kontext 192k": "8-bit - larger context 192k",
+    "8 bit - pevné, kontext 128k": "8-bit - solid, context 128k",
+}
+
+
+def _migrate_kv_labels(user: dict[str, Any]) -> None:
+    """Přelož legacy české KV labely na anglické `label` + českou `label_cs`.
+
+    Instalátor při upgrade zachová starý config.yaml (onlyifdoesntexist) -
+    bez téhle migrace by anglické UI zobrazovalo české volby KV cache.
+    """
+    models = user.get("models")
+    if not isinstance(models, dict):
+        return
+    for model in models.values():
+        if not isinstance(model, dict):
+            continue
+        profiles = model.get("kv_cache_profiles")
+        if not isinstance(profiles, dict):
+            continue
+        for profile in profiles.values():
+            if not isinstance(profile, dict):
+                continue
+            label = profile.get("label")
+            if isinstance(label, str) and label in _LEGACY_KV_LABELS:
+                profile["label_cs"] = label
+                profile["label"] = _LEGACY_KV_LABELS[label]
 
 
 def _remove_legacy_agent_limits(user: dict[str, Any]) -> None:
@@ -257,5 +296,6 @@ def load_config(path: Path | None = None) -> Config:
         with open(path, encoding="utf-8") as f:
             user = yaml.safe_load(f) or {}
     _migrate_builtin_models(user)
+    _migrate_kv_labels(user)
     _remove_legacy_agent_limits(user)
     return Config(_deep_merge(DEFAULTS, user))

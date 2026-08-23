@@ -1455,7 +1455,7 @@ def refresh_status():
         line2 = f"<small>{switch.error}</small>"
     elif st == "running":
         line1 = t("🟢 {model}", model=model_name)
-        line2 = t("🖥️ GPU VRAM: {vram} · KV cache: {kv}", vram=servermgmt.vram_str(), kv=kv_name)
+        line2 = t("🖥️ GPU VRAM: {vram} · KV cache: {kv}", vram=servermgmt.vram_value(), kv=kv_name)
     else:
         line1 = t("🔴 {model} — server is down", model=model_name)
         line2 = t("🖥️ GPU VRAM: — · KV cache: {kv}", kv=kv_name)
