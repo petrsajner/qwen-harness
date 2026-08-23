@@ -92,7 +92,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 Filename: "{app}\run_setup.bat"; Description: "{cm:RunSetupDesc}"; Flags: postinstall shellexec runasoriginaluser; WorkingDir: "{app}"
 
 [Code]
-procedure CurStepChanged(CurStep: TInstallStep);
+procedure CurStepChanged(CurStep: TSetupStep);
 begin
   // uloz vybrany jazyk instalatoru -> aplikace se podle nej nastavi
   // ("en" nebo "cze"; webapp mapuje cze->cs, vychozi je anglictina)
