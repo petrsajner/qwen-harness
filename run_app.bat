@@ -1,38 +1,38 @@
 @echo off
 rem ============================================================
-rem  Qwen3.8-27B Harness - spoustec desktop aplikace
-rem  - pri prvem spusteni vytvori venv + stahne zavislosti/modely
-rem  - pak otevre nativni okno aplikace (qwen_app.py)
+rem  Qwen3.8-27B Harness - desktop app launcher
+rem  - on first run it creates the venv + downloads deps/models
+rem  - then opens the native app window (qwen_app.py)
 rem ============================================================
 setlocal
 cd /d "%~dp0"
 
 if not exist ".venv\Scripts\python.exe" (
-    echo [SETUP] Prvni spusteni: vytvarim Python prostredi...
+    echo [SETUP] First run: creating the Python environment...
     py -3.12 -m venv .venv
     if errorlevel 1 (
-        echo [CHYBA] Python 3.12 nenalezen. Nainstaluj ho z https://www.python.org/downloads/
+        echo [ERROR] Python 3.12 not found. Install it from https://www.python.org/downloads/
         pause
         exit /b 1
     )
 )
 
-echo [SETUP] Kontroluji zavislosti...
+echo [SETUP] Checking dependencies...
 .venv\Scripts\python.exe scripts\sync_deps.py
-if errorlevel 1 ( echo [CHYBA] Instalace zavislosti selhala. & pause & exit /b 1 )
+if errorlevel 1 ( echo [ERROR] Dependency installation failed. & pause & exit /b 1 )
 
 if not exist "runtime\llama\llama-server.exe" (
-    echo [SETUP] Stahuji llama.cpp CUDA binarky (~540 MB)...
+    echo [SETUP] Downloading llama.cpp CUDA binaries (~540 MB)...
     .venv\Scripts\python.exe scripts\download_llama.py
-    if errorlevel 1 ( echo [CHYBA] Download llama.cpp selhal. & pause & exit /b 1 )
+    if errorlevel 1 ( echo [ERROR] llama.cpp download failed. & pause & exit /b 1 )
 )
 
 if not exist "runtime\models\mmproj-F16.gguf" (
-    echo [SETUP] Stahuji modely Qwen3.8-27B Q4+Q5 (~37 GB, muze trvat dlouho)...
+    echo [SETUP] Downloading Qwen3.8-27B Q4+Q5 models (~37 GB, may take long)...
     .venv\Scripts\python.exe scripts\download_models.py --model all
-    if errorlevel 1 ( echo [CHYBA] Download modelu selhal. & pause & exit /b 1 )
+    if errorlevel 1 ( echo [ERROR] Model download failed. & pause & exit /b 1 )
 )
 
-echo [APP] Spoustim Qwen3.8-27B Harness...
+echo [APP] Starting Qwen3.8-27B Harness...
 start "" ".venv\Scripts\pythonw.exe" "qwen_app.py"
 endlocal

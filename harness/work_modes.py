@@ -1,4 +1,8 @@
-"""Jednotné uživatelské pracovní režimy a jejich capability mapování."""
+"""Jednotné uživatelské pracovní režimy a jejich capability mapování.
+
+Labels are English (the base UI language); the web UI/TUI translate them
+via harness.i18n.t() when Czech is active.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,12 +18,12 @@ class WorkModeSpec:
 
 
 WORK_MODES = {
-    "discussion": WorkModeSpec("discussion", "Diskuze", "chat"),
-    "research": WorkModeSpec("research", "Výzkum", "chat"),
-    "writing": WorkModeSpec("writing", "Psaní", "agent", task_protocol=True),
+    "discussion": WorkModeSpec("discussion", "Discussion", "chat"),
+    "research": WorkModeSpec("research", "Research", "chat"),
+    "writing": WorkModeSpec("writing", "Writing", "agent", task_protocol=True),
     "development": WorkModeSpec(
-        "development", "Vývoj", "agent", repo_snapshot=True, task_protocol=True),
-    "computer": WorkModeSpec("computer", "Počítač", "computer", task_protocol=True),
+        "development", "Development", "agent", repo_snapshot=True, task_protocol=True),
+    "computer": WorkModeSpec("computer", "Computer", "computer", task_protocol=True),
 }
 
 

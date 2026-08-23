@@ -50,24 +50,24 @@ def main() -> int:
         m = cfg.data["models"][key]
         target = models_dir / m["file"]
         if target.exists() and target.stat().st_size > 1 << 30:
-            print(f"[OK] {key}: {m['file']} už stažen")
+            print(f"[OK] {key}: {m['file']} already downloaded")
         else:
-            print(f"[STAHUJI] {key}: {m['alias']}")
+            print(f"[DOWNLOAD] {key}: {m['alias']}")
             hf_download(m["repo"], m["file"], models_dir)
-            print(f"[HOTOVO] {key}: {m['file']}")
+            print(f"[DONE] {key}: {m['file']}")
         mmproj_repo = cfg.mmproj_repo(key)
         mmproj_id = (mmproj_repo, m["mmproj"])
         if mmproj_id not in mmproj_done:
             mm = models_dir / m["mmproj"]
             if mm.exists() and mm.stat().st_size > 10 << 20:
-                print(f"[OK] mmproj už stažen: {m['mmproj']}")
+                print(f"[OK] mmproj already downloaded: {m['mmproj']}")
             else:
-                print(f"[STAHUJI] mmproj: {m['mmproj']}")
+                print(f"[DOWNLOAD] mmproj: {m['mmproj']}")
                 hf_download(mmproj_repo, m["mmproj"], models_dir)
-                print(f"[HOTOVO] mmproj: {m['mmproj']}")
+                print(f"[DONE] mmproj: {m['mmproj']}")
             mmproj_done.add(mmproj_id)
 
-    print("\nVše připraveno v:", models_dir)
+    print("\nEverything ready in:", models_dir)
     return 0
 
 

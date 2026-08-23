@@ -17,19 +17,19 @@ from harness.config import Config
 from harness.work_modes import WORK_MODES, normalize_work_mode
 
 
-GLOBAL_TEMPLATE = """# Globální paměť
+GLOBAL_TEMPLATE = """# Global memory
 
-<!-- Fakta a preference platné napříč všemi pracovními režimy a projekty.
-     Pro zápis použij save_memory se scope="global". Piš stručně, jeden fakt na řádek. -->
+<!-- Facts and preferences that apply across all work modes and projects.
+     To write here use save_memory with scope="global". Keep it brief, one fact per line. -->
 """
 
 
 def _mode_template(work_mode: str) -> str:
     label = WORK_MODES[work_mode].label
-    return f"""# Paměť pracovního režimu: {label}
+    return f"""# Work mode memory: {label}
 
-<!-- Fakta, pravidla a preference platné pro režim {label} napříč projekty.
-     Pro zápis použij save_memory se scope="mode". Piš stručně, jeden fakt na řádek. -->
+<!-- Facts, rules and preferences that apply to the {label} mode across projects.
+     To write here use save_memory with scope="mode". Keep it brief, one fact per line. -->
 """
 
 
@@ -72,7 +72,7 @@ class MemoryStore:
             text = path.read_text(encoding="utf-8")
             legacy = "# 🧠 Globální paměť (platí pro všechny projekty)"
             if text.startswith(legacy):
-                text = text.replace(legacy, "# Paměť pracovního režimu: Vývoj", 1)
+                text = text.replace(legacy, "# Work mode memory: Development", 1)
                 text = text.replace('scope="global"', 'scope="mode"', 1)
                 path.write_text(text, encoding="utf-8")
         except OSError:
@@ -91,9 +91,9 @@ class MemoryStore:
             if not path.exists():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(
-                    f"# Paměť projektu ({self.project_filename})\n\n"
-                    "<!-- Fakta platná pouze pro tento projekt. "
-                    "Pro zápis použij save_memory se scope=\"project\". -->\n",
+                    f"# Project memory ({self.project_filename})\n\n"
+                    "<!-- Facts that apply to this project only. "
+                    "To write here use save_memory with scope=\"project\". -->\n",
                     encoding="utf-8")
         except OSError:
             pass

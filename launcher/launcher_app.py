@@ -34,7 +34,11 @@ if not getattr(sys, "frozen", False):
     sys.path.insert(0, str(ROOT))
 
 from harness.dependencies import dependencies_current
+from harness.i18n import detect_language, set_language, t
 from harness.version import APP_VERSION
+
+# UI language for dialogs/splash: user choice > installer file > English
+set_language(detect_language(ROOT) or "en")
 
 VENV_PY = ROOT / ".venv" / "Scripts" / "python.exe"
 VENV_PYW = ROOT / ".venv" / "Scripts" / "pythonw.exe"
@@ -91,7 +95,8 @@ def _free_web_port(preferred: int) -> int:
     for port in range(preferred, preferred + 20):
         if not _port_busy(port):
             return port
-    raise RuntimeError(f"Žádný volný Web UI port v rozsahu {preferred}-{preferred + 19}")
+    raise RuntimeError(t("No free Web UI port in range {start}-{end}",
+                         start=preferred, end=preferred + 19))
 
 
 def _cfg_ports() -> tuple[int, int]:
@@ -119,7 +124,7 @@ def _check_model_files() -> tuple[bool, str]:
     ggufs = list(models_dir.glob("*.gguf")) if models_dir.exists() else []
     has_mmproj = any("mmproj" in g.name.lower() for g in ggufs)
     has_model = any("mmproj" not in g.name.lower() and "mtp" not in g.name.lower() for g in ggufs)
-    detail = f"hledám v: {models_dir}"
+    detail = t("looking in: {path}", path=models_dir)
     return (has_model and has_mmproj), detail
 
 
@@ -150,7 +155,8 @@ def _run_setup_console() -> bool:
     """Instalace prostředí+modelů ve viditelné konzoli (venv, llama.cpp, 37 GB modelů)."""
     bat = ROOT / "run_setup.bat"
     if not bat.exists():
-        _alert(f"Chybí {bat.name} - spusť instalaci ručně podle README.")
+        _alert(t("Missing {name} — run the installation manually as described in README.",
+                 name=bat.name))
         return False
     rc = subprocess.call(["cmd", "/c", str(bat)], cwd=str(ROOT))
     return rc == 0
@@ -212,7 +218,8 @@ def _show_splash() -> None:
                 root.title(f"Qwen3.8-27B Harness v{APP_VERSION}")
                 root.overrideredirect(True)
                 root.attributes("-topmost", True)
-                tk.Label(root, text=f"Qwen3.8-27B Harness v{APP_VERSION}\n\nstartuji …",
+                splash_text = (f"Qwen3.8-27B Harness v{APP_VERSION}\n\n{t('starting …')}")
+                tk.Label(root, text=splash_text,
                          font=("Segoe UI", 13), padx=36, pady=22,
                          bg="#0b0e14", fg="#e8f0ff").pack()
                 root.update_idletasks()
@@ -242,10 +249,11 @@ def _close_splash() -> None:
 def _write_loading_page(web_port: int):
     """Interní 'načítám' stránka - okno se otevře okamžitě; stránka sama
     přeskočí na UI ve chvíli, kdy webapp naslouchá (fetch probe)."""
-    import pathlib
     d = ROOT / "runtime"
     d.mkdir(parents=True, exist_ok=True)
     p = d / ".loading.html"
+    loading_msg = t("starting the interface… (first run takes a while)")
+    slow_msg = t("still starting… (details: runtime/launcher.log)")
     p.write_text(f"""<!doctype html><html><head><meta charset="utf-8">
 <title>Qwen3.8-27B Harness</title>
 <style>
@@ -260,14 +268,14 @@ small{{color:#8b949e}}
 </style></head><body>
 <div class="r"></div>
 <h1><b>Qwen</b>3.8-27B Harness <small>v{APP_VERSION}</small></h1>
-<small id="s">startuji rozhraní… (první spuštění chvíli trvá)</small>
+<small id="s">{loading_msg}</small>
 <script>
 const APP='http://127.0.0.1:{web_port}/';
 const t0=Date.now();
 (async function probe(){{
   try{{ await fetch(APP+'config',{{mode:'no-cors'}}); location.replace(APP); return; }}catch(e){{}}
   if(Date.now()-t0>20000)
-    document.getElementById('s').textContent='stále startuje… (detaily: runtime/launcher.log)';
+    document.getElementById('s').textContent={slow_msg!r};
   setTimeout(probe,400);
 }})();
 </script></body></html>""", encoding="utf-8")
@@ -286,29 +294,29 @@ def main() -> int:
     # ---- 1) preflight: venv + llama.cpp + modely (rychlé kontroly souborů) ----
     problems = []
     if not VENV_PY.exists():
-        problems.append("Python prostředí (.venv)")
+        problems.append(t("Python environment (.venv)"))
     elif not dependencies_current(ROOT / "requirements.txt", ROOT / ".venv"):
-        problems.append("Python závislosti (nová verze requirements.txt)")
+        problems.append(t("Python dependencies (new requirements.txt version)"))
     if not (ROOT / "runtime" / "llama").exists() or not any(
             (ROOT / "runtime" / "llama").rglob("llama-server.exe")):
         problems.append("llama.cpp (runtime\\llama)")
     models_ok, models_detail = _check_model_files()
     if not models_ok:
-        problems.append(f"modely Qwen3.8-27B ({models_detail})")
+        problems.append(t("Qwen3.8-27B models ({detail})", detail=models_detail))
     if problems:
         _close_splash()
-        _log("Chybí: " + "; ".join(problems))
-        if _alert("Aplikace ještě není dokončená - chybí:\n\n  • " +
-                  "\n  • ".join(problems) +
-                  "\n\nSpustit instalaci nyní? (stáhne ~37 GB na správné místo)",
-                  question=True):
+        _log("Missing: " + "; ".join(problems))
+        question = t("The app is not fully installed — missing:\n\n  • {items}\n\n"
+                     "Run the setup now? (downloads ~37 GB to the right place)",
+                     items="\n  • ".join(problems))
+        if _alert(question, question=True):
             if not _run_setup_console():
                 return 1
             models_ok, _ = _check_model_files()
             deps_ok = dependencies_current(ROOT / "requirements.txt", ROOT / ".venv")
             if not VENV_PY.exists() or not deps_ok or not models_ok:
-                _alert("Instalace se nepodařila - zkus znovu nebo spusť "
-                       "'Instalace prostředí a modelů' ze Start Menu.")
+                _alert(t("Setup failed — try again, or run “Set up environment and models” "
+                         "from the Start Menu."))
                 return 1
         else:
             return 1
@@ -323,7 +331,7 @@ def main() -> int:
     env = {**os.environ, "QWEN_NO_BROWSER": "1", "QWEN_AUTOSTART_SERVER": "1",
            "QWEN_WEB_PORT": str(web_port)}
     if not webui_running:
-        _log("Startuji Web UI (model se nahodí na pozadí) ...")
+        _log("Starting Web UI (model loads in the background) ...")
         webapp_proc = subprocess.Popen(
             [str(VENV_PYW), "webapp.py"], cwd=str(ROOT), env=env,
             creationflags=0x08000000)
@@ -332,7 +340,7 @@ def main() -> int:
             # až bude server ready) - uživatel nekouká 10 s na splash
             loading = _write_loading_page(web_port)
             url = loading.as_uri()
-            _log(f"Okno otevřeno hned (loading) → {base_web}")
+            _log(f"Window opened immediately (loading page) → {base_web}")
         else:
             for _ in range(120):
                 if _http_ok(f"{base_web}/config"):
@@ -342,7 +350,7 @@ def main() -> int:
     else:
         url = base_web
     if not (webapp_proc is not None and not smoke):
-        _log(f"Web UI připraveno: {url}")
+        _log(f"Web UI ready: {url}")
 
     # ---- 3) cleanup (zavření okna = stop všeho + uvolnění VRAM) ---------------
     cleaned = {"done": False}
@@ -351,25 +359,25 @@ def main() -> int:
         if cleaned["done"]:
             return
         cleaned["done"] = True
-        _log("Ukončuji: Web UI ...")
+        _log("Shutting down: Web UI ...")
         if webapp_proc is not None:
             _kill_tree(webapp_proc.pid)
-        _log("Zastavuji llama-server (uvolňuji VRAM) ...")
+        _log("Stopping llama-server (freeing VRAM) ...")
         subprocess.call([str(VENV_PY), "scripts/server.py", "stop"],
                         cwd=str(ROOT), creationflags=0x08000000)
-        _log("Hotovo - VRAM uvolněna.")
+        _log("Done - VRAM freed.")
 
     atexit.register(cleanup)
 
     if smoke:
         # počkej na model (autostart na pozadí), pak cleanup - test celého cyklu
-        _log("SMOKE: čekám na model (autostart) ...")
+        _log("SMOKE: waiting for the model (autostart) ...")
         for _ in range(90):
             if _http_ok(f"{base_srv}/health"):
                 break
             time.sleep(1)
         ok = _http_ok(f"{base_srv}/health")
-        _log(f"SMOKE: model {'BĚŽÍ' if ok else 'NEBĚŽÍ (timeout)'} - ukončuji.")
+        _log(f"SMOKE: model {'RUNNING' if ok else 'NOT RUNNING (timeout)'} - exiting.")
         cleanup()
         return 0 if ok else 1
 
@@ -380,14 +388,14 @@ def main() -> int:
         webview.create_window(f"Qwen3.8-27B Harness v{APP_VERSION}", url,
                                width=1440, height=920, min_size=(960, 640),
                                background_color="#0b0e14")
-        _log(f"Okno otevřeno: {url} (model se případně dolaďuje na pozadí)")
+        _log(f"Window opened: {url} (model may still be loading in the background)")
         webview.start(_focus_window)
     except ImportError:
         import webbrowser
-        _log(f"pywebview chybí - otevírám prohlížeč: {url}")
+        _log(f"pywebview missing - opening browser: {url}")
         webbrowser.open(url)
         try:
-            input("[APP] Enter = konec (server se zastaví)...\n")
+            input("[APP] Press Enter to quit (the server will stop)...\n")
         except EOFError:
             pass
     finally:
@@ -403,5 +411,5 @@ if __name__ == "__main__":
     except Exception:
         import traceback
         traceback.print_exc()
-        _alert("Aplikace selhala – detaily v runtime\\launcher.log")
+        _alert(t("The app crashed – details in runtime\\launcher.log"))
         raise SystemExit(1)

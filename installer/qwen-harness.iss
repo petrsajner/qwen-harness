@@ -1,12 +1,16 @@
 ; ============================================================
-;  Qwen3.8-27B Harness - instalator (Inno Setup 6)
+;  Qwen3.8-27B Harness - installer (Inno Setup 6)
 ;  Build:  installer\build_installer.bat  →  dist\QwenHarness-Setup-<verze>.exe
+;
+;  Language: the wizard offers English (default) and Czech; the
+;  selected language is written to {app}\runtime\ui-language.txt
+;  and the app starts in it (English when nothing is selected).
 ; ============================================================
 
 ; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
 ; (používá installer\release.bat s verzí z installer\version.txt)
 #ifndef MyAppVersion
-#define MyAppVersion "1.2.28"
+#define MyAppVersion "1.3.0"
 #endif
 
 #define MyAppName "Qwen3.8-27B Harness"
@@ -32,10 +36,23 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=no
+; vzdy zobraz vyber jazyka (anglictina je prvni = vychozi)
+ShowLanguageDialog=yes
 
 [Languages]
-Name: "cze"; MessagesFile: "compiler:Languages\Czech.isl"
+; First entry = default language (English base after installation).
 Name: "en"; MessagesFile: "compiler:Default.isl"
+Name: "cze"; MessagesFile: "compiler:Languages\Czech.isl"
+
+[CustomMessages]
+en.SetupEnvMenu=Set up environment and models (~59 GiB)
+cze.SetupEnvMenu=Instalace prostředí a modelů (59 GiB)
+en.RunSetupDesc=Set up the environment and download models (~59 GiB, required to run)
+cze.RunSetupDesc=Nainstalovat prostředí a stáhnout modely (~59 GiB, nutné pro provoz)
+
+[Messages]
+en.WelcomeLabel2=This wizard will install [name/ver], a local AI harness for Qwen and Ornith (RTX 5090).%n%nAfter installation, the environment and models (~59 GiB) will download automatically on first launch.%n%nContinue?
+cze.WelcomeLabel2=Tento pruvodce nainstaluje [name/ver] - lokalni AI harness pro Qwen a Ornith (RTX 5090).%n%nPo instalaci se pri prvnim spusteni automaticky stahne prostredi a modely (~59 GiB).%n%nPOKRACOVAT?
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -65,14 +82,23 @@ Source: "run_setup.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
-Name: "{group}\Instalace prostředí a modelů (59 GiB)"; Filename: "{app}\run_setup.bat"; WorkingDir: "{app}"
+Name: "{group}\{cm:SetupEnvMenu}"; Filename: "{app}\run_setup.bat"; WorkingDir: "{app}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 ; HLAVNI KROK: vytvori venv, stahne zavislosti, llama.cpp i modely (~59 GiB)
 ; s prubehem v konzoli - hned po dokonceni instalatoru (default zaskrtnuto)
-Filename: "{app}\run_setup.bat"; Description: "Nainstalovat prostředí a stáhnout modely (~59 GiB, nutné pro provoz)"; Flags: postinstall shellexec runasoriginaluser; WorkingDir: "{app}"
+Filename: "{app}\run_setup.bat"; Description: "{cm:RunSetupDesc}"; Flags: postinstall shellexec runasoriginaluser; WorkingDir: "{app}"
 
-[Messages]
-cze.WelcomeLabel2=Tento pruvodce nainstaluje [name/ver] - lokalni AI harness pro Qwen a Ornith (RTX 5090).%n%nPo instalaci se pri prvnim spusteni automaticky stahne prostredi a modely (~59 GiB).%n%nPOKRACOVAT?
+[Code]
+procedure CurStepChanged(CurStep: TInstallStep);
+begin
+  // uloz vybrany jazyk instalatoru -> aplikace se podle nej nastavi
+  // ("en" nebo "cze"; webapp mapuje cze->cs, vychozi je anglictina)
+  if CurStep = ssPostInstall then
+  begin
+    CreateDir(ExpandConstant('{app}\runtime'));
+    SaveStringToFile(ExpandConstant('{app}\runtime\ui-language.txt'), ActiveLanguage, False);
+  end;
+end;

@@ -24,6 +24,10 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 from harness.version import APP_VERSION
+from harness.i18n import detect_language, set_language, t
+
+# UI language: user choice > installer file > English (must be set before webapp import)
+set_language(detect_language(ROOT) or "en")
 
 # pythonw nemá stdout/stderr → přesměruj do log souboru, ať není tichá smrt
 if sys.stdout is None or sys.stderr is None:
@@ -47,10 +51,10 @@ def _alert(msg: str) -> None:
 
 
 def preflight(cfg) -> list[str]:
-    """Co chybí pro provoz (llama.cpp, model)."""
+    """What is missing to run (llama.cpp, model)."""
     problems = []
     if cfg.llama_server_exe() is None:
-        problems.append("llama.cpp binárky (runtime/llama)")
+        problems.append("llama.cpp binaries (runtime/llama)")
     if not cfg.model_file().exists():
         problems.append(f"model {cfg.model_key()} (runtime/models)")
     return problems
@@ -92,26 +96,27 @@ def main() -> int:
     # ---- 1) preflight ---------------------------------------------------
     problems = preflight(cfg)
     if problems:
-        _alert("Chybí potřebné součásti:\n  • " + "\n  • ".join(problems) +
-               "\n\nSpusť instalaci prostředí:\n  .venv\\Scripts\\python scripts\\setup_env.py")
+        _alert(t("Missing required components:\n  • {items}\n\nRun the environment setup:\n  "
+                 ".venv\\Scripts\\python scripts\\setup_env.py", items="\n  • ".join(problems)))
         return 1
 
     # ---- 2) llama-server (start pokud neběží) ----------------------------
     we_started_server = not servermgmt.health(cfg)
     if we_started_server:
-        print("[APP] Startuji llama-server ...")
+        print("[APP] Starting llama-server ...")
         if servermgmt.start(cfg) != 0:
-            _alert("llama-server se nepodařilo spustit.\nDetaily: runtime\\llama-server.log")
+            _alert(t("llama-server could not be started.\nDetails: runtime\\llama-server.log"))
             return 1
     else:
-        print(f"[APP] llama-server už běží ({servermgmt.running_model(cfg)}) - používám ho.")
+        print(f"[APP] llama-server already running ({servermgmt.running_model(cfg)}) - reusing it.")
 
     # ---- 3) Web UI (in-process) ------------------------------------------
     import webapp
+    webapp.RELOAD_ENABLED = False  # embedded launch has no rebuild loop
     host, port = cfg.web["host"], int(cfg.web["port"])
     ui = None
     if not webapp._is_our_webui(host, port):
-        print("[APP] Startuji Web UI ...")
+        print("[APP] Starting Web UI ...")
         ui = webapp.build_ui()
         ui.launch(server_name=host, server_port=port,
                   show_error=True, inbrowser=False, prevent_thread_lock=True,
@@ -129,25 +134,25 @@ def main() -> int:
         if cleaned["done"]:
             return
         cleaned["done"] = True
-        print("[APP] Ukončuji: zastavuji Web UI ...")
+        print("[APP] Shutting down: stopping Web UI ...")
         if ui is not None:
             try:
                 ui.close()
             except Exception:
                 pass
-        print("[APP] Zastavuji llama-server (uvolňuji VRAM) ...")
+        print("[APP] Stopping llama-server (freeing VRAM) ...")
         try:
             servermgmt.stop(cfg, quiet=True)
-            print("[APP] Hotovo - VRAM uvolněna.")
+            print("[APP] Done - VRAM freed.")
         except Exception as e:
-            print(f"[APP] Pozor: server se nepodařilo čistě zastavit ({e}); "
-                  f"ručně: taskkill /F /IM llama-server.exe")
+            print(f"[APP] Warning: server could not be stopped cleanly ({e}); "
+                  f"manually: taskkill /F /IM llama-server.exe")
 
     atexit.register(cleanup)
 
     # ---- 5) okno / smoke test ---------------------------------------------
     if smoke:
-        print(f"[APP] SMOKE: vše běží na {url} - po 3 s ukončím (test cleanupu).")
+        print(f"[APP] SMOKE: everything running at {url} - exiting after 3 s (cleanup test).")
         time.sleep(3)
         cleanup()
         return 0
@@ -160,14 +165,14 @@ def main() -> int:
             url, width=1440, height=920, min_size=(960, 640),
             background_color="#0b0e14",
         )
-        print(f"[APP] Okno otevřeno: {url}")
+        print(f"[APP] Window opened: {url}")
         webview.start(_focus_window)  # blokuje do zavření okna
     except ImportError:
         import webbrowser
-        print(f"[APP] pywebview chybí - otevírám systémový prohlížeč: {url}")
+        print(f"[APP] pywebview missing - opening system browser: {url}")
         webbrowser.open(url)
         try:
-            input("[APP] Enter/zavření konzole = konec (server se zastaví)...\n")
+            input("[APP] Enter/closing the console quits (the server will stop)...\n")
         except EOFError:
             pass
     finally:
@@ -183,5 +188,5 @@ if __name__ == "__main__":
     except Exception:
         import traceback
         traceback.print_exc()
-        _alert("Aplikace selhala – detaily v runtime\\app.log")
+        _alert(t("The app crashed – details in runtime\\app.log"))
         raise SystemExit(1)

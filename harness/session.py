@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.config import Config
+from harness.i18n import t
 
 IMG_MIMES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp"}
 
@@ -388,9 +389,9 @@ class Session:
                 message["images"] = new_images
             copied.append(message)
         fork.messages = copied
-        title = self.meta.get("title") or "Nová větev"
+        title = self.meta.get("title") or t("New branch")
         fork.meta.update({
-            "title": f"{title} (větev)"[:100],
+            "title": f"{title} {t('(fork)')}"[:100],
             "message_count": len(copied),
             "pinned_files": list(self.meta.get("pinned_files") or []),
             "updated": time.time(),
@@ -633,7 +634,7 @@ class Session:
                 "id": d.name,
                 "messages": n,
                 "workspace": meta.get("workspace"),
-                "title": title or "(bez titulku)",
+                "title": title or t("(untitled)"),
                 "updated": float(meta.get("updated") or 0) or 0,
             })
         out.sort(key=lambda s: s["updated"], reverse=True)

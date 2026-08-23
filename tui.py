@@ -11,6 +11,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
+# jazyk UI před module-level texty (BANNER/HELP)
+from harness.i18n import detect_language, set_language, t
+set_language(detect_language(ROOT) or "en")
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
@@ -27,21 +31,21 @@ from harness.version import APP_VERSION
 console = Console()
 
 BANNER = (f"[bold cyan]Qwen3.8-27B v{APP_VERSION}"
-          "  •  lokální harness  •  RTX 5090[/bold cyan]")
+          f"{t('  •  local harness  •  RTX 5090')}[/bold cyan]")
 
-HELP = """[bold]Příkazy:[/bold]
-  /memory                zobraz trvalou paměť (globální + režim + projekt)
-  /model q4|q5           přepnutí modelu (restart serveru)
-  /work discussion|research|writing|development|computer   pracovní režim
-  /mode chat|agent|computer     kompatibilní zkratka
-  /autonomy supervised|semi|auto   úroveň autonomie
-  /thinking xhigh|medium|low|off   hloubka uvažování modelu
-  /img <cesta>           přiložit obrázek k další zprávě
-  /screenshot            přiložit screenshot obrazovky
-  /new                   nová session   /sessions  seznam   /load <id>
-  /server status|start|stop    správa inference serveru
-  /help                  tato nápověda  /exit  konec
-Vstup: Enter odeslat  •  Ctrl+C přerušit generování"""
+HELP = t("[bold]Commands:[/bold]\n"
+         "  /memory                show persistent memory (global + mode + project)\n"
+         "  /model q4|q5           switch model (server restart)\n"
+         "  /work discussion|research|writing|development|computer   work mode\n"
+         "  /mode chat|agent|computer     compatibility shortcut\n"
+         "  /autonomy supervised|semi|auto   autonomy level\n"
+         "  /thinking xhigh|medium|low|off   model reasoning depth\n"
+         "  /img <path>           attach an image to the next message\n"
+         "  /screenshot            attach a screen capture\n"
+         "  /new                   new session   /sessions  list   /load <id>\n"
+         "  /server status|start|stop    inference server management\n"
+         "  /help                  this help  /exit  quit\n"
+         "Input: Enter send  •  Ctrl+C interrupt generation")
 
 
 class TUIApp:
@@ -108,8 +112,8 @@ class TUIApp:
         except Exception:
             ctx = ""
         return (f"[bold]model[/bold]={self.model_key}  "
-                f"[bold]režim[/bold]={WORK_MODES[self.work_mode].label}  "
-                f"[bold]autonomie[/bold]={self.autonomy}  [bold]thinking[/bold]={think}{ctx}\n"
+                f"[bold]{t('mode')}[/bold]={t(WORK_MODES[self.work_mode].label)}  "
+                f"[bold]{t('autonomy')}[/bold]={self.autonomy}  [bold]thinking[/bold]={think}{ctx}\n"
                 f"[bold]workspace[/bold]={ws}")
 
     def _on_event(self, kind: str, payload) -> None:
@@ -130,12 +134,13 @@ class TUIApp:
 
     def _confirm(self, actions: list[str]) -> bool:
         console.print(Panel("\n".join(f"[yellow]• {a}[/yellow]" for a in actions),
-                           title="[bold red]⚠ Potvrzení akce[/bold red]",
-                           subtitle=f"režim: {self.autonomy}"))
+                           title=f"[bold red]{t('⚠ Action confirmation')}[/bold red]",
+                           subtitle=f"{t('autonomy')}: {self.autonomy}"))
         if self.auto_approve:
-            console.print("[dim](schváleno automaticky - 'a' v předchozím potvrzení)[/dim]")
+            note = t("(approved automatically - 'a' in a previous confirmation)")
+            console.print(f"[dim]{note}[/dim]")
             return True
-        ans = Prompt.ask("  Povolit?  [y/n/a]  (a = vše do konce úlohy)",
+        ans = Prompt.ask(t("  Allow?  [y/n/a]  (a = all until the end of the task)"),
                          choices=["y", "n", "a"], default="n")
         if ans == "a":
             self.auto_approve = True
@@ -151,9 +156,9 @@ class TUIApp:
         try:
             for result in self.agent.run(text, images=images, confirm_cb=self._confirm):
                 if result.status is Status.ERROR:
-                    console.print(f"\n[bold red]CHYBA:[/bold red] {result.text}")
+                    console.print(f"\n[bold red]{t('ERROR:')}[/bold red] {result.text}")
                     if "Connection" in result.text or "health" in result.text:
-                        console.print("[dim]Zkus /server start[/dim]")
+                        console.print(f"[dim]{t('Try /server start')}[/dim]")
                     return
                 if result.status is Status.ABORTED:
                     console.print(f"\n[bold yellow]⛔ {result.text}[/bold yellow]")
@@ -166,7 +171,7 @@ class TUIApp:
                 console.print("\n")
         except KeyboardInterrupt:
             self.abort.set()
-            console.print("\n[bold yellow]⛔ Přerušeno (Ctrl+C)[/bold yellow]")
+            console.print(f"\n[bold yellow]{t('⛔ Interrupted (Ctrl+C)')}[/bold yellow]")
             # doruč zprávu o přerušení do session, aby model věděl kontext
             # (user role - Qwen šablona neumí system uprostřed konverzace)
             self.session.add("user", "[Interrupted by user]")
@@ -174,18 +179,20 @@ class TUIApp:
     # ------------------------------------------------------------------
     def cmd_model(self, key: str) -> None:
         if key not in self.cfg.data["models"]:
-            console.print(f"[red]Neznámý model '{key}'. Dostupné: {', '.join(self.cfg.data['models'])}[/red]")
+            console.print("[red]" + t("Unknown model '{key}'. Available: {models}",
+                                      key=key, models=", ".join(self.cfg.data["models"])) + "[/red]")
             return
         from harness import servermgmt
-        with console.status(f"[bold]Přepínám na model '{key}' (restart llama-server)...[/bold]"):
+        with console.status("[bold]" + t("Switching to model '{key}' (llama-server restart)...",
+                                         key=key) + "[/bold]"):
             ok = servermgmt.ensure(self.cfg, key)
         if ok:
             self.model_key = key
             self.cfg.data["default_model"] = key  # ctx limit sleduje model
-            console.print(f"[green]✓ Model {key} běží.[/green]")
+            console.print("[green]" + t("✓ Model {key} is running.", key=key) + "[/green]")
             console.print(self.status_line())
         else:
-            console.print("[red]Přepnutí selhalo - viz runtime/llama-server.log[/red]")
+            console.print(f"[red]{t('Switch failed - see runtime/llama-server.log')}[/red]")
 
     def cmd_server(self, sub: str) -> None:
         from harness import servermgmt
@@ -206,10 +213,10 @@ class TUIApp:
         # server check
         from harness import servermgmt
         if not servermgmt.health(self.cfg):
-            console.print("[yellow]⚠ llama-server neběží.[/yellow]")
-            if Prompt.ask("  Spustit teď?", choices=["y", "n"], default="y") == "y":
+            console.print(f"[yellow]{t('⚠ llama-server is not running.')}[/yellow]")
+            if Prompt.ask(t("  Start now?"), choices=["y", "n"], default="y") == "y":
                 if servermgmt.start(self.cfg, self.model_key) != 0:
-                    console.print("[red]Server se nepodařilo spustit - zkus /server start později.[/red]")
+                    console.print(f"[red]{t('Server failed to start - try /server start later.')}[/red]")
             console.print()
 
         # vstup: prompt_toolkit (historie, editace), fallback na input() mimo TTY
@@ -229,7 +236,7 @@ class TUIApp:
             try:
                 line = read_line()
             except (KeyboardInterrupt, EOFError):
-                console.print("\n[dim]Nashledanou![/dim]")
+                console.print(f"\n[dim]{t('Goodbye!')}[/dim]")
                 break
             line = line.strip()
             if not line:
@@ -252,13 +259,13 @@ class TUIApp:
                             self._set_mode(arg)
                             console.print(self.status_line())
                         else:
-                            console.print("[red]Použití: /mode chat|agent|computer[/red]")
+                            console.print(f"[red]{t('Usage: /mode chat|agent|computer')}[/red]")
                     elif cmd == "/work":
                         if arg in WORK_MODES:
                             self._set_work_mode(arg)
                             console.print(self.status_line())
                         else:
-                            console.print("[red]Použití: /work discussion|research|writing|development|computer[/red]")
+                            console.print(f"[red]{t('Usage: /work discussion|research|writing|development|computer')}[/red]")
                     elif cmd == "/autonomy":
                         if arg in ("supervised", "semi", "auto"):
                             self.autonomy = arg
@@ -266,14 +273,14 @@ class TUIApp:
                             self.auto_approve = False
                             console.print(self.status_line())
                         else:
-                            console.print("[red]Použití: /autonomy supervised|semi|auto[/red]")
+                            console.print(f"[red]{t('Usage: /autonomy supervised|semi|auto')}[/red]")
                     elif cmd == "/thinking":
                         arg_l = arg.strip().lower()
                         if arg_l in ("xhigh", "medium", "low", "on", "off", ""):
                             if arg_l == "":
                                 cur = "off" if not self.thinking else self.reasoning_effort
-                                console.print(f"Přemýšlení: [bold]{cur}[/bold] "
-                                              f"(volby: xhigh | medium | low | off)")
+                                console.print(t("Thinking: {level} (options: xhigh | medium | low | off)",
+                                                level=f"[bold]{cur}[/bold]"))
                             elif arg_l == "off":
                                 self.thinking = False
                             else:
@@ -282,7 +289,7 @@ class TUIApp:
                                 self.cfg.data["reasoning_effort"] = self.reasoning_effort
                             console.print(self.status_line())
                         else:
-                            console.print("[red]Použití: /thinking xhigh|medium|low|off[/red]")
+                            console.print(f"[red]{t('Usage: /thinking xhigh|medium|low|off')}[/red]")
                     elif cmd == "/ws":
                         if arg:
                             try:
@@ -295,7 +302,7 @@ class TUIApp:
                                         f"\n\nCurrent project workspace: {p}. "
                                         f"Relative paths in tools resolve against it. "
                                         f"The user keeps project sources and documents there.")
-                                console.print(f"[green]✓ Workspace nastaven:[/green] {p}")
+                                console.print(f"[green]{t('✓ Workspace set: {path}', path=p)}[/green]")
                             except ValueError as e:
                                 console.print(f"[red]{e}[/red]")
                         else:
@@ -304,19 +311,19 @@ class TUIApp:
                         from harness.memory import MemoryStore
                         store = MemoryStore(
                             self.cfg, self.agent.workspace, self.work_mode)
-                        console.print(f"[bold]Globální paměť:[/bold] {store.global_path}")
-                        console.print(f"[bold]Paměť režimu {WORK_MODES[self.work_mode].label}:[/bold] "
+                        console.print(f"[bold]{t('Global memory:')}[/bold] {store.global_path}")
+                        console.print(f"[bold]{t('Mode memory ({mode}):', mode=t(WORK_MODES[self.work_mode].label))}[/bold] "
                                       f"{store.mode_path()}")
-                        console.print(f"[bold]Projektová paměť:[/bold] "
-                                      f"{store.project_path() or '— (nastav /ws)'}")
+                        console.print(f"[bold]{t('Project memory:')}[/bold] "
+                                      f"{store.project_path() or t('— (set via /ws)')}")
                         console.print(f"[dim]{store.context_block()[:1200]}[/dim]")
                     elif cmd == "/img":
                         p = Path(arg).expanduser()
                         if p.exists():
                             self.pending_images.append(p)
-                            console.print(f"[green]✓ Obrázek přiložen:[/green] {p.name}")
+                            console.print(f"[green]{t('✓ Image attached: {name}', name=p.name)}[/green]")
                         else:
-                            console.print(f"[red]Soubor nenalezen: {p}[/red]")
+                            console.print(f"[red]{t('File not found: {path}', path=p)}[/red]")
                     elif cmd == "/screenshot":
                         from harness.tools.computer import ScreenshotTool
                         from harness.tools.base import AgentContext
@@ -328,10 +335,10 @@ class TUIApp:
                         console.print(f"[green]✓[/green] {msg}")
                     elif cmd == "/new":
                         self._new_session()
-                        console.print(f"[green]✓ Nová session:[/green] {self.session.id}")
+                        console.print(f"[green]{t('✓ New session: {id}', id=self.session.id)}[/green]")
                     elif cmd == "/sessions":
                         for s in Session.list_sessions(self.cfg):
-                            console.print(f"  {s['id']}  ({s['messages']} zpráv)")
+                            console.print(f"  {s['id']}  ({t('{count} messages', count=s['messages'])})")
                     elif cmd == "/load":
                         try:
                             self.session = Session.load(
@@ -344,16 +351,16 @@ class TUIApp:
                             if self.session.messages and self.session.messages[0]["role"] == "system":
                                 self.session.messages[0]["content"] = system_prompt(
                                     self.mode, self.work_mode)
-                            console.print(f"[green]✓ Načteno:[/green] {arg} "
-                                          f"({len(self.session.messages)} zpráv)")
+                            console.print("[green]" + t("✓ Loaded: {id} ({count} messages)",
+                                                         id=arg, count=len(self.session.messages)) + "[/green]")
                         except FileNotFoundError as e:
                             console.print(f"[red]{e}[/red]")
                     elif cmd == "/server":
                         self.cmd_server(arg or "status")
                     else:
-                        console.print(f"[red]Neznámý příkaz {cmd} - /help[/red]")
+                        console.print(f"[red]{t('Unknown command {command} - /help', command=cmd)}[/red]")
                 except Exception as e:
-                    console.print(f"[red]Chyba příkazu: {e}[/red]")
+                    console.print(f"[red]{t('Command error: {error}', error=e)}[/red]")
                 console.print()
                 continue
 

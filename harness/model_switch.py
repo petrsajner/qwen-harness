@@ -7,6 +7,7 @@ from typing import Callable
 
 from harness import servermgmt
 from harness.config import Config
+from harness.i18n import t
 
 
 @dataclass(frozen=True)
@@ -71,13 +72,13 @@ class ModelSwitchController:
             if restart:
                 self._stop(self.cfg, quiet=True)
             if not self._ensure(self.cfg, model_key):
-                raise RuntimeError("llama-server se nepodařilo připravit")
+                raise RuntimeError("llama-server could not be prepared")
             callback_error = ""
             if on_success is not None:
                 try:
                     on_success(model_key)
                 except Exception as exc:
-                    callback_error = f"UI stav se nepodařilo uložit: {exc}"
+                    callback_error = t("Failed to save UI state: {error}", error=exc)
             with self._lock:
                 self._state = ModelSwitchSnapshot("ready", model_key, callback_error)
         except Exception as exc:

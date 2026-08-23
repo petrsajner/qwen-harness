@@ -40,7 +40,7 @@ def main() -> int:
         return servermgmt.start(cfg, args.model, args.ctx)
     if args.cmd == "switch":
         if not args.model:
-            print("Použití: server.py switch <model>")
+            print("Usage: server.py switch <model>")
             return 1
         servermgmt.stop(cfg, quiet=True)
         time.sleep(1)

@@ -86,14 +86,14 @@ def main() -> int:
 
     llama_dir = ROOT / "runtime" / "llama"
     if not args.force and any(llama_dir.rglob("llama-server.exe")):
-        print(f"[OK] llama.cpp už je přítomen v {llama_dir} (llama-server.exe nalezen)")
+        print(f"[OK] llama.cpp already present in {llama_dir} (llama-server.exe found)")
         return 0
 
-    print("[1/3] Zjišťuji nejnovější release llama.cpp ...")
+    print("[1/3] Finding the latest llama.cpp release ...")
     found = latest_release_with_cuda()
     if found is None:
-        print("[CHYBA] V posledních releases nebyl nalezen Windows CUDA build.")
-        print("        Zkontroluj https://github.com/ggml-org/llama.cpp/releases")
+        print("[ERROR] No Windows CUDA build found in recent releases.")
+        print("        Check https://github.com/ggml-org/llama.cpp/releases")
         return 1
     tag, asset, cudart = found
     print(f"      Release: {tag}  →  {asset['name']} ({asset['size'] / 1e6:.0f} MB)"
@@ -101,7 +101,7 @@ def main() -> int:
 
     runtime = ROOT / "runtime"
     runtime.mkdir(parents=True, exist_ok=True)
-    print("[2/3] Stahuji ...")
+    print("[2/3] Downloading ...")
     zip_path = runtime / "llama.zip"
     download(asset["browser_download_url"], zip_path)
     cudart_path = None
@@ -109,7 +109,7 @@ def main() -> int:
         cudart_path = runtime / "cudart.zip"
         download(cudart["browser_download_url"], cudart_path)
 
-    print("[3/3] Rozbaluji ...")
+    print("[3/3] Extracting ...")
     if llama_dir.exists():
         shutil.rmtree(llama_dir)
     llama_dir.mkdir(parents=True)
@@ -122,9 +122,9 @@ def main() -> int:
 
     server = next(iter(llama_dir.rglob("llama-server.exe")), None)
     if server is None:
-        print("[CHYBA] Po rozbalení chybí llama-server.exe!")
+        print("[ERROR] llama-server.exe is missing after extraction!")
         return 1
-    print(f"[HOTOVO] llama-server: {server}")
+    print(f"[DONE] llama-server: {server}")
     return 0
 
 

@@ -93,8 +93,8 @@ def test_config() -> None:
           "Ornith xhigh dostává explicitní politiku hlubokého uvažování")
     from harness.version import APP_VERSION
     installer_version = (ROOT / "installer" / "version.txt").read_text(encoding="utf-8").strip()
-    check(APP_VERSION == installer_version and APP_VERSION == "1.2.28",
-          "viditelná verze aplikace odpovídá instalátoru 1.2.28")
+    check(APP_VERSION == installer_version and APP_VERSION == "1.3.0",
+          "viditelná verze aplikace odpovídá instalátoru 1.3.0")
 
 
 def test_memory_layers() -> None:
@@ -118,7 +118,7 @@ def test_memory_layers() -> None:
         development = MemoryStore(cfg, workspace, "development")
         check(development.mode_path() == memory_dir / "MEMORY.md"
               and "Původní coding pravidlo" in development.read("mode")
-              and "Paměť pracovního režimu: Vývoj" in development.read("mode"),
+              and "Work mode memory: Development" in development.read("mode"),
               "původní global MEMORY.md se bezeztrátově migruje na paměť Vývoje")
         check(development.global_path == memory_dir / "GLOBAL.md"
               and development.global_path != development.mode_path(),

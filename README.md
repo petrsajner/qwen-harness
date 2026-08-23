@@ -1,241 +1,280 @@
-# Lokální AI harness
+# Local AI Harness
 
-Harness pro lokální práci s modely **Qwen3.8-27B** a **Ornith 1.5 35B-A3B** na **RTX 5090 (32 GB)** —
-100% offline, žádná data neopouštějí tvůj počítač.
+A harness for local work with **Qwen3.8-27B** and **Ornith 1.5 35B-A3B** models on an
+**RTX 5090 (32 GB)** — 100% offline, no data ever leaves your machine.
 
-## Funkce
+The UI language is **English by default**; the installer offers a language choice
+(English / Czech) and the app can be switched at runtime in Settings.
 
-- 💬 **Obecný chat** i **coding agent** (čtení/zápis souborů, shell, vyhledávání)
-- 📁 **Workspace (složka projektu)** — vyber adresář v WUI; Qwen z něj čte/zapisuje přímo
-  z disku, zdrojové dokumenty nemusíš nahrávat do chatu. Pamatené naposledy použité.
-- 🖼️ **Analýza obrázků** — nativní vision (mmproj), včetně screenshotů
-- 🖱️ **Ovládání počítače** — screenshot → klikání, psaní, klávesy (pyautogui + mss)
-- 🔀 **Přepínatelné modely** — Qwen Q4/Q5 a Ornith Abliterated Q5
-- 🎚️ **Přesnost KV cache** — Qwen F16 pro přesnost, nebo Q8 pro dvojnásobný kontext; Ornith pevně Q8
-- 🧠 **Thinking on/off** — režim uvažování modelu (přepínatelný za běhu)
-- 🛡️ **Tři úrovně autonomie** — supervised / semi / auto (kdykoliv přepnutelné);
-  čtecí příkazy (`ls`, `cat`, `grep`, `git log`…) nepotřebují potvrzení ani v supervised
-- 🖥️ **Dvě UI** — terminál (TUI) + webové rozhraní (Gradio, jen 127.0.0.1)
-  — kompaktní seskupený sidebar; WUI: Ctrl+Enter odesílá, chyby zobrazuje v chatu
-- 💾 **Session historie** — JSONL perzistence, obrázky uložené na disk
-- ↩️ **Obnovovací bod každé úlohy** — atomické patchování, přehled změn a návrat všech souborů jedním tlačítkem
-- ⏱️ **Dlouhé operace na pozadí** — průběžný výstup, timeout, stdin a zastavení process tree
-- 🧭 **Automatický přehled projektu a kontextu** — repo snapshot, připnuté soubory a viditelné využití kontextu
-- 🌿 **Práce s chatem** — retry, úprava posledního dotazu, undo kola, větve, hledání a export/import
-- 🧭 **Steering za běhu** — další zpráva přesměruje rozpracovanou odpověď po dokončení věty
-- 📌 **Připnuté soubory** — vybrané instrukce nebo architektura zůstávají v kontextu daného chatu
-- 🧰 **Volitelné skills** — model vidí stručný katalog a celý SKILL.md načte jen podle potřeby
-- 🎛️ **Oddělené pracovní režimy** — Diskuze, Výzkum, Psaní, Vývoj a Počítač s vlastními prompty a nástroji
+## Features
 
-## Architektura
+- 💬 **General chat** and a **coding agent** (file read/write, shell, search)
+- 📁 **Workspace (project folder)** — pick a directory in the web UI; Qwen reads and
+  writes directly on disk, so you never upload source documents into the chat.
+  Last used folder is remembered.
+- 🖼️ **Image analysis** — native vision (mmproj), including screenshots
+- 🖱️ **Computer control** — screenshot → clicking, typing, keys (pyautogui + mss)
+- 🔀 **Switchable models** — Qwen Q4/Q5 and Ornith Abliterated Q5
+- 🎚️ **KV cache precision** — Qwen F16 for accuracy, or Q8 for double the context;
+  Ornith fixed at Q8
+- 🧠 **Thinking on/off** — model reasoning mode (switchable at runtime)
+- 🛡️ **Three autonomy levels** — supervised / semi / auto (switchable anytime);
+  read-only commands (`ls`, `cat`, `grep`, `git log`…) need no confirmation even
+  in supervised mode
+- 🖥️ **Two UIs** — terminal (TUI) + web interface (Gradio, 127.0.0.1 only)
+  — compact grouped sidebar; web UI: Ctrl+Enter sends, errors render in the chat
+- 💾 **Session history** — JSONL persistence, images stored on disk
+- ↩️ **Restore point per task** — atomic patching, a change overview and one-click
+  revert of all files
+- ⏱️ **Long-running background operations** — streaming output, timeout, stdin and
+  process-tree termination
+- 🧭 **Automatic project & context overview** — repo snapshot, pinned files and live
+  context usage
+- 🌿 **Chat management** — retry, edit last prompt, undo round, forks, search and
+  export/import
+- 🧭 **Live steering** — a follow-up message redirects the in-progress answer once
+  the current sentence finishes
+- 📌 **Pinned files** — selected instructions or architecture stay in the context of
+  that particular chat
+- 🧰 **Optional skills** — the model sees a short catalog and loads a full SKILL.md
+  only when needed
+- 🎛️ **Separate work modes** — Discussion, Research, Writing, Development and
+  Computer, each with its own prompt and tools
+- 🌐 **UI language switching** — English base, Czech available (installer choice or
+  the Settings dropdown; applies without losing the session)
+
+## Architecture
 
 ```
 runtime/  (gitignored)                harness/  (Python)
 ┌──────────────────────────┐         ┌────────────────────────────────┐
-│ llama-server.exe         │◄──API───│ JÁDRO                          │
-│ (llama.cpp b10549        │  OpenAI │ • LLM klient (streaming+tools) │
+│ llama-server.exe         │◄──API───│ CORE                           │
+│ (llama.cpp b10549        │  OpenAI │ • LLM client (streaming+tools) │
 │  CUDA 13.3, Blackwell)   │         │ • agent loop (step/resume)     │
 │ Qwen3.8-27B GGUF         │         │ • tools: fs/shell/vision/      │
 │ Q4: F16 128k / Q8 256k   │         │   computer-use                 │
-│ Q5: F16 96k / Q8 192k    │         │ • safety vrstva (autonomie)    │
+│ Q5: F16 96k / Q8 192k    │         │ • safety layer (autonomy)      │
 │ Ornith Abliterated Q5 (128k)│      │                                │
-│ mmproj-F16 (vision, 0.9 GB)│       │ • sessions (JSONL + obrázky)   │
+│ mmproj-F16 (vision, 0.9 GB)│       │ • sessions (JSONL + images)    │
 └──────────────────────────┘         ├────────────────────────────────┤
-                                     │ UI: tui.py (terminál)          │
-                                     │     webapp.py (prohlížeč)      │
+                                     │ UI: tui.py (terminal)          │
+                                     │     webapp.py (browser)        │
                                      └────────────────────────────────┘
 ```
 
-## Instalace (jednorázově)
+## Installation (one time)
 
 ```bash
 py -3.12 -m venv .venv
 .venv/Scripts/python scripts/setup_env.py --model all
 ```
 
-Stáhne a připraví vše: pip závislosti, llama.cpp CUDA binárky (~540 MB),
-Qwen Q4/Q5, Ornith Abliterated Q5 a oba vision projektory (~59 GiB).
+Downloads and prepares everything: pip dependencies, llama.cpp CUDA binaries
+(~540 MB), Qwen Q4/Q5, Ornith Abliterated Q5 and both vision projectors (~59 GiB).
 
-## Spuštění
+## Running
 
 ```bash
-# 1) inference server (llama-server, načtení ~10 s)
-.venv/Scripts/python scripts/server.py start          # výchozí model (q5 + Q8 KV)
-.venv/Scripts/python scripts/server.py start q5       # nebo rovnou q5
+# 1) inference server (llama-server, ~10 s to load)
+.venv/Scripts/python scripts/server.py start          # default model (q5 + Q8 KV)
+.venv/Scripts/python scripts/server.py start q5       # or q5 directly
 .venv/Scripts/python scripts/server.py start ornith_q5 # Ornith reasoning
 
-# 2a) terminálové UI
+# 2a) terminal UI
 .venv/Scripts/python tui.py
 
-# 2b) webové UI → http://127.0.0.1:7860
+# 2b) web UI → http://127.0.0.1:7860
 .venv/Scripts/python webapp.py
 ```
 
-Server se dá ovládat i z TUI (`/server start|stop|status`) a z web UI (tlačítka).
+The server can also be controlled from the TUI (`/server start|stop|status`) and
+from the web UI (buttons).
 
-## Desktop aplikace (Windows)
+## Desktop app (Windows)
 
-**`qwen_app.py`** — nativní okno s kompletním životním cyklem:
-
-```bash
-.venv/Scripts/pythonw qwen_app.py     # bez konzole (pro zástupce)
-.venv/Scripts/python qwen_app.py      # s diagnostickou konzolí
-```
-
-- **START**: automaticky nastartuje llama-server (pokud neběží) + Web UI a otevře
-  nativní okno (WebView2). Chybí-li prostředí, nabídne opravu.
-- **KONEC**: zavření okna zastaví Web UI **i llama-server** a uvolní VRAM
-  (ověřeno: 28 GB → 3,4 GB). Fallback bez pywebview: systémový prohlížeč.
-
-### Instalátor (Setup.exe)
+**`qwen_app.py`** — a native window with the full lifecycle:
 
 ```bash
-installer/build_installer.bat     # vytvoří dist/QwenHarness-Setup-<verze>.exe
+.venv/Scripts/pythonw qwen_app.py     # no console (for shortcuts)
+.venv/Scripts/python qwen_app.py      # with a diagnostic console
 ```
 
-- Instaluje do `%LOCALAPPDATA%\QwenHarness` (bez admin práv), Start Menu +
-  volitelně desktop ikona, čeština, odinstalace standardně přes Windows
-- **První spuštění** (`run_app.bat` zástupcem) automaticky: vytvoří venv,
-  stáhne závislosti, llama.cpp (~540 MB) a modely (~59 GiB) — pak už jen otvírá appku
-- Při aktualizaci se změna `requirements.txt` pozná automaticky a doinstalují se jen
-  potřebné Python balíčky; modely ani ostatní runtime data se nestahují znovu.
-- Pozn.: odinstalace nechá stažené modely a sessions
-  (`%LOCALAPPDATA%\QwenHarness\runtime`, `\sessions`) — smaž ručně, pokud nechceš.
+- **START**: automatically starts llama-server (if not running) + the web UI and
+  opens a native window (WebView2). If the environment is missing it offers a repair.
+- **END**: closing the window stops the web UI **and llama-server** and frees VRAM
+  (verified: 28 GB → 3.4 GB). Fallback without pywebview: system browser.
 
-## TUI příkazy
+### Installer (Setup.exe)
 
-```
-/ws [cesta]             zobraz/nastav složku projektu (workspace)
-/model q4|q5|ornith_q5   přepnutí modelu (restart serveru)
-/mode chat|agent|computer     režim: chat | coding nástroje | + ovládání PC
-/autonomy supervised|semi|auto   úroveň autonomie
-/thinking xhigh|medium|low|off   hloubka uvažování modelu
-/img <cesta>            přiložit obrázek k další zprávě
-/screenshot             přiložit screenshot obrazovky
-/new /sessions /load <id>   správa session
-/server status|start|stop    správa llama-serveru
+```bash
+installer/build_installer.bat     # builds dist/QwenHarness-Setup-<version>.exe
 ```
 
-## Režimy práce
+- Installs into `%LOCALAPPDATA%\QwenHarness` (no admin rights), Start Menu +
+  optional desktop icon, standard Windows uninstall
+- **Language choice during setup** — English is the default; the wizard also offers
+  Czech. The selected language is written to `runtime\ui-language.txt` and the app
+  starts in it. You can switch later in the web UI (Settings → Language).
+- **First launch** (via the `run_app.bat` shortcut) automatically: creates the venv,
+  downloads dependencies, llama.cpp (~540 MB) and models (~59 GiB) — afterwards it
+  just opens the app
+- On updates, a changed `requirements.txt` is detected automatically and only the
+  needed Python packages are installed; models and other runtime data are not
+  re-downloaded.
+- Note: uninstall leaves downloaded models and sessions
+  (`%LOCALAPPDATA%\QwenHarness\runtime`, `\sessions`) — delete manually if you wish.
 
-| Pracovní režim | Nástroje | Využití |
+## TUI commands
+
+```
+/ws [path]              show/set the project folder (workspace)
+/model q4|q5|ornith_q5  switch model (server restart)
+/mode chat|agent|computer     mode: chat | coding tools | + PC control
+/autonomy supervised|semi|auto   autonomy level
+/thinking xhigh|medium|low|off   model reasoning depth
+/img <path>             attach an image to the next message
+/screenshot             attach a screen capture
+/new /sessions /load <id>   session management
+/server status|start|stop    llama-server management
+```
+
+## Work modes
+
+| Work mode | Tools | Use for |
 |---|---|---|
-| `discussion` | paměť, internet, projektové dokumenty | běžný chat, nápady a diskuze bez coding pravidel |
-| `research` | internet, dokumenty, research ledger | rešerše se všemi zdroji a povinnou závěrečnou syntézou |
-| `writing` | dokumenty, patch, checkpoint a rollback | scénáře, články, reporty a textové revize |
-| `development` | patch, Git, shell, testy, repo snapshot | coding agent |
-| `computer` | development + screenshot a GUI nástroje | ovládání počítače |
+| `discussion` | memory, web, project documents | everyday chat, ideas and discussion without coding rules |
+| `research` | web, documents, research ledger | research with all sources and a mandatory final synthesis |
+| `writing` | documents, patch, checkpoint and rollback | scripts, articles, reports and text revisions |
+| `development` | patch, Git, shell, tests, repo snapshot | coding agent |
+| `computer` | development + screenshot and GUI tools | computer control |
 
-Každá konverzace si ukládá vlastní pracovní režim. Projekt může obsahovat libovolný počet
-konverzací v různých režimech a pamatuje si svůj výchozí režim pro nové chaty.
+Every conversation remembers its own work mode. A project can hold any number of
+conversations in different modes and remembers its default mode for new chats.
 
-### Tři vrstvy paměti
+### Three layers of memory
 
-Každý chat dostává do system promptu celé tři paměťové dokumenty, které se na něj vztahují:
+Every chat receives three memory documents relevant to it in its system prompt:
 
-1. `memory/GLOBAL.md` — společné preference a fakta pro všechny druhy práce a projekty.
-2. Paměť aktivního pracovního režimu — společná napříč projekty stejného typu. Původní
-   `memory/MEMORY.md` je zachovaný jako paměť režimu Vývoj; ostatní jsou v `memory/modes/`.
-3. `<projekt>/QWEN_MEMORY.md` — fakta a rozhodnutí platná jen pro konkrétní projekt.
+1. `memory/GLOBAL.md` — shared preferences and facts for all kinds of work and projects.
+2. Memory of the active work mode — shared across projects of the same type. The
+   original `memory/MEMORY.md` is kept as the Development mode memory; the others
+   live in `memory/modes/`.
+3. `<project>/QWEN_MEMORY.md` — facts and decisions valid only for that project.
 
-Model ukládá nové informace přes `save_memory` s explicitním scope `global`, `mode` nebo
-`project`. Přepnutí chatu automaticky přepne i jeho režimovou a projektovou vrstvu.
+The model stores new information via `save_memory` with an explicit scope:
+`global`, `mode` or `project`. Switching chats automatically switches the mode and
+project layers too.
 
-### Výzkumný režim
+### Research mode
 
-- `web_search`, `web_fetch` a lokální dokumenty se zapisují do persistentního `research.json`.
-- Zdroje se nefiltrují ani nehodnotí podle původu či domnělé důvěryhodnosti.
-- Protichůdná, negativní, nejistá a menšinová tvrzení musí zůstat v syntéze viditelná.
-- Coverage kontrola ověří, že každý načtený source ID je v závěru uveden.
-- Kompletní ledger lze exportovat ze sidebaru.
-- Před prvním hledáním vznikne persistentní plán dílčích otázek a vyhledávacích úhlů.
-- Internetové HTML, text, PDF a DOCX se extrahují a ukládají do stejného ledgeru.
-- Hotovou syntézu lze exportovat do DOCX nebo PDF.
-- Krátké průběžné komentáře modelu a pracovní draft před syntézou zůstávají v historii chatu.
-- Požadavek na uložení hotového výsledku používá přímo `export_document` a nezakládá nový výzkum.
+- `web_search`, `web_fetch` and local documents are written to a persistent `research.json`.
+- Sources are not filtered or ranked by origin or assumed trustworthiness.
+- Contradictory, negative, uncertain and minority claims must stay visible in the synthesis.
+- A coverage check verifies that every loaded source ID appears in the conclusion.
+- The complete ledger can be exported from the sidebar.
+- Before the first search, a persistent plan of sub-questions and search angles is created.
+- Web HTML, text, PDF and DOCX are extracted and stored in the same ledger.
+- A finished synthesis can be exported to DOCX or PDF.
+- Short progress comments and the working draft before synthesis stay in chat history.
+- Saving a finished result uses `export_document` directly and starts no new research.
 
-### Psaní
+### Writing
 
-- Finální text lze exportovat do Markdownu, strukturovaného DOCX nebo PDF s podporou češtiny.
-- Exportované dokumenty jsou součástí task checkpointu a lze je vrátit stejným rollbackem.
-- Dokumentový export je dostupný ve všech pracovních režimech; bez projektu se ukládá k session.
+- The final text can be exported to Markdown, structured DOCX or PDF with Czech diacritics support.
+- Exported documents are part of the task checkpoint and can be reverted with the same rollback.
+- Document export is available in all work modes; without a project it is saved next to the session.
 
-### Obnovení a výkon
+### Resume and performance
 
-- Rozpracovaný agentní krok a pending potvrzení se ukládají do `task-state.json`.
-- Background procesy zapisují do persistentních logů a po restartu se znovu připojí podle PID.
-- Nezávislé read-only tool calls běží bounded paralelně; každá sada se zápisem zůstává sekvenční.
-- Hledání v historii používá SQLite FTS5 index místo opakovaného skenování všech JSONL.
-- Generování nemá aplikační limit výstupních tokenů; končí přirozeně nebo na fyzické hranici kontextu modelu.
-- Stop obchází frontu, ukončí generování na nejbližší větě a zachová hotovou část odpovědi.
-- Zprávy a změny kontextu sdílejí jednu frontu, takže nový dotaz ani přesun chatu nepřepíše běžící úlohu.
+- An in-progress agent step and pending confirmation are stored in `task-state.json`.
+- Background processes write to persistent logs and re-attach by PID after a restart.
+- Independent read-only tool calls run with bounded parallelism; every set containing
+  a write stays sequential.
+- History search uses an SQLite FTS5 index instead of repeatedly scanning all JSONL.
+- Generation has no application-level output-token limit; it ends naturally or at the
+  model's physical context boundary.
+- Stop bypasses the queue, terminates generation at the nearest sentence and keeps
+  the finished part of the answer.
+- Messages and context changes share one queue, so a new prompt or a chat switch
+  never overwrites a running task.
 
-## Autonomie a bezpečnost
+## Autonomy and safety
 
-| Autonomie | Chování |
+| Autonomy | Behavior |
 |---|---|
-| `supervised` | **každá** WRITE akce (zápis, shell, klik…) vyžaduje potvrzení [y/n/a] |
-| `semi` | potvrzení jen první WRITE akce v úloze, potom pokračuje bez limitu |
-| `auto` | bez potvrzení a bez limitu agentních kroků |
+| `supervised` | **every** WRITE action (file write, shell, click…) requires confirmation [y/n/a] |
+| `semi` | confirmation only for the first WRITE action in a task, then unlimited |
+| `auto` | no confirmation and no agent step limit |
 
-- 🛑 **FAILSAFE vždy zapnutý**: strč myš do **levého horního rohu** obrazovky → okamžité přerušení GUI akcí
-- Souřadnice kliků model zadává v pixelech obrázku, který viděl — harness je automaticky přepočítává na reálné rozlišení (i po downscale screenshotu)
-- Model vidí celou obrazovku — pozor na citlivé údaje; text na obrazovce může obsahovat prompt injection (systémový prompt model varuje, ale potvrzování je hlavní ochrana)
-- Pro platby, maily apod. vždy používej `supervised`
+- 🛑 **FAILSAFE always on**: push the mouse into the **top-left corner** of the screen
+  → GUI actions abort immediately
+- The model specifies click coordinates in the pixels of the image it saw — the
+  harness automatically remaps them to the real resolution (even after screenshot downscaling)
+- The model sees the whole screen — beware of sensitive data; on-screen text may
+  contain prompt injection (the system prompt warns the model, but confirmation is
+  the main protection)
+- Always use `supervised` for payments, email and similar
 
 ## Benchmark (RTX 5090, thinking off)
 
-| Model | Generování | VRAM | Kontext |
+| Model | Generation | VRAM | Context |
 |---|---|---|---|
-| Q4_K_M | **~82 tok/s** | podle KV profilu | F16 128k / Q8 256k |
-| Q5_K_M | **~73 tok/s** | podle KV profilu | F16 96k / Q8 192k |
+| Q4_K_M | **~82 tok/s** | depends on KV profile | F16 128k / Q8 256k |
+| Q5_K_M | **~73 tok/s** | depends on KV profile | F16 96k / Q8 192k |
 
-TTFT ~1–2 s. Vlastní benchmark: `.venv/Scripts/python scripts/bench.py [--model q5]`
+TTFT ~1–2 s. Custom benchmark: `.venv/Scripts/python scripts/bench.py [--model q5]`
 
-## Testy
+## Tests
 
 ```bash
-.venv/Scripts/python tests/test_core.py     # unit testy jádra (bez GPU)
+.venv/Scripts/python tests/test_core.py     # core unit tests (no GPU)
 .venv/Scripts/python tests/e2e_smoke.py     # E2E: chat + tool calling + vision (GPU)
 .venv/Scripts/python tests/e2e_model_switch.py      # E2E: Q4 → Q5 background switch
 .venv/Scripts/python tests/e2e_coding_workflow.py   # E2E: patch → test → rollback
-.venv/Scripts/python tests/e2e_research_workflow.py # E2E: protichůdné zdroje → syntéza
-.venv/Scripts/python tests/e2e_document_export.py   # E2E: Research výsledek → PDF bez nového hledání
+.venv/Scripts/python tests/e2e_research_workflow.py # E2E: contradictory sources → synthesis
+.venv/Scripts/python tests/e2e_document_export.py   # E2E: research result → PDF without new searching
 ```
 
 ## Coding workflow
 
-- Existující soubory agent mění přes `apply_patch`; před první změnou vznikne persistentní checkpoint.
-- Sidebar ukazuje pouze lidský seznam vytvořených/upravených souborů a nabízí návrat celé úlohy.
-- `start_project_check` automaticky najde hlavní testovací příkaz a spustí ho jako dlouhou operaci.
-- Strukturované Git nástroje pracují pouze se soubory aktuální úlohy, pokud nejsou cesty zadány výslovně.
-- Technický diff, procesní výstup a repo mapa jsou dostupné agentovi; hlavní uživatelské UI zůstává chatové.
+- The agent edits existing files via `apply_patch`; a persistent checkpoint is taken
+  before the first change.
+- The sidebar shows a human-friendly list of created/modified files and offers a
+  one-click revert of the whole task.
+- `start_project_check` automatically finds the project's main test command and runs
+  it as a long operation.
+- Structured Git tools operate only on the current task's files unless paths are
+  given explicitly.
+- Technical diff, process output and a repo map are available to the agent; the main
+  user interface stays chat-based.
 
-## Konfigurace (`config.yaml`)
+## Configuration (`config.yaml`)
 
-- `server.extra_args` — další ověřené vlajky llama-serveru
-- `agent.max_steps`, `semi_max_steps` (`0` = bez omezení), `shell_timeout`
-- `computer.screenshot_max_edge` — downscale screenshotu (úspora tokenů)
-- `models.*.ctx_size` — velikost kontextu (pozor na VRAM)
+- `server.extra_args` — additional verified llama-server flags
+- `agent.max_steps`, `semi_max_steps` (`0` = unlimited), `shell_timeout`
+- `computer.screenshot_max_edge` — screenshot downscale (token savings)
+- `models.*.ctx_size` — context size (watch VRAM)
 
-## Struktura
+## Structure
 
 ```
-harness/          jádro: config, llm, agent, safety, session, prompts, servermgmt
+harness/          core: config, llm, agent, safety, session, prompts, servermgmt, i18n
 harness/tools/    fs, shell, vision (view_image), computer (screenshot/click/…)
-skills/           distribuované volitelné SKILL.md postupy
-user-skills/      vlastní trvalé skilly (instalátor je nepřepisuje)
+skills/           bundled optional SKILL.md procedures
+user-skills/      your own persistent skills (the installer never overwrites them)
 scripts/          setup_env, download_llama, download_models, server, bench
 tests/            test_core (unit), e2e_smoke (GPU)
-tui.py            terminálové UI
-webapp.py         webové UI (Gradio 6)
-runtime/          llama.cpp + GGUF modely (gitignored)
-sessions/         historie konverzací (gitignored)
+tui.py            terminal UI
+webapp.py         web UI (Gradio 6)
+runtime/          llama.cpp + GGUF models (gitignored)
+sessions/         conversation history (gitignored)
 ```
 
-## Poznámky
+## Notes
 
-- llama-server default port se v budoucnu změní na 9931 (nyní 8080, viz notice v logu)
-- Alternativa k llama.cpp je SGLang/vLLM ve WSL2 (rychlejší batch, složitější setup) —
-  pro computer-use na Windows je nativní llama.cpp nejstabilnější cesta
-- MTP (multi-token prediction) modul lze přidat jako draft model přes `server.extra_args`
+- The llama-server default port will change to 9931 in the future (currently 8080,
+  see the notice in the log)
+- An alternative to llama.cpp is SGLang/vLLM under WSL2 (faster batching, more
+  complex setup) — for computer-use on Windows, native llama.cpp is the most stable path
+- The MTP (multi-token prediction) module can be added as a draft model via
+  `server.extra_args`

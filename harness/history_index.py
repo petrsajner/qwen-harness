@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+
+from harness.i18n import t
 from pathlib import Path
 
 
@@ -52,7 +54,7 @@ class HistoryIndex:
                 "VALUES (?, ?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET "
                 "title=excluded.title, workspace=excluded.workspace, updated=excluded.updated, "
                 "indexed_mtime=excluded.indexed_mtime",
-                (session_id, meta.get("title") or "(bez titulku)", meta.get("workspace"),
+                (session_id, meta.get("title") or t("(untitled)"), meta.get("workspace"),
                  float(meta.get("updated") or 0), float(source_mtime or 0)),
             )
 

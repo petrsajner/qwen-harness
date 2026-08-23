@@ -159,7 +159,7 @@ def stop(cfg: Config, quiet: bool = False) -> bool:
                     pass
         pf.unlink(missing_ok=True)
     if not quiet:
-        print("[OK] llama-server zastaven." if killed else "[INFO] llama-server neběžel.")
+        print("[OK] llama-server stopped." if killed else "[INFO] llama-server was not running.")
     return True
 
 
@@ -172,27 +172,27 @@ def _start_locked(cfg: Config, model_key: str | None = None,
                   ctx_size: int | None = None) -> int:
     model_key = model_key or cfg.model_key()
     if model_key not in cfg.data["models"]:
-        print(f"[CHYBA] Neznámý model '{model_key}'. Dostupné: {', '.join(cfg.data['models'])}")
+        print(f"[ERROR] Unknown model '{model_key}'. Available: {', '.join(cfg.data['models'])}")
         return 1
 
     if health(cfg):
         current = running_model(cfg)
         if current == model_key:
-            print(f"[OK] llama-server už běží s modelem '{model_key}' ({cfg.base_url})")
+            print(f"[OK] llama-server already running with model '{model_key}' ({cfg.base_url})")
             print("   ", vram_str())
             return 0
-        print(f"[INFO] Běží model '{current}', přepínám na '{model_key}' ...")
+        print(f"[INFO] Model '{current}' is running, switching to '{model_key}' ...")
         stop(cfg, quiet=True)
 
     exe = cfg.llama_server_exe()
     if exe is None:
-        print("[CHYBA] llama-server.exe nenalezen. Spusť nejdřív: python scripts/download_llama.py")
+        print("[ERROR] llama-server.exe not found. Run first: python scripts/download_llama.py")
         return 1
     mfile = cfg.model_file(model_key)
     mmproj = cfg.mmproj_file(model_key)
     if not mfile.exists():
-        print(f"[CHYBA] Model nenalezen: {mfile}")
-        print("        Stáhni ho: python scripts/download_models.py --model", model_key)
+        print(f"[ERROR] Model not found: {mfile}")
+        print("        Download it: python scripts/download_models.py --model", model_key)
         return 1
 
     srv = cfg.data["server"]
@@ -213,7 +213,7 @@ def _start_locked(cfg: Config, model_key: str | None = None,
     if mmproj.exists():
         argv += ["--mmproj", str(mmproj)]
     else:
-        print(f"[VAROVÁNÍ] mmproj nenalezen ({mmproj}) - vision (obrázky) nebude fungovat!")
+        print(f"[WARNING] mmproj not found ({mmproj}) - vision (images) will not work!")
     argv += cfg.kv_cache_server_args(model_key)
     argv += [str(x) for x in cfg.model(model_key).get("server_args", [])]
     argv += [str(x) for x in srv.get("extra_args", [])]
@@ -233,10 +233,10 @@ def _start_locked(cfg: Config, model_key: str | None = None,
     pid_file(cfg).write_text(f"{model_key}:{proc.pid}", encoding="utf-8")
     print(f"[START] model={model_key}  ctx={ctx}  pid={proc.pid}  -> {cfg.base_url}")
     print(f"        log: {log_path}")
-    print("[ČEKÁM] načítám model do VRAM ...", end="", flush=True)
+    print("[WAIT] loading the model into VRAM ...", end="", flush=True)
     t0 = time.time()
     if not wait_health(cfg, proc=proc):
-        print(f"\n[CHYBA] Server se nedostavil do {HEALTH_TIMEOUT}s. Poslední řádky logu:")
+        print(f"\n[ERROR] Server did not come up within {HEALTH_TIMEOUT}s. Last log lines:")
         print(log_path.read_bytes()[-2000:].decode(errors="replace"))
         if proc.poll() is None:
             proc.kill()
@@ -255,12 +255,12 @@ def status(cfg: Config) -> int:
             info = str(r.get("model_path", ""))
         except Exception:
             pass
-        print(f"[BĚŽÍ] {cfg.base_url}  (model z pidfile: {running_model(cfg)})")
+        print(f"[RUNNING] {cfg.base_url}  (model from pidfile: {running_model(cfg)})")
         if info:
             print(f"        {info}")
         print("   ", vram_str())
         return 0
-    print(f"[STOJÍ] {cfg.base_url} nereaguje. Start: python scripts/server.py start")
+    print(f"[DOWN] {cfg.base_url} not responding. Start: python scripts/server.py start")
     return 1
 
 
