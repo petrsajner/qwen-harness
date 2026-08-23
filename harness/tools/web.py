@@ -9,12 +9,33 @@ from __future__ import annotations
 import html as _htmlmod
 import re
 import urllib.parse
+from io import BytesIO
 
 from harness.safety import Risk
 from harness.tools.base import AgentContext, Tool, truncate
 
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+
+
+def _extract_downloaded_document(data: bytes, content_type: str, url: str) -> tuple[str, str] | None:
+    lowered = content_type.lower()
+    path = urllib.parse.urlparse(url).path.lower()
+    if "application/pdf" in lowered or path.endswith(".pdf"):
+        from pypdf import PdfReader
+        reader = PdfReader(BytesIO(data))
+        text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
+        metadata = reader.metadata
+        title = str(getattr(metadata, "title", "") or "") if metadata else ""
+        return text, title or path.rsplit("/", 1)[-1] or url
+    if ("application/vnd.openxmlformats-officedocument.wordprocessingml.document" in lowered
+            or path.endswith(".docx")):
+        from docx import Document
+        document = Document(BytesIO(data))
+        text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+        title = document.core_properties.title or path.rsplit("/", 1)[-1] or url
+        return text, title
+    return None
 
 
 def _web_cfg(ctx: AgentContext) -> dict:
@@ -211,8 +232,18 @@ class WebFetchTool(Tool):
             title_match = re.search(r"<title[^>]*>(.*?)</title>", r.text, re.S | re.I)
             title = _strip_tags(title_match.group(1)) if title_match else r.url
         else:
-            text = f"(binary/unsupported content-type: {ctype or 'neznámý'})"
-            title = r.url
+            max_bytes = int(_web_cfg(ctx).get("document_max_bytes", 50_000_000))
+            if len(r.content) > max_bytes:
+                return f"ERROR: downloaded document exceeds {max_bytes:,} bytes"
+            try:
+                extracted = _extract_downloaded_document(r.content, ctype, r.url)
+            except Exception as exc:
+                return f"ERROR: document extraction failed: {type(exc).__name__}: {exc}"
+            if extracted is None:
+                text = f"(binary/unsupported content-type: {ctype or 'neznámý'})"
+                title = r.url
+            else:
+                text, title = extracted
         if getattr(ctx, "research", None):
             max_source = int(_web_cfg(ctx).get("research_source_max_chars", 200_000))
             ctx.research.record_source(

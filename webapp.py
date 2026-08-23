@@ -251,7 +251,8 @@ state = AppState()
 
 
 # ------------------------------------------------------------- render helpers
-_HIDDEN_NOTE_PREFIXES = ("[TASK PROTOCOL", "[PROGRESS UPDATE", "[FINAL SUMMARY", "[Interrupted by user]")
+_HIDDEN_NOTE_PREFIXES = ("[TASK PROTOCOL", "[PROGRESS UPDATE", "[FINAL SUMMARY",
+                         "[Interrupted by user]", "[RESEARCH PLAN")
 
 
 def chat_view() -> list[dict]:
@@ -495,6 +496,31 @@ def retry_last_answer():
     state.rebuild_agent()
     state.agent.resume_task(f"Retry: {prompt}")
     state.save_ui_state()
+    history = chat_view()
+    yield history, gr.update(visible=False), refresh_status()
+    yield from _run_steps(history)
+
+
+def resumable_task_text() -> str:
+    task = state.session.load_task_state()
+    if task.get("status") not in ("running", "waiting_confirmation"):
+        return "<small>Žádná rozpracovaná úloha.</small>"
+    status = "čeká na potvrzení" if task["status"] == "waiting_confirmation" else "připravená pokračovat"
+    label = str(task.get("label") or "Rozpracovaná úloha")[:160]
+    return f"**{status}**\n\n{label}\n\nKrok: {task.get('steps', 0)}"
+
+
+def refresh_resumable_task():
+    active = state.agent.has_resumable_task
+    return (resumable_task_text(), gr.update(interactive=active),
+            gr.update(visible=active))
+
+
+def continue_saved_task():
+    if not state.agent.has_resumable_task:
+        gr.Info("Žádná rozpracovaná úloha není k dispozici.")
+        yield chat_view(), gr.update(visible=False), refresh_status()
+        return
     history = chat_view()
     yield history, gr.update(visible=False), refresh_status()
     yield from _run_steps(history)
@@ -1400,6 +1426,20 @@ def export_research_ledger():
     return gr.update(value=str(ledger.path), visible=True)
 
 
+def export_research_synthesis(fmt: str):
+    from harness.documents import export_document
+    ledger = getattr(state.agent.ctx, "research", None)
+    run = ledger.current() if ledger else None
+    synthesis = run.get("synthesis") if run else None
+    if not synthesis:
+        gr.Warning("Aktuální výzkum ještě nemá dokončenou syntézu.")
+        return gr.update()
+    output_dir = Path(state.workspace) / "exports" if state.workspace else state.session.dir / "exports"
+    title = str(run.get("question") or "Výzkumná syntéza")
+    target = export_document(synthesis, output_dir, "research-synteza", fmt, title)
+    return gr.update(value=str(target), visible=True)
+
+
 def _clear_inputs():
     """Vyčisti vstupní pole a upload po odeslání."""
     return gr.update(value=""), gr.update(value=None)
@@ -1547,6 +1587,15 @@ def build_ui() -> gr.Blocks:
                     )
 
                 with gr.Accordion(
+                        "Rozpracovaná úloha", open=True,
+                        visible=state.agent.has_resumable_task) as resumable_panel:
+                    resumable_status = gr.Markdown(resumable_task_text, elem_classes=["hdr"])
+                    btn_resume_task = gr.Button(
+                        "Pokračovat v úloze", size="sm",
+                        interactive=state.agent.has_resumable_task,
+                    )
+
+                with gr.Accordion(
                         "Dlouhé operace", open=False,
                         visible=state.work_mode in ("development", "computer")) as process_panel:
                     process_status = gr.Markdown(active_processes_text, elem_classes=["hdr"])
@@ -1567,6 +1616,9 @@ def build_ui() -> gr.Blocks:
                         visible=state.work_mode == "research") as research_panel:
                     research_status = gr.Markdown(research_status_text, elem_classes=["hdr"])
                     btn_export_research = gr.Button("Exportovat všechny podklady", size="sm")
+                    with gr.Row(elem_classes=["gap"]):
+                        btn_export_research_docx = gr.Button("Syntéza DOCX", size="sm")
+                        btn_export_research_pdf = gr.Button("Syntéza PDF", size="sm")
                     research_export_file = gr.File(
                         label="Research ledger", visible=False, interactive=False)
 
@@ -1748,12 +1800,20 @@ def build_ui() -> gr.Blocks:
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         btn_compress.click(compress_now, chat, [chat, confirm_row, status_box], queue=True)
         btn_undo_task.click(undo_current_task, None, [task_changes, btn_undo_task], queue=False)
+        btn_resume_task.click(continue_saved_task, None,
+                              [chat, confirm_row, status_box], queue=True)
         btn_stop_processes.click(stop_all_processes, None,
                                  [process_status, btn_stop_processes], queue=False)
         btn_clear_pins.click(clear_pinned_context, None,
                              [context_info, btn_clear_pins], queue=False)
         btn_export_research.click(export_research_ledger, None,
                                   research_export_file, queue=False)
+        btn_export_research_docx.click(
+            lambda: export_research_synthesis("docx"), None,
+            research_export_file, queue=False)
+        btn_export_research_pdf.click(
+            lambda: export_research_synthesis("pdf"), None,
+            research_export_file, queue=False)
         model_dd.input(change_model, model_dd, [status_box, model_dd])
         work_mode_dd.change(
             change_work_mode, work_mode_dd,
@@ -1817,6 +1877,9 @@ def build_ui() -> gr.Blocks:
         if hasattr(gr, "Timer"):
             gr.Timer(5.0).tick(refresh_runtime_controls, outputs=[status_box, model_dd])
             gr.Timer(2.0).tick(refresh_task_changes, outputs=[task_changes, btn_undo_task])
+            gr.Timer(2.0).tick(
+                refresh_resumable_task,
+                outputs=[resumable_status, btn_resume_task, resumable_panel])
             gr.Timer(2.0).tick(refresh_processes, outputs=[process_status, btn_stop_processes])
             gr.Timer(5.0).tick(refresh_context_inspector,
                                outputs=[context_info, btn_clear_pins])

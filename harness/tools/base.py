@@ -34,6 +34,7 @@ class Tool:
     parameters: dict = {}          # JSON schema vlastností
     risk: Risk = Risk.SAFE
     required: list[str] = []
+    parallel_safe: bool = False
 
     def run(self, ctx: AgentContext, **kwargs) -> str:
         raise NotImplementedError

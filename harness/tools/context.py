@@ -11,6 +11,7 @@ from harness.tools.base import AgentContext, Tool
 
 class ContextStatusTool(Tool):
     name = "context_status"
+    parallel_safe = True
     description = "Show what currently consumes model context, including pinned files and compression."
     parameters = {}
 
@@ -46,6 +47,7 @@ class UnpinContextFileTool(Tool):
 
 class RepoOverviewTool(Tool):
     name = "repo_overview"
+    parallel_safe = True
     description = "Return the automatically generated workspace map, key files, and Python symbols."
     parameters = {}
 
@@ -57,6 +59,7 @@ class RepoOverviewTool(Tool):
 
 class ListProjectDocumentsTool(Tool):
     name = "list_project_documents"
+    parallel_safe = True
     description = "List readable documents in the current project without exposing source code."
     parameters = {}
 
@@ -139,10 +142,10 @@ def register_context_tools(registry) -> None:
     registry.register(ContextStatusTool())
     registry.register(PinContextFileTool())
     registry.register(UnpinContextFileTool())
-    registry.register(RepoOverviewTool())
     registry.register(ListProjectDocumentsTool())
     registry.register(ReadProjectDocumentTool())
 
 
 def register_coding_context_tools(registry) -> None:
+    registry.register(RepoOverviewTool())
     registry.register(StartProjectCheckTool())

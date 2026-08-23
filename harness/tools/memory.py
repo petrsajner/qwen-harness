@@ -7,6 +7,7 @@ from harness.tools.base import AgentContext, Tool
 
 class ReadMemoryTool(Tool):
     name = "read_memory"
+    parallel_safe = True
     description = ("Read persistent memory (full content). scope: 'global' = all projects "
                    "(general rules/preferences), 'project' = facts for the current workspace. "
                    "A truncated version is already in your system prompt - use this only "

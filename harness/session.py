@@ -10,6 +10,7 @@ import copy
 import json
 import mimetypes
 import shutil
+import sqlite3
 import time
 import uuid
 from functools import lru_cache
@@ -85,7 +86,7 @@ class Session:
                       "Use it as context, do not re-ask the user about these facts:]\n\n")
     INTERNAL_USER_PREFIXES = (
         "[TASK PROTOCOL", "[PROGRESS UPDATE", "[FINAL SUMMARY",
-        "[The following image", "[Interrupted by user]",
+        "[The following image", "[Interrupted by user]", "[RESEARCH PLAN",
     )
 
     def _view_messages(self) -> list[dict]:
@@ -336,6 +337,7 @@ class Session:
             for m in self.messages:
                 f.write(json.dumps(m, ensure_ascii=False) + "\n")
         tmp.replace(self._jsonl)
+        self._update_history_index()
 
     def last_user_index(self) -> int | None:
         for index in range(len(self.messages) - 1, -1, -1):
@@ -429,6 +431,25 @@ class Session:
         self._compression_file.unlink(missing_ok=True)
 
     @property
+    def _task_state_file(self) -> Path:
+        return self.dir / "task-state.json"
+
+    def save_task_state(self, state: dict) -> None:
+        if self.transient:
+            return
+        state = {**state, "updated": time.time()}
+        temporary = self._task_state_file.with_suffix(".tmp")
+        temporary.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(self._task_state_file)
+
+    def load_task_state(self) -> dict:
+        try:
+            state = json.loads(self._task_state_file.read_text(encoding="utf-8"))
+            return state if isinstance(state, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    @property
     def _compression_file(self) -> Path:
         return self.dir / "compression.json"
 
@@ -444,6 +465,17 @@ class Session:
             self._meta_file.write_text(
                 json.dumps(self.meta, ensure_ascii=False), encoding="utf-8")
         except OSError:
+            pass
+        self._update_history_index()
+
+    def _update_history_index(self) -> None:
+        if self.transient or not self._jsonl.exists():
+            return
+        try:
+            from harness.history_index import HistoryIndex
+            HistoryIndex(self.cfg.path("paths.sessions_dir")).reindex(
+                self.id, self.meta, self.messages, source_mtime=self._jsonl.stat().st_mtime)
+        except (OSError, ValueError, sqlite3.Error):
             pass
 
     def _load_meta(self) -> None:
@@ -542,6 +574,11 @@ class Session:
         d = cfg.path("paths.sessions_dir") / session_id
         if d.exists() and d.is_dir():
             shutil.rmtree(d, ignore_errors=True)
+            try:
+                from harness.history_index import HistoryIndex
+                HistoryIndex(cfg.path("paths.sessions_dir")).remove(session_id)
+            except Exception:
+                pass
             return True
         return False
 
@@ -600,32 +637,5 @@ class Session:
         query = (query or "").strip().lower()
         if not query:
             return []
-        results: list[dict] = []
-        for item in Session.list_sessions(cfg, limit=500):
-            path = cfg.path("paths.sessions_dir") / item["id"] / "messages.jsonl"
-            try:
-                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-            except OSError:
-                continue
-            snippet = ""
-            for line in lines:
-                try:
-                    message = json.loads(line)
-                except ValueError:
-                    continue
-                content = message.get("content")
-                if message.get("role") not in ("user", "assistant") or not isinstance(content, str):
-                    continue
-                if content.startswith(Session.INTERNAL_USER_PREFIXES):
-                    continue
-                position = content.lower().find(query)
-                if position >= 0:
-                    snippet = content[max(0, position - 50):position + len(query) + 90]
-                    snippet = " ".join(snippet.split())[:140]
-                    break
-            if not snippet and query not in str(item.get("title", "")).lower():
-                continue
-            results.append({**item, "snippet": snippet})
-            if len(results) >= limit:
-                break
-        return results
+        from harness.history_index import HistoryIndex
+        return HistoryIndex(cfg.path("paths.sessions_dir")).search(query, limit)

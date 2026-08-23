@@ -249,8 +249,7 @@ def test_registry_modes() -> None:
     computer = build_registry("computer")
     check(set(chat.names()) == {"read_memory", "save_memory", "web_search", "web_fetch",
                                 "context_status", "pin_context_file", "unpin_context_file",
-                                "repo_overview", "list_project_documents",
-                                "read_project_document"},
+                                "list_project_documents", "read_project_document"},
           f"chat režim: memory + web + context nástroje ({chat.names()})")
     check({"list_dir", "run_command", "view_image"} <= set(agent.names()),
           f"agent režim: fs+patch+shell+vision ({len(agent.names())})")
@@ -269,7 +268,8 @@ def test_registry_modes() -> None:
           "Diskuze nemá coding nástroje")
     check(set(research.names()) == set(discussion.names()),
           "Výzkum má web/context nástroje bez coding sady")
-    check("apply_patch" in writing.names() and "git_commit" not in writing.names()
+    check("apply_patch" in writing.names() and "export_document" in writing.names()
+          and "repo_overview" not in writing.names() and "git_commit" not in writing.names()
           and "run_command" not in writing.names(),
           "Psaní má dokumentové editace bez Git a shellu")
     check({"apply_patch", "git_commit", "run_command", "start_project_check"}
@@ -553,6 +553,124 @@ def test_streaming_bridge() -> None:
           "worker bridge vrátí výsledek agent.step")
 
 
+def test_parallel_read_tools() -> None:
+    print("[parallel read tools]")
+    import time
+    from harness.agent import Agent
+    from harness.llm import AssistantResult
+    from harness.safety import SafetyPolicy
+    from harness.tools.base import Tool
+
+    class SlowRead(Tool):
+        parallel_safe = True
+        parameters = {}
+
+        def __init__(self, name):
+            self.name = name
+
+        def run(self, _ctx):
+            time.sleep(0.25)
+            return self.name
+
+    class SlowWrite(SlowRead):
+        parallel_safe = False
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        data = load_config().data
+        data["paths"]["sessions_dir"] = str(tmp / "sessions")
+        cfg = Config(data, root=ROOT)
+        session = Session(cfg, session_id="parallel-test", system_prompt="SYS")
+        registry = ToolRegistry()
+        registry.register(SlowRead("read_a"))
+        registry.register(SlowRead("read_b"))
+        registry.register(SlowWrite("write_c"))
+        agent = Agent(cfg, LLMStub(), session, registry, SafetyPolicy("auto"), mode="agent")
+        calls = [_tc("read_a"), _tc("read_b")]
+        started = time.monotonic()
+        trace = agent._execute_calls(calls)
+        parallel_time = time.monotonic() - started
+        check(parallel_time < 0.45 and [item[2] for item in trace] == ["read_a", "read_b"],
+              "nezávislé read-only tool calls běží paralelně a zachovají pořadí")
+        started = time.monotonic()
+        agent._execute_calls([_tc("read_a"), _tc("write_c")])
+        check(time.monotonic() - started >= 0.45,
+              "smíšená read/write sada zůstane sekvenční")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_resume_task_and_process_after_restart() -> None:
+    print("[resume task/process after restart]")
+    import time
+    from harness.agent import Agent, Status
+    from harness.llm import AssistantResult
+    from harness.safety import SafetyPolicy
+
+    tmp = Path(tempfile.mkdtemp())
+    managers = []
+    try:
+        data = load_config().data
+        data["paths"]["sessions_dir"] = str(tmp / "sessions")
+        data["agent"]["workspace"] = str(tmp)
+        cfg = Config(data, root=ROOT)
+        session = Session(cfg, session_id="resume-test", system_prompt="SYS")
+        pending_llm = LLMStub([AssistantResult(tool_calls=[
+            _tc("write_file", '{"path":"resume.txt","content":"OK"}')])])
+        first = Agent(
+            cfg, pending_llm, session, build_registry("agent", "development"),
+            SafetyPolicy("supervised"), mode="agent", work_mode="development")
+        first.new_task("vytvoř resume.txt")
+        waiting = first.step()
+        check(waiting.status is Status.NEEDS_CONFIRMATION
+              and session.load_task_state()["status"] == "waiting_confirmation",
+              "pending potvrzení se uloží do task-state")
+
+        restored = Agent(
+            cfg, LLMStub([]), session, build_registry("agent", "development"),
+            SafetyPolicy("supervised"), mode="agent", work_mode="development")
+        check(restored.has_resumable_task and restored.step().status is Status.NEEDS_CONFIRMATION,
+              "nový Agent po restartu obnoví pending tool calls")
+        restored.step(approve=True)
+        check((tmp / "resume.txt").is_file(), "obnovené potvrzení dokončí původní tool call")
+        completed = Agent(
+            cfg, LLMStub([AssistantResult(content="hotovo")]), session,
+            build_registry("agent", "development"), SafetyPolicy("supervised"),
+            mode="agent", work_mode="development")
+        check(completed.has_resumable_task and completed.step().status is Status.FINAL
+              and session.load_task_state()["status"] == "complete",
+              "running úloha po restartu pokračuje do FINAL")
+
+        manager1 = ProcessManager()
+        managers.append(manager1)
+        manager1.bind_session(session)
+        item = manager1.start(
+            "Write-Output BEFORE; Start-Sleep -Milliseconds 500; Write-Output AFTER",
+            "powershell", tmp, 10)
+        time.sleep(0.15)
+        manager2 = ProcessManager()
+        managers.append(manager2)
+        manager2.bind_session(session)
+        restored_item = manager2.get(item.id)
+        check(restored_item is not None and restored_item.proc is None,
+              "ProcessManager načte procesní manifest po restartu")
+        cursor = 0
+        output = ""
+        for _ in range(100):
+            polled = manager2.poll(item.id, cursor)
+            output += polled["output"]
+            cursor = polled["cursor"]
+            if polled["status"] == "finished":
+                break
+            time.sleep(0.05)
+        check("BEFORE" in output and "AFTER" in output,
+              "obnovený ProcessManager pokračuje ve čtení persistentního logu")
+    finally:
+        for manager in managers:
+            manager.terminate_all()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_git_tools() -> None:
     print("[git tools]")
     import subprocess
@@ -674,6 +792,13 @@ def test_research_ledger_and_synthesis() -> None:
             def ask(self, messages, **_kwargs):
                 prompt = str(messages[-1]["content"])
                 self.prompts.append(prompt)
+                if "Return JSON only" in prompt:
+                    return AssistantResult(content=json.dumps({
+                        "subquestions": ["Co tvrdí A?", "Co tvrdí B?"],
+                        "search_angles": ["protiklady"],
+                        "source_types_to_include": ["všechny dostupné"],
+                        "known_constraints": [],
+                    }, ensure_ascii=False))
                 if "Chybějící zdroje" in prompt:
                     return AssistantResult(content="Opravená syntéza zahrnuje [S1] i [S2].")
                 if "Vytvoř přehlednou závěrečnou syntézu" in prompt:
@@ -713,6 +838,11 @@ def test_research_ledger_and_synthesis() -> None:
         check(result.status is Status.FINAL and "[S1]" in result.text and "[S2]" in result.text
               and "Pracovní draft" not in result.text,
               "research Agent nahradí draft povinnou coverage syntézou")
+        integrated_run = agent.ctx.research.current()
+        check(integrated_run["plan"]["subquestions"] == ["Co tvrdí A?", "Co tvrdí B?"]
+              and any(str(message.get("content", "")).startswith("[RESEARCH PLAN")
+                      for message in integrated_session.messages),
+              "research plán vznikne před hledáním a uloží se do ledgeru i kontextu")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -721,6 +851,7 @@ def test_project_document_library() -> None:
     print("[project document library]")
     from docx import Document
     from harness.agent import Agent
+    from harness.documents import export_document
     from harness.repo_index import RepoIndex
     from harness.safety import SafetyPolicy
     from pypdf import PdfWriter
@@ -773,6 +904,16 @@ def test_project_document_library() -> None:
         check("DOCX podklad" in docx_text, "projektová knihovna čte skutečný DOCX")
         check(pdf_path.suffix == ".pdf" and isinstance(pdf_text, str),
               "projektová knihovna načte validní PDF")
+        exported_docx = export_document(
+            "# Nadpis\n\nText o Kláře.\n\n- bod A", tmp / "exports", "vystup", "docx", "Film")
+        exported_pdf = export_document(
+            "# Nadpis\n\nText o Kláře.\n\n- bod A", tmp / "exports", "vystup", "pdf", "Film")
+        exported_docx_text = "\n".join(
+            paragraph.text for paragraph in Document(exported_docx).paragraphs)
+        exported_pdf_text = "\n".join(
+            page.extract_text() or "" for page in __import__("pypdf").PdfReader(exported_pdf).pages)
+        check("Kláře" in exported_docx_text, "Psaní exportuje strukturovaný DOCX s češtinou")
+        check("Kláře" in exported_pdf_text, "Psaní exportuje čitelný PDF s češtinou")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -876,6 +1017,8 @@ def test_chat_rewind_and_fork() -> None:
         check(any(item["id"] == session.id and "druhý dotaz" in item["snippet"]
                   and "sessions" not in item["snippet"] for item in found),
               "fulltextové hledání najde dotaz v historii")
+        check((tmp / "sessions" / "history-index.sqlite3").is_file(),
+              "historie používá persistentní SQLite FTS index")
 
         fork = session.fork_at_last_user("FORK SYS")
         check(fork is not None and len(session.messages) == original_count and fork.id != session.id,
@@ -929,7 +1072,9 @@ def test_transient_session() -> None:
 
 def test_web_tools() -> None:
     print("[web nástroje - offline parsery + registrace]")
+    from io import BytesIO
     from harness.tools import web as webt
+    from reportlab.pdfgen import canvas
 
     txt = webt._strip_tags("<html><body><script>bad()</script><h1>Ahoj</h1>"
                            "<p>sv&#233;te &amp; nazdar</p></body></html>")
@@ -940,6 +1085,22 @@ def test_web_tools() -> None:
     enc = ("https://www.bing.com/ck/a?!&amp;&amp;p=xx&u=a1aHR0cHM6Ly9naXRodWIuY29tL3Rlc3Q"
            "&ntb=1")
     check(webt._bing_unwrap(enc) == "https://github.com/test", "_bing_unwrap dekóduje base64 url")
+    pdf_buffer = BytesIO()
+    pdf_canvas = canvas.Canvas(pdf_buffer)
+    pdf_canvas.drawString(72, 720, "INTERNET-PDF-OK")
+    pdf_canvas.save()
+    pdf_text, _ = webt._extract_downloaded_document(
+        pdf_buffer.getvalue(), "application/pdf", "https://example.test/studie.pdf")
+    docx_buffer = BytesIO()
+    docx_document = __import__("docx").Document()
+    docx_document.add_paragraph("INTERNET-DOCX-OK")
+    docx_document.save(docx_buffer)
+    docx_text, _ = webt._extract_downloaded_document(
+        docx_buffer.getvalue(),
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "https://example.test/studie.docx")
+    check("INTERNET-PDF-OK" in pdf_text, "web_fetch extrahuje text internetového PDF")
+    check("INTERNET-DOCX-OK" in docx_text, "web_fetch extrahuje text internetového DOCX")
     for mode in ("chat", "agent", "computer"):
         reg = build_registry(mode)
         check("web_search" in reg.names() and "web_fetch" in reg.names(),
@@ -1183,6 +1344,8 @@ if __name__ == "__main__":
     test_reasoning_effort_kwargs()
     test_runtime_lifecycle_helpers()
     test_streaming_bridge()
+    test_parallel_read_tools()
+    test_resume_task_and_process_after_restart()
     test_git_tools()
     test_automatic_project_check()
     test_research_ledger_and_synthesis()

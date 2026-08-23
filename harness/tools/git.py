@@ -25,6 +25,7 @@ def _result(proc: subprocess.CompletedProcess, label: str, limit: int = 40_000) 
 
 class GitStatusTool(Tool):
     name = "git_status"
+    parallel_safe = True
     description = "Return the current branch and concise staged/unstaged/untracked file status."
     parameters = {}
 
@@ -38,6 +39,7 @@ class GitStatusTool(Tool):
 
 class GitDiffTool(Tool):
     name = "git_diff"
+    parallel_safe = True
     description = "Return a Git diff for the workspace or one path, optionally for staged changes."
     parameters = {
         "path": {"type": "string", "description": "Optional workspace-relative file path"},

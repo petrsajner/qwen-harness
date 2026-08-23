@@ -23,6 +23,7 @@ class ResearchLedger:
             "question": question,
             "created": time.time(),
             "queries": [],
+            "plan": None,
             "candidates": [],
             "sources": [],
             "status": "collecting",
@@ -30,6 +31,13 @@ class ResearchLedger:
         })
         self._save()
         return self.run_id
+
+    def set_plan(self, plan: dict) -> None:
+        run = self.current()
+        if run is None:
+            return
+        run["plan"] = plan
+        self._save()
 
     def current(self) -> dict | None:
         if self.run_id:
@@ -140,6 +148,44 @@ def _ask(llm, prompt: str, max_tokens: int) -> str:
     if not text:
         raise RuntimeError("Model vrátil prázdnou research syntézu")
     return text
+
+
+def plan_research(llm, question: str, project_catalog: str = "") -> dict:
+    prompt = f"""Create a research plan for the user's question:
+{question}
+
+Available project documents:
+{project_catalog or 'none'}
+
+Return JSON only with this schema:
+{{
+  "subquestions": ["..."],
+  "search_angles": ["..."],
+  "source_types_to_include": ["..."],
+  "known_constraints": ["..."]
+}}
+
+Cover the question broadly. Do not rank, filter, or exclude possible sources by perceived
+credibility, origin, popularity, or official status. Include angles that could reveal conflicting,
+negative, uncertain, or minority information.
+"""
+    raw = _ask(llm, prompt, 1800)
+    try:
+        plan = json.loads(raw)
+    except ValueError:
+        start, end = raw.find("{"), raw.rfind("}")
+        try:
+            plan = json.loads(raw[start:end + 1]) if 0 <= start < end else None
+        except ValueError:
+            plan = None
+    if not isinstance(plan, dict):
+        plan = {"subquestions": [question], "search_angles": [],
+                "source_types_to_include": [], "known_constraints": [],
+                "raw_plan": raw}
+    for key in ("subquestions", "search_angles", "source_types_to_include", "known_constraints"):
+        if not isinstance(plan.get(key), list):
+            plan[key] = []
+    return plan
 
 
 def synthesize_research(llm, run: dict) -> str:

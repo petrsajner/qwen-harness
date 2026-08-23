@@ -72,6 +72,7 @@ web:
   timeout: 10         # s na jeden požadavek
   max_chars: 12000    # max délka textu z web_fetch
   research_source_max_chars: 200000  # technický strop uloženého textu jednoho zdroje
+  document_max_bytes: 50000000       # max velikost internetového PDF/DOCX
   search_results: 5   # výchozí počet výsledků hledání
 
 # Cesty (relativně ke kořenu projektu, pokud nejsou absolutní)

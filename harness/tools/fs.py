@@ -13,6 +13,7 @@ IGNORED_DIRS = {".git", ".venv", "venv", "__pycache__", "node_modules", ".pytest
 
 class ListDirTool(Tool):
     name = "list_dir"
+    parallel_safe = True
     description = ("List directory contents. Returns subdirectories and files with sizes. "
                    "Use '.' for the workspace root. Ignores common junk dirs (.git, node_modules, venv...).")
     parameters = {
@@ -45,6 +46,7 @@ class ListDirTool(Tool):
 
 class ReadFileTool(Tool):
     name = "read_file"
+    parallel_safe = True
     description = ("Read a text file. Returns content with line numbers (1-based). "
                    "Optionally read a line range for large files.")
     parameters = {
@@ -155,6 +157,7 @@ class ApplyPatchTool(Tool):
 
 class ListTaskChangesTool(Tool):
     name = "list_task_changes"
+    parallel_safe = True
     description = "List files changed in the current task checkpoint."
     parameters = {}
 
@@ -180,6 +183,7 @@ class UndoTaskChangesTool(Tool):
 
 class SearchFilesTool(Tool):
     name = "search_files"
+    parallel_safe = True
     description = ("Search for a text string (substring, case-insensitive) in files under a directory. "
                    "Returns file:line: match. Skips binary files and junk dirs. "
                    "glob filters filenames, e.g. '*.py'.")

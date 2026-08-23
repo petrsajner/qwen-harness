@@ -128,6 +128,21 @@ konverzací v různých režimech a pamatuje si svůj výchozí režim pro nové
 - Protichůdná, negativní, nejistá a menšinová tvrzení musí zůstat v syntéze viditelná.
 - Coverage kontrola ověří, že každý načtený source ID je v závěru uveden.
 - Kompletní ledger lze exportovat ze sidebaru.
+- Před prvním hledáním vznikne persistentní plán dílčích otázek a vyhledávacích úhlů.
+- Internetové HTML, text, PDF a DOCX se extrahují a ukládají do stejného ledgeru.
+- Hotovou syntézu lze exportovat do DOCX nebo PDF.
+
+### Psaní
+
+- Finální text lze exportovat do Markdownu, strukturovaného DOCX nebo PDF s podporou češtiny.
+- Exportované dokumenty jsou součástí task checkpointu a lze je vrátit stejným rollbackem.
+
+### Obnovení a výkon
+
+- Rozpracovaný agentní krok a pending potvrzení se ukládají do `task-state.json`.
+- Background procesy zapisují do persistentních logů a po restartu se znovu připojí podle PID.
+- Nezávislé read-only tool calls běží bounded paralelně; každá sada se zápisem zůstává sekvenční.
+- Hledání v historii používá SQLite FTS5 index místo opakovaného skenování všech JSONL.
 
 ## Autonomie a bezpečnost
 
