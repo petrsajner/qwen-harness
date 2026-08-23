@@ -14,6 +14,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# Windows pipe/konzole v cp1250/1252 nezvládne "✓" a diakritiku → vynutit UTF-8
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 from harness.agent import build_registry
 from harness.changes import ChangeJournal, file_sha256
 from harness.config import Config, load_config
@@ -45,7 +50,11 @@ def test_config() -> None:
     check(cfg.model_key() in cfg.data["models"], "default model existuje v 'models'")
     check(cfg.base_url.startswith("http://127.0.0.1"), "base_url je localhost")
     check(cfg.model_file().name.endswith(".gguf"), "model_file ukazuje na GGUF")
-    check(cfg.model_key() == "q5" and cfg.kv_cache_mode("q5") == "q8_0",
+    # výchozí stav čerstvé instalace (lokální config může přepsat na q4 apod.)
+    from copy import deepcopy
+    from harness.config import DEFAULTS
+    fresh = Config(deepcopy(DEFAULTS), root=ROOT)
+    check(fresh.model_key() == "q5" and fresh.kv_cache_mode("q5") == "q8_0",
           "nová instalace používá hlavní Qwen Q5 s Q8 KV")
     s = cfg.sampling(thinking=True)
     check(abs(s["temperature"] - 1.0) < 1e-9, "thinking sampling t=1.0")
@@ -99,9 +108,12 @@ def test_config() -> None:
     check("ORNITH DELIBERATE REASONING POLICY" in development_prompt
           and "Do not optimize for speed" in development_prompt,
           "Ornith xhigh dostává explicitní politiku hlubokého uvažování")
-    from harness.version import APP_VERSION
-    installer_version = (ROOT / "installer" / "version.txt").read_text(encoding="utf-8").strip()
-    check(APP_VERSION == installer_version and APP_VERSION == "1.3.0",
+    from harness.version import APP_VERSION, _version_candidates
+    # v instalované kopii je version.txt v kořenu aplikace, ve stromu v installer/
+    version_files = [p for p in _version_candidates() if p.exists()]
+    installer_version = (version_files[0].read_text(encoding="utf-8").strip()
+                         if version_files else "")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.0",
           "viditelná verze aplikace odpovídá instalátoru 1.3.0")
 
 
@@ -659,7 +671,11 @@ def test_runtime_lifecycle_helpers() -> None:
     import socket
     import time
     from harness import servermgmt
-    from launcher.launcher_app import _free_web_port
+    try:
+        from launcher.launcher_app import _free_web_port
+    except ImportError:
+        # instalovaná kopie: launcher je přeložený v QwenHarness.exe, zdroje chybí
+        _free_web_port = None
 
     tmp = Path(tempfile.mkdtemp())
     original_health = servermgmt.health
@@ -685,12 +701,13 @@ def test_runtime_lifecycle_helpers() -> None:
               and time.monotonic() - started < 1,
               "wait_health skončí hned po pádu procesu")
 
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
-            occupied.bind(("127.0.0.1", 0))
-            occupied.listen(1)
-            busy_port = occupied.getsockname()[1]
-            check(_free_web_port(busy_port) != busy_port,
-                  "launcher přeskočí obsazený Web UI port")
+        if _free_web_port is not None:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
+                occupied.bind(("127.0.0.1", 0))
+                occupied.listen(1)
+                busy_port = occupied.getsockname()[1]
+                check(_free_web_port(busy_port) != busy_port,
+                      "launcher přeskočí obsazený Web UI port")
     finally:
         servermgmt.health = original_health
         shutil.rmtree(tmp, ignore_errors=True)
