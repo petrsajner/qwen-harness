@@ -74,8 +74,6 @@ class TUIApp:
     def _rebuild_agent(self) -> None:
         safety = SafetyPolicy(
             autonomy=self.autonomy,
-            max_steps=int(self.cfg.agent.get("max_steps", 40)),
-            semi_max_steps=int(self.cfg.agent.get("semi_max_steps", 15)),
         )
         self.agent = Agent(
             self.cfg, self.llm, self.session, build_registry(self.mode, self.work_mode),
@@ -104,8 +102,8 @@ class TUIApp:
         think = "[red]off[/red]" if not self.thinking else f"[green]{self.reasoning_effort}[/green]"
         ws = self.agent.workspace if self.agent else Path.cwd()
         try:
-            est = self.session.estimate_context_tokens()
-            limit = int(self.cfg.model().get("ctx_size", 32768))
+            est = self.agent.estimate_context_tokens()
+            limit = self.cfg.context_size()
             ctx = f"  [bold]ctx[/bold]=~{est / 1000:.1f}k/{limit // 1000}k"
         except Exception:
             ctx = ""

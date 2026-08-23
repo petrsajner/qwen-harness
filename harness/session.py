@@ -87,6 +87,7 @@ class Session:
     INTERNAL_USER_PREFIXES = (
         "[TASK PROTOCOL", "[PROGRESS UPDATE", "[FINAL SUMMARY",
         "[The following image", "[Interrupted by user]", "[RESEARCH PLAN",
+        "[DYNAMIC TASK CONTEXT",
     )
 
     def _view_messages(self) -> list[dict]:
@@ -98,7 +99,7 @@ class Session:
         summary_msg = {"role": "user", "content": self.SUMMARY_PREFIX + self.compression["summary"]}
         return head + [summary_msg] + self.messages[cut:]
 
-    def to_api_messages(self, max_images: int = 8) -> list[dict]:
+    def to_api_messages(self, max_images: int = 8, include_pins: bool = True) -> list[dict]:
         """Převeď na OpenAI formát; posledních max_images obrázků jako data URL."""
         view = self._view_messages()
         image_paths = [p for m in view for p in m.get("images", [])]
@@ -121,10 +122,9 @@ class Session:
                 parts.append({"type": "image_url", "image_url": {"url": self._data_url(p)}})
             m2["content"] = parts
             out.append(m2)
-        pinned = self.pinned_context_block()
+        pinned = self.pinned_context_block() if include_pins else ""
         if pinned:
-            insert_at = 1 if out and out[0].get("role") == "system" else 0
-            out.insert(insert_at, {"role": "user", "content": pinned})
+            out.append({"role": "user", "content": pinned})
         return out
 
     @staticmethod
@@ -144,7 +144,7 @@ class Session:
     # -- odhad kontextu / komprese -----------------------------------------
     IMAGE_TOKENS = 1400  # orientační počet tokenů na obrázek (po downscale)
 
-    def estimate_context_tokens(self) -> int:
+    def estimate_context_tokens(self, include_pins: bool = True) -> int:
         """Odhad tokenů skutečně odesílaných do API (po omezení obrázků)."""
         import json as _json
         view = self._view_messages()
@@ -165,7 +165,8 @@ class Session:
             total += sum(1 for p in m.get("images", []) if p in recent) * self.IMAGE_TOKENS * 4
             if m.get("tool_calls"):
                 total += len(_json.dumps(m["tool_calls"], ensure_ascii=False))
-        total += len(self.pinned_context_block())
+        if include_pins:
+            total += len(self.pinned_context_block())
         # ~3.6 znaku na token (mix češtiny, kódu, JSON)
         return total * 10 // 36
 
@@ -237,6 +238,12 @@ class Session:
             n += len(_json.dumps(m["tool_calls"], ensure_ascii=False)) * 10 // 36
         return n
 
+    @classmethod
+    def _is_user_boundary(cls, message: dict) -> bool:
+        content = message.get("content")
+        return (message.get("role") == "user" and isinstance(content, str)
+                and not content.startswith(cls.INTERNAL_USER_PREFIXES))
+
     def compression_cut(self, min_keep: int = 6,
                         keep_tokens: int | None = None) -> int | None:
         """Najde user hranici, od které se má zachovat živý ocas konverzace."""
@@ -251,12 +258,12 @@ class Session:
                 acc += self._msg_tokens(msgs[i])
                 if acc > keep_tokens:
                     break
-                if msgs[i].get("role") == "user" and (len(msgs) - i) >= min_keep:
+                if self._is_user_boundary(msgs[i]) and (len(msgs) - i) >= min_keep:
                     cut = i
         else:
             rest = msgs[head_len:]
             for i in range(len(rest) - min_keep, 0, -1):
-                if rest[i]["role"] == "user":
+                if self._is_user_boundary(rest[i]):
                     cut = head_len + i
                     break
         if cut is None or cut <= head_len:
@@ -292,7 +299,7 @@ class Session:
             cur = self.compression["cut"] if self.compression else 1
             # nejbližší user hranice za aktuálním cutem
             nxt = next((i for i in range(cur + 1, len(self.messages) - min_keep + 1)
-                        if self.messages[i]["role"] == "user"), None)
+                        if self._is_user_boundary(self.messages[i])), None)
             if nxt is None:
                 break
             self.compression = {

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import time
 import uuid
 from pathlib import Path
@@ -62,6 +63,7 @@ class Projects:
         folder.mkdir(parents=True, exist_ok=True)
         proj = {"id": uuid.uuid4().hex[:8], "name": folder.name,
                 "path": str(folder), "created": time.time(),
+                "managed": True,
                 "work_mode": normalize_work_mode(self.cfg.data.get("work_mode"),
                                                    self.cfg.agent.get("mode"))}
         items = self._load()
@@ -79,6 +81,7 @@ class Projects:
             return existing
         proj = {"id": uuid.uuid4().hex[:8], "name": p.name,
                 "path": str(p), "created": time.time(),
+                "managed": False,
                 "work_mode": normalize_work_mode(self.cfg.data.get("work_mode"),
                                                    self.cfg.agent.get("mode"))}
         items = self._load()
@@ -102,3 +105,25 @@ class Projects:
                 item["work_mode"] = normalize_work_mode(work_mode)
                 self._save(items)
                 return
+
+    def delete_by_path(self, path: str) -> dict:
+        """Remove a registered project and its entire workspace directory."""
+        items = self._load()
+        project = next((item for item in items if item.get("path") == path), None)
+        if project is None:
+            raise ValueError("Projekt není registrovaný")
+        target = Path(project["path"]).resolve()
+        protected = [self.cfg.root.resolve(), self.root_dir.resolve(), Path.home().resolve()]
+        anchor = Path(target.anchor).resolve()
+        if target == anchor or any(target == item or item.is_relative_to(target)
+                                   for item in protected):
+            raise ValueError(f"Odmítám smazat chráněný adresář: {target}")
+        if target.exists():
+            if target.is_symlink() or (hasattr(target, "is_junction") and target.is_junction()):
+                target.unlink() if target.is_symlink() else target.rmdir()
+            elif target.is_dir():
+                shutil.rmtree(target)
+            else:
+                raise ValueError(f"Cesta projektu není adresář: {target}")
+        self._save([item for item in items if item is not project])
+        return project

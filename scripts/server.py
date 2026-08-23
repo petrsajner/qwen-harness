@@ -1,7 +1,7 @@
 """CLI wrapper pro správu llama-serveru (logika v harness/servermgmt.py).
 
 Použití:
-    python scripts/server.py start [--model q4|q5] [--ctx N]
+    python scripts/server.py start [--model MODEL] [--ctx N]
     python scripts/server.py stop | restart | status
     python scripts/server.py switch q5
 """
@@ -22,7 +22,7 @@ from harness import servermgmt  # noqa: E402
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("cmd", choices=["start", "stop", "restart", "switch", "status"])
-    ap.add_argument("model_pos", nargs="?", help="model key (q4/q5) pro start/switch/restart")
+    ap.add_argument("model_pos", nargs="?", help="model key pro start/switch/restart")
     ap.add_argument("--model", dest="model_opt", help="model key (alternativa k pozici)")
     ap.add_argument("--ctx", type=int, help="override ctx size")
     args = ap.parse_args()
@@ -40,7 +40,7 @@ def main() -> int:
         return servermgmt.start(cfg, args.model, args.ctx)
     if args.cmd == "switch":
         if not args.model:
-            print("Použití: server.py switch <q4|q5>")
+            print("Použití: server.py switch <model>")
             return 1
         servermgmt.stop(cfg, quiet=True)
         time.sleep(1)

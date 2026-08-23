@@ -9,26 +9,56 @@ server:
   n_gpu_layers: 999        # všechno na GPU
   # Extra argumenty pro llama-server (seznam řetězců)
   extra_args: []
-  # Pozn.: speculative decoding přes MTP lze zapnout zde, např.:
-  # extra_args: ["--draft-model", "runtime/models/mtp-Qwen3.8-27B-Q4_0.gguf", "--draft-max", "16"]
 
 # Modely - GGUF kvantizace z Hugging Face
 # Vybrané: unsloth UD (Unsloth Dynamic) kvantizace - dobrá kvalita/velikost
 models:
   q4:
-    alias: "Qwen3.8-27B Q4_K_M (16.5 GB, rychlá, kontext 128k)"
+    alias: "Qwen3.8-27B Q4_K_M (16.5 GB, rychlá)"
+    status_label: "Qwen 3.8 27B · Q4"
     repo: "unsloth/Qwen3.8-27B-GGUF"
     file: "Qwen3.8-27B-UD-Q4_K_M.gguf"
     mmproj: "mmproj-F16.gguf"
-    ctx_size: 131072       # 128k - VRAM: ~25.6+3.9 GB KV, cca 2 GB rezerva pro vision
+    ctx_size: 131072
+    kv_cache: "f16"
+    kv_cache_profiles:
+      f16: {label: "16 bit - přesnější, kontext 128k", ctx_size: 131072}
+      q8_0: {label: "8 bit - větší kontext 256k", ctx_size: 262144}
+    server_args: ["-fa", "on"]
   q5:
-    alias: "Qwen3.8-27B Q5_K_M (19.8 GB, kvalitní, kontext 96k)"
+    alias: "Qwen3.8-27B Q5_K_M (19.8 GB, kvalitní)"
+    status_label: "Qwen 3.8 27B · Q5"
     repo: "unsloth/Qwen3.8-27B-GGUF"
     file: "Qwen3.8-27B-UD-Q5_K_M.gguf"
     mmproj: "mmproj-F16.gguf"
-    ctx_size: 98304        # 96k (VRAM ~30 GB, těsnější rezerva)
+    ctx_size: 98304
+    kv_cache: "q8_0"
+    kv_cache_profiles:
+      f16: {label: "16 bit - přesnější, kontext 96k", ctx_size: 98304}
+      q8_0: {label: "8 bit - větší kontext 192k", ctx_size: 196608}
+    server_args: ["-fa", "on"]
+  ornith_q5:
+    alias: "Ornith 1.5 35B-A3B Abliterated Q5 (23.0 GB, reasoning, kontext 128k)"
+    status_label: "Ornith 1.5 35B-A3B · Abliterated Q5"
+    family: "ornith"
+    repo: "alztrk/Ornith-1.5-35B-A3B-Abliterated-GGUF"
+    file: "Ornith-1.5-35B-Abliterated-Dynamic-Q5_K_M.gguf"
+    mmproj_repo: "ornith-ai/Ornith-1.5-35B-A3B-GGUF"
+    mmproj: "mmproj-Ornith-1.5-35B-BF16.gguf"
+    ctx_size: 131072       # ověřeno na RTX 5090 včetně vision, cca 2.8 GiB rezerva
+    kv_cache: "q8_0"
+    kv_cache_profiles:
+      q8_0: {label: "8 bit - pevné, kontext 128k", ctx_size: 131072}
+    server_args: ["-fa", "on"]
+    supports_reasoning_effort: false
+    sampling:
+      thinking:
+        temperature: 0.6
+        top_p: 0.95
+        top_k: 20
+        presence_penalty: 0.0
 
-default_model: q4
+default_model: q5           # hlavní profil; výchozí KV Q8 = kontext 192k
 
 # Sampling dle model cardu Qwen3.8-27B
 sampling:
@@ -50,8 +80,8 @@ work_mode: development     # discussion | research | writing | development | com
 agent:
   mode: agent              # chat | agent | computer
   autonomy: supervised     # supervised | semi | auto
-  max_steps: 40            # tvrdý limit počtu tool-call kol (všechny režimy)
-  semi_max_steps: 15       # limit v semi režimu bez interakce uživatele
+  max_steps: 0             # 0 = bez limitu tool-call kol
+  semi_max_steps: 0        # 0 = bez limitu i v semi režimu
   shell_timeout: 60        # sekund pro run_command
   workspace: null          # null = adresář, kde byl harness spuštěn
 
@@ -69,6 +99,12 @@ memory:
   modes_directory: modes
   development_filename: MEMORY.md  # původní globální coding paměť
   project_filename: QWEN_MEMORY.md
+
+# Volitelné SKILL.md postupy: metadata se nabízejí vždy, obsah až podle potřeby.
+skills:
+  directory: skills
+  user_directory: user-skills
+  project_directory: .qwen-skills
 
 # Webové UI + přístup modelu k internetu (read-only GET)
 web:

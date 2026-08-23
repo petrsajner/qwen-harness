@@ -30,6 +30,8 @@ def _template_kwargs(cfg: Config) -> dict:
     """Thinking on/off + hloubka uvažování (reasoning_effort) přes chat template."""
     if not cfg.data.get("thinking", True):
         return {"chat_template_kwargs": {"enable_thinking": False}}
+    if not cfg.model().get("supports_reasoning_effort", True):
+        return {"chat_template_kwargs": {"enable_thinking": True}}
     effort = cfg.data.get("reasoning_effort")
     if effort in REASONING_EFFORTS:
         return {"chat_template_kwargs": {"reasoning_effort": effort}}
@@ -54,6 +56,7 @@ class LLMClient:
                thinking: bool | None = None,
                on_text: Callable[[str], None] | None = None,
                on_reasoning: Callable[[str], None] | None = None,
+               on_tool_delta: Callable[[str, str], None] | None = None,
                should_stop: Callable[[], bool] | None = None) -> AssistantResult:
         """Streamující volání; vrací složený výsledek (text + tool_calls)."""
         s = dict(sampling or self.cfg.sampling())
@@ -110,6 +113,8 @@ class LLMClient:
                             slot["name"] += tc.function.name
                         if tc.function.arguments:
                             slot["arguments"] += tc.function.arguments
+                        if on_tool_delta and (tc.function.name or tc.function.arguments):
+                            on_tool_delta(tc.function.name or "", tc.function.arguments or "")
 
                 if should_stop and should_stop():
                     if not stop_requested:

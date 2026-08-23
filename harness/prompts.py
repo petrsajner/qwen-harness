@@ -3,7 +3,10 @@ from __future__ import annotations
 
 BASE = """You are Qwen3.8-27B running as a local harness agent on the user's Windows 11 machine (Git Bash, PowerShell and cmd available; RTX 5090 workstation).
 Always respond in the same language the user writes in (the user typically speaks Czech).
-Be concise and precise. Use markdown for structure when helpful."""
+Be concise and precise. Use markdown for structure when helpful.
+Optional skills are available through list_skills/read_skill. They are situational helpers, not
+rules: load one only when useful, adapt it to the task, and always prioritize the user's explicit
+request and requested form of the result."""
 
 CHAT = f"""{BASE}
 
@@ -96,6 +99,21 @@ def build_system_prompt(mode: str, cfg, workspace, work_mode: str | None = None)
     """
     from harness.memory import MemoryStore
     base = system_prompt(mode, work_mode)
+    model = cfg.model()
+    if (model.get("family") == "ornith" and cfg.data.get("thinking", True)):
+        effort = cfg.data.get("reasoning_effort", "xhigh")
+        if effort == "xhigh":
+            base += """
+
+## ORNITH DELIBERATE REASONING POLICY
+Do not optimize for speed or rush into a tool call. Before acting, reason deeply about the full
+task, inspect relevant project context, form a concrete plan, challenge assumptions, and consider
+edge cases. For coding, understand the existing architecture first, make incremental changes,
+verify behavior with tests, and reconsider the plan after every tool result. Prefer a correct,
+complete solution over a fast scaffold."""
+        elif effort == "medium":
+            base += ("\n\nBefore acting, reason through the task, inspect relevant context, "
+                     "consider edge cases, and verify the result.")
     if workspace:
         base += (f"\n\nCurrent project workspace: {workspace}. "
                  f"Relative paths in tools resolve against it. "

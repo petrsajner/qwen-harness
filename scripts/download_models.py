@@ -1,9 +1,9 @@
-"""Stažení GGUF modelů (Qwen3.8-27B Q4_K_M + Q5_K_M + mmproj) z Hugging Face.
+"""Stažení nakonfigurovaných GGUF modelů a jejich vision projektorů.
 
 Použití:
     python scripts/download_models.py              # vše (default_model + mmproj)
-    python scripts/download_models.py --model all  # Q4 i Q5 + mmproj
-    python scripts/download_models.py --model q5   # jen Q5 + mmproj
+    python scripts/download_models.py --model all       # všechny modely + projektory
+    python scripts/download_models.py --model ornith_q5 # jen Ornith + projektor
 """
 from __future__ import annotations
 
@@ -28,23 +28,24 @@ def hf_download(repo: str, filename: str, models_dir: Path) -> Path:
 
 
 def main() -> int:
+    cfg = load_config()
+    model_keys = list(cfg.data["models"])
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--model", choices=["default", "all", "q4", "q5"], default="default")
+    ap.add_argument("--model", choices=["default", "all", *model_keys], default="default")
     args = ap.parse_args()
 
-    cfg = load_config()
     models_dir = cfg.path("paths.models_dir")
     models_dir.mkdir(parents=True, exist_ok=True)
 
     which: list[str]
     if args.model == "all":
-        which = ["q4", "q5"]
-    elif args.model in ("q4", "q5"):
+        which = model_keys
+    elif args.model in model_keys:
         which = [args.model]
     else:
         which = [cfg.data["default_model"]]
 
-    mmproj_done = False
+    mmproj_done: set[tuple[str, str]] = set()
     for key in which:
         m = cfg.data["models"][key]
         target = models_dir / m["file"]
@@ -54,15 +55,17 @@ def main() -> int:
             print(f"[STAHUJI] {key}: {m['alias']}")
             hf_download(m["repo"], m["file"], models_dir)
             print(f"[HOTOVO] {key}: {m['file']}")
-        if not mmproj_done:
+        mmproj_repo = cfg.mmproj_repo(key)
+        mmproj_id = (mmproj_repo, m["mmproj"])
+        if mmproj_id not in mmproj_done:
             mm = models_dir / m["mmproj"]
             if mm.exists() and mm.stat().st_size > 10 << 20:
                 print(f"[OK] mmproj už stažen: {m['mmproj']}")
             else:
                 print(f"[STAHUJI] mmproj: {m['mmproj']}")
-                hf_download(m["repo"], m["mmproj"], models_dir)
+                hf_download(mmproj_repo, m["mmproj"], models_dir)
                 print(f"[HOTOVO] mmproj: {m['mmproj']}")
-            mmproj_done = True
+            mmproj_done.add(mmproj_id)
 
     print("\nVše připraveno v:", models_dir)
     return 0

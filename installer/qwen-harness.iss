@@ -6,7 +6,7 @@
 ; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
 ; (používá installer\release.bat s verzí z installer\version.txt)
 #ifndef MyAppVersion
-#define MyAppVersion "1.2.19"
+#define MyAppVersion "1.2.28"
 #endif
 
 #define MyAppName "Qwen3.8-27B Harness"
@@ -59,19 +59,20 @@ Source: "..\harness\tools\*.py"; DestDir: "{app}\harness\tools"; Flags: ignoreve
 Source: "..\scripts\*.py"; DestDir: "{app}\scripts"; Flags: ignoreversion
 Source: "..\tests\*.py"; DestDir: "{app}\tests"; Flags: ignoreversion
 Source: "..\memory\*.md"; DestDir: "{app}\memory"; Flags: ignoreversion onlyifdoesntexist recursesubdirs createallsubdirs
+Source: "..\skills\*.md"; DestDir: "{app}\skills"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; setup skript (venv + modely) - spouští se po instalaci
 Source: "run_setup.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
-Name: "{group}\Instalace prostředí a modelů (37 GB)"; Filename: "{app}\run_setup.bat"; WorkingDir: "{app}"
+Name: "{group}\Instalace prostředí a modelů (59 GiB)"; Filename: "{app}\run_setup.bat"; WorkingDir: "{app}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-; HLAVNI KROK: vytvori venv, stahne zavislosti, llama.cpp i modely (~37 GB)
+; HLAVNI KROK: vytvori venv, stahne zavislosti, llama.cpp i modely (~59 GiB)
 ; s prubehem v konzoli - hned po dokonceni instalatoru (default zaskrtnuto)
-Filename: "{app}\run_setup.bat"; Description: "Nainstalovat prostředí a stáhnout modely (~37 GB, nutné pro provoz)"; Flags: postinstall shellexec runasoriginaluser; WorkingDir: "{app}"
+Filename: "{app}\run_setup.bat"; Description: "Nainstalovat prostředí a stáhnout modely (~59 GiB, nutné pro provoz)"; Flags: postinstall shellexec runasoriginaluser; WorkingDir: "{app}"
 
 [Messages]
-cze.WelcomeLabel2=Tento pruvodce nainstaluje [name/ver] - lokalni AI harness pro Qwen3.8-27B (RTX 5090).%n%nPo instalaci se pri prvnim spusteni automaticky stahne prostredi a modely (~37 GB).%n%nPOKRACOVAT?
+cze.WelcomeLabel2=Tento pruvodce nainstaluje [name/ver] - lokalni AI harness pro Qwen a Ornith (RTX 5090).%n%nPo instalaci se pri prvnim spusteni automaticky stahne prostredi a modely (~59 GiB).%n%nPOKRACOVAT?

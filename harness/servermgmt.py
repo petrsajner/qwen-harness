@@ -196,7 +196,7 @@ def _start_locked(cfg: Config, model_key: str | None = None,
         return 1
 
     srv = cfg.data["server"]
-    ctx = ctx_size or int(cfg.model(model_key).get("ctx_size", 32768))
+    ctx = ctx_size or cfg.context_size(model_key)
     argv = [
         str(exe),
         "-m", str(mfile),
@@ -214,6 +214,8 @@ def _start_locked(cfg: Config, model_key: str | None = None,
         argv += ["--mmproj", str(mmproj)]
     else:
         print(f"[VAROVÁNÍ] mmproj nenalezen ({mmproj}) - vision (obrázky) nebude fungovat!")
+    argv += cfg.kv_cache_server_args(model_key)
+    argv += [str(x) for x in cfg.model(model_key).get("server_args", [])]
     argv += [str(x) for x in srv.get("extra_args", [])]
 
     log_path = cfg.path("paths.runtime_dir") / "llama-server.log"

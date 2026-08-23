@@ -36,7 +36,7 @@ echo ============================================================
 if errorlevel 1 ( echo [CHYBA] Download llama.cpp selhal. & pause & exit /b 1 )
 
 echo ============================================================
-echo  [4/4] Modely Qwen3.8-27B Q4 + Q5 + vision (~37 GB)
+echo  [4/4] Modely Qwen Q4 + Q5 + Ornith Q5 + vision (~59 GiB)
 echo         (muze trvat dlouho podle rychlosti internetu)
 echo ============================================================
 ".venv\Scripts\python.exe" scripts\download_models.py --model all

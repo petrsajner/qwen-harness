@@ -9,6 +9,7 @@ rem  setup krok odskrtni - program se jen prekopiruje)
 rem ============================================================
 setlocal enabledelayedexpansion
 cd /d "%~dp0.."
+set "PYTHONUTF8=1"
 
 set "VERFILE=installer\version.txt"
 if not exist "%VERFILE%" ( echo 1.2.0> "%VERFILE%" )

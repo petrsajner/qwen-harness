@@ -1,6 +1,6 @@
-# Qwen3.8-27B lokální harness
+# Lokální AI harness
 
-Harness pro lokální práci s modelem **Qwen3.8-27B** (Apache 2.0) na **RTX 5090 (32 GB)** —
+Harness pro lokální práci s modely **Qwen3.8-27B** a **Ornith 1.5 35B-A3B** na **RTX 5090 (32 GB)** —
 100% offline, žádná data neopouštějí tvůj počítač.
 
 ## Funkce
@@ -10,17 +10,21 @@ Harness pro lokální práci s modelem **Qwen3.8-27B** (Apache 2.0) na **RTX 509
   z disku, zdrojové dokumenty nemusíš nahrávat do chatu. Pamatené naposledy použité.
 - 🖼️ **Analýza obrázků** — nativní vision (mmproj), včetně screenshotů
 - 🖱️ **Ovládání počítače** — screenshot → klikání, psaní, klávesy (pyautogui + mss)
-- 🔀 **Přepínatelné modely** — Q4_K_M (128k kontext, ~82 tok/s) ⇄ Q5_K_M (96k, ~73 tok/s)
+- 🔀 **Přepínatelné modely** — Qwen Q4/Q5 a Ornith Abliterated Q5
+- 🎚️ **Přesnost KV cache** — Qwen F16 pro přesnost, nebo Q8 pro dvojnásobný kontext; Ornith pevně Q8
 - 🧠 **Thinking on/off** — režim uvažování modelu (přepínatelný za běhu)
 - 🛡️ **Tři úrovně autonomie** — supervised / semi / auto (kdykoliv přepnutelné);
   čtecí příkazy (`ls`, `cat`, `grep`, `git log`…) nepotřebují potvrzení ani v supervised
 - 🖥️ **Dvě UI** — terminál (TUI) + webové rozhraní (Gradio, jen 127.0.0.1)
-  — WUI: Ctrl+Enter odesílá, chyby zobrazuje jako zprávy v chatu
+  — kompaktní seskupený sidebar; WUI: Ctrl+Enter odesílá, chyby zobrazuje v chatu
 - 💾 **Session historie** — JSONL perzistence, obrázky uložené na disk
 - ↩️ **Obnovovací bod každé úlohy** — atomické patchování, přehled změn a návrat všech souborů jedním tlačítkem
 - ⏱️ **Dlouhé operace na pozadí** — průběžný výstup, timeout, stdin a zastavení process tree
 - 🧭 **Automatický přehled projektu a kontextu** — repo snapshot, připnuté soubory a viditelné využití kontextu
 - 🌿 **Práce s chatem** — retry, úprava posledního dotazu, undo kola, větve, hledání a export/import
+- 🧭 **Steering za běhu** — další zpráva přesměruje rozpracovanou odpověď po dokončení věty
+- 📌 **Připnuté soubory** — vybrané instrukce nebo architektura zůstávají v kontextu daného chatu
+- 🧰 **Volitelné skills** — model vidí stručný katalog a celý SKILL.md načte jen podle potřeby
 - 🎛️ **Oddělené pracovní režimy** — Diskuze, Výzkum, Psaní, Vývoj a Počítač s vlastními prompty a nástroji
 
 ## Architektura
@@ -32,8 +36,9 @@ runtime/  (gitignored)                harness/  (Python)
 │ (llama.cpp b10549        │  OpenAI │ • LLM klient (streaming+tools) │
 │  CUDA 13.3, Blackwell)   │         │ • agent loop (step/resume)     │
 │ Qwen3.8-27B GGUF         │         │ • tools: fs/shell/vision/      │
-│  Q4_K_M (16.5 GB, 128k ctx)│       │   computer-use                 │
-│  Q5_K_M (19.8 GB, 96k ctx)│        │ • safety vrstva (autonomie)    │
+│ Q4: F16 128k / Q8 256k   │         │   computer-use                 │
+│ Q5: F16 96k / Q8 192k    │         │ • safety vrstva (autonomie)    │
+│ Ornith Abliterated Q5 (128k)│      │                                │
 │ mmproj-F16 (vision, 0.9 GB)│       │ • sessions (JSONL + obrázky)   │
 └──────────────────────────┘         ├────────────────────────────────┤
                                      │ UI: tui.py (terminál)          │
@@ -49,14 +54,15 @@ py -3.12 -m venv .venv
 ```
 
 Stáhne a připraví vše: pip závislosti, llama.cpp CUDA binárky (~540 MB),
-Q4_K_M + Q5_K_M + mmproj (~37 GB) z `unsloth/Qwen3.8-27B-GGUF`.
+Qwen Q4/Q5, Ornith Abliterated Q5 a oba vision projektory (~59 GiB).
 
 ## Spuštění
 
 ```bash
 # 1) inference server (llama-server, načtení ~10 s)
-.venv/Scripts/python scripts/server.py start          # výchozí model (q4)
+.venv/Scripts/python scripts/server.py start          # výchozí model (q5 + Q8 KV)
 .venv/Scripts/python scripts/server.py start q5       # nebo rovnou q5
+.venv/Scripts/python scripts/server.py start ornith_q5 # Ornith reasoning
 
 # 2a) terminálové UI
 .venv/Scripts/python tui.py
@@ -90,7 +96,7 @@ installer/build_installer.bat     # vytvoří dist/QwenHarness-Setup-<verze>.exe
 - Instaluje do `%LOCALAPPDATA%\QwenHarness` (bez admin práv), Start Menu +
   volitelně desktop ikona, čeština, odinstalace standardně přes Windows
 - **První spuštění** (`run_app.bat` zástupcem) automaticky: vytvoří venv,
-  stáhne závislosti, llama.cpp (~540 MB) a modely (~37 GB) — pak už jen otvírá appku
+  stáhne závislosti, llama.cpp (~540 MB) a modely (~59 GiB) — pak už jen otvírá appku
 - Při aktualizaci se změna `requirements.txt` pozná automaticky a doinstalují se jen
   potřebné Python balíčky; modely ani ostatní runtime data se nestahují znovu.
 - Pozn.: odinstalace nechá stažené modely a sessions
@@ -100,7 +106,7 @@ installer/build_installer.bat     # vytvoří dist/QwenHarness-Setup-<verze>.exe
 
 ```
 /ws [cesta]             zobraz/nastav složku projektu (workspace)
-/model q4|q5            přepnutí modelu (restart serveru, ~10 s)
+/model q4|q5|ornith_q5   přepnutí modelu (restart serveru)
 /mode chat|agent|computer     režim: chat | coding nástroje | + ovládání PC
 /autonomy supervised|semi|auto   úroveň autonomie
 /thinking xhigh|medium|low|off   hloubka uvažování modelu
@@ -169,8 +175,8 @@ Model ukládá nové informace přes `save_memory` s explicitním scope `global`
 | Autonomie | Chování |
 |---|---|
 | `supervised` | **každá** WRITE akce (zápis, shell, klik…) vyžaduje potvrzení [y/n/a] |
-| `semi` | potvrzení jen první akce v úloze, pak běží do limitu 15 kroků |
-| `auto` | bez potvrzení, tvrdý limit kroků (default 40) |
+| `semi` | potvrzení jen první WRITE akce v úloze, potom pokračuje bez limitu |
+| `auto` | bez potvrzení a bez limitu agentních kroků |
 
 - 🛑 **FAILSAFE vždy zapnutý**: strč myš do **levého horního rohu** obrazovky → okamžité přerušení GUI akcí
 - Souřadnice kliků model zadává v pixelech obrázku, který viděl — harness je automaticky přepočítává na reálné rozlišení (i po downscale screenshotu)
@@ -181,8 +187,8 @@ Model ukládá nové informace přes `save_memory` s explicitním scope `global`
 
 | Model | Generování | VRAM | Kontext |
 |---|---|---|---|
-| Q4_K_M | **~82 tok/s** | ~28 / 32 GB | 128k |
-| Q5_K_M | **~73 tok/s** | ~30 / 32 GB | 96k |
+| Q4_K_M | **~82 tok/s** | podle KV profilu | F16 128k / Q8 256k |
+| Q5_K_M | **~73 tok/s** | podle KV profilu | F16 96k / Q8 192k |
 
 TTFT ~1–2 s. Vlastní benchmark: `.venv/Scripts/python scripts/bench.py [--model q5]`
 
@@ -207,8 +213,8 @@ TTFT ~1–2 s. Vlastní benchmark: `.venv/Scripts/python scripts/bench.py [--mod
 
 ## Konfigurace (`config.yaml`)
 
-- `server.extra_args` — další vlajky llama-serveru (např. MTP draft model pro urychlení)
-- `agent.max_steps`, `semi_max_steps`, `shell_timeout`
+- `server.extra_args` — další ověřené vlajky llama-serveru
+- `agent.max_steps`, `semi_max_steps` (`0` = bez omezení), `shell_timeout`
 - `computer.screenshot_max_edge` — downscale screenshotu (úspora tokenů)
 - `models.*.ctx_size` — velikost kontextu (pozor na VRAM)
 
@@ -217,6 +223,8 @@ TTFT ~1–2 s. Vlastní benchmark: `.venv/Scripts/python scripts/bench.py [--mod
 ```
 harness/          jádro: config, llm, agent, safety, session, prompts, servermgmt
 harness/tools/    fs, shell, vision (view_image), computer (screenshot/click/…)
+skills/           distribuované volitelné SKILL.md postupy
+user-skills/      vlastní trvalé skilly (instalátor je nepřepisuje)
 scripts/          setup_env, download_llama, download_models, server, bench
 tests/            test_core (unit), e2e_smoke (GPU)
 tui.py            terminálové UI

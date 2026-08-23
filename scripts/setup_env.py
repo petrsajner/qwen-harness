@@ -4,7 +4,7 @@ Spouštět VENV pythonem:
     .venv/Scripts/python scripts/setup_env.py
 Volby:
     --skip-models   přeskočit download modelů (už jsou stažené)
-    --model all     stáhnout Q4 i Q5 (default: jen default_model z configu)
+    --model all     stáhnout všechny modely (default: jen default_model z configu)
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def pip_install() -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--skip-models", action="store_true")
-    ap.add_argument("--model", choices=["default", "all", "q4", "q5"], default="default")
+    ap.add_argument("--model", default="default")
     args = ap.parse_args()
 
     rc = pip_install()

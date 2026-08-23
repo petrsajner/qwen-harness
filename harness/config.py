@@ -9,6 +9,67 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 
+BUILTIN_MODELS: dict[str, dict[str, Any]] = {
+    "q4": {
+        "alias": "Qwen3.8-27B Q4_K_M (16.5 GB, rychlá)",
+        "status_label": "Qwen 3.8 27B · Q4",
+        "repo": "unsloth/Qwen3.8-27B-GGUF",
+        "file": "Qwen3.8-27B-UD-Q4_K_M.gguf",
+        "mmproj": "mmproj-F16.gguf",
+        "ctx_size": 131072,
+        "kv_cache": "f16",
+        "kv_cache_profiles": {
+            "f16": {"label": "16 bit - přesnější, kontext 128k", "ctx_size": 131072},
+            "q8_0": {"label": "8 bit - větší kontext 256k", "ctx_size": 262144},
+        },
+        "server_args": ["-fa", "on"],
+    },
+    "q5": {
+        "alias": "Qwen3.8-27B Q5_K_M (19.8 GB, kvalitní)",
+        "status_label": "Qwen 3.8 27B · Q5",
+        "repo": "unsloth/Qwen3.8-27B-GGUF",
+        "file": "Qwen3.8-27B-UD-Q5_K_M.gguf",
+        "mmproj": "mmproj-F16.gguf",
+        "ctx_size": 98304,
+        "kv_cache": "q8_0",
+        "kv_cache_profiles": {
+            "f16": {"label": "16 bit - přesnější, kontext 96k", "ctx_size": 98304},
+            "q8_0": {"label": "8 bit - větší kontext 192k", "ctx_size": 196608},
+        },
+        "server_args": ["-fa", "on"],
+    },
+    "ornith_q5": {
+        "alias": "Ornith 1.5 35B-A3B Abliterated Q5 (23.0 GB, reasoning, kontext 128k)",
+        "status_label": "Ornith 1.5 35B-A3B · Abliterated Q5",
+        "family": "ornith",
+        "repo": "alztrk/Ornith-1.5-35B-A3B-Abliterated-GGUF",
+        "file": "Ornith-1.5-35B-Abliterated-Dynamic-Q5_K_M.gguf",
+        "mmproj_repo": "ornith-ai/Ornith-1.5-35B-A3B-GGUF",
+        "mmproj": "mmproj-Ornith-1.5-35B-BF16.gguf",
+        "ctx_size": 131072,
+        "kv_cache": "q8_0",
+        "kv_cache_profiles": {
+            "q8_0": {"label": "8 bit - pevné, kontext 128k", "ctx_size": 131072},
+        },
+        "server_args": ["-fa", "on"],
+        "sampling": {
+            "thinking": {
+                "temperature": 0.6,
+                "top_p": 0.95,
+                "top_k": 20,
+                "presence_penalty": 0.0,
+            },
+            "non_thinking": {
+                "temperature": 0.7,
+                "top_p": 0.80,
+                "top_k": 20,
+                "presence_penalty": 1.5,
+            },
+        },
+        "supports_reasoning_effort": False,
+    },
+}
+
 DEFAULTS: dict[str, Any] = {
     "server": {
         "host": "127.0.0.1",
@@ -16,8 +77,10 @@ DEFAULTS: dict[str, Any] = {
         "n_gpu_layers": 999,
         "extra_args": [],
     },
-    "models": {},
-    "default_model": "q4",
+    # Built-ins live in code too: an installer update preserves config.yaml, but
+    # still needs to introduce newly supported models.
+    "models": BUILTIN_MODELS,
+    "default_model": "q5",
     "sampling": {
         "thinking": {"temperature": 1.0, "top_p": 0.95, "top_k": 20, "presence_penalty": 0.0},
         "non_thinking": {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5},
@@ -27,8 +90,8 @@ DEFAULTS: dict[str, Any] = {
     "agent": {
         "mode": "agent",
         "autonomy": "supervised",
-        "max_steps": 40,
-        "semi_max_steps": 15,
+        "max_steps": 0,
+        "semi_max_steps": 0,
         "shell_timeout": 60,
         "workspace": None,
     },
@@ -46,6 +109,11 @@ DEFAULTS: dict[str, Any] = {
         "project_filename": "QWEN_MEMORY.md",
     },
     "web": {"host": "127.0.0.1", "port": 7860},
+    "skills": {
+        "directory": "skills",
+        "user_directory": "user-skills",
+        "project_directory": ".qwen-skills",
+    },
     "paths": {
         "runtime_dir": "runtime",
         "llama_dir": "runtime/llama",
@@ -63,6 +131,29 @@ def _deep_merge(base: dict, override: dict) -> dict:
         else:
             out[k] = copy.deepcopy(v)
     return out
+
+
+def _migrate_builtin_models(user: dict[str, Any]) -> None:
+    """Convert the short-lived fixed-Q8 presets to selectable KV profiles."""
+    q8_args = ["--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "-fa", "on"]
+    q8_ctx = {"q4": 262144, "q5": 196608}
+    f16_ctx = {"q4": 131072, "q5": 98304}
+    models = user.get("models")
+    if not isinstance(models, dict):
+        return
+    for key, large_ctx in q8_ctx.items():
+        model = models.get(key)
+        if (isinstance(model, dict) and model.get("ctx_size") == large_ctx
+                and model.get("server_args") == q8_args):
+            model["ctx_size"] = f16_ctx[key]
+            model.pop("server_args", None)
+
+
+def _remove_legacy_agent_limits(user: dict[str, Any]) -> None:
+    agent = user.get("agent")
+    if isinstance(agent, dict):
+        agent["max_steps"] = 0
+        agent["semi_max_steps"] = 0
 
 
 class Config:
@@ -96,6 +187,33 @@ class Config:
     def mmproj_file(self, key: str | None = None) -> Path:
         return self.path("paths.models_dir") / self.model(key)["mmproj"]
 
+    def mmproj_repo(self, key: str | None = None) -> str:
+        model = self.model(key)
+        return str(model.get("mmproj_repo") or model["repo"])
+
+    def kv_cache_profiles(self, key: str | None = None) -> dict[str, dict[str, Any]]:
+        return dict(self.model(key).get("kv_cache_profiles") or {})
+
+    def kv_cache_mode(self, key: str | None = None) -> str:
+        model = self.model(key)
+        profiles = self.kv_cache_profiles(key)
+        selected = str(model.get("kv_cache", "f16"))
+        return selected if selected in profiles else next(iter(profiles), selected)
+
+    def set_kv_cache_mode(self, key: str, mode: str) -> None:
+        if mode not in self.kv_cache_profiles(key):
+            raise ValueError(f"Model '{key}' nepodporuje KV cache '{mode}'")
+        self.model(key)["kv_cache"] = mode
+
+    def context_size(self, key: str | None = None) -> int:
+        model = self.model(key)
+        profile = self.kv_cache_profiles(key).get(self.kv_cache_mode(key), {})
+        return int(profile.get("ctx_size", model.get("ctx_size", 32768)))
+
+    def kv_cache_server_args(self, key: str | None = None) -> list[str]:
+        mode = self.kv_cache_mode(key)
+        return ["--cache-type-k", mode, "--cache-type-v", mode]
+
     # -- server ------------------------------------------------------------
     @property
     def base_url(self) -> str:
@@ -114,7 +232,9 @@ class Config:
         if thinking is None:
             thinking = self.data.get("thinking", True)
         key = "thinking" if thinking else "non_thinking"
-        return dict(self.data["sampling"][key])
+        sampling = self.data["sampling"][key]
+        model_sampling = self.model().get("sampling", {}).get(key, {})
+        return _deep_merge(sampling, model_sampling)
 
     # -- zkratky -----------------------------------------------------------
     @property
@@ -136,4 +256,6 @@ def load_config(path: Path | None = None) -> Config:
     if path.exists():
         with open(path, encoding="utf-8") as f:
             user = yaml.safe_load(f) or {}
+    _migrate_builtin_models(user)
+    _remove_legacy_agent_limits(user)
     return Config(_deep_merge(DEFAULTS, user))

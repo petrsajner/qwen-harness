@@ -45,21 +45,56 @@ def test_config() -> None:
     check(cfg.model_key() in cfg.data["models"], "default model existuje v 'models'")
     check(cfg.base_url.startswith("http://127.0.0.1"), "base_url je localhost")
     check(cfg.model_file().name.endswith(".gguf"), "model_file ukazuje na GGUF")
+    check(cfg.model_key() == "q5" and cfg.kv_cache_mode("q5") == "q8_0",
+          "nová instalace používá hlavní Qwen Q5 s Q8 KV")
     s = cfg.sampling(thinking=True)
     check(abs(s["temperature"] - 1.0) < 1e-9, "thinking sampling t=1.0")
     s2 = cfg.sampling(thinking=False)
     check(abs(s2["temperature"] - 0.7) < 1e-9, "non-thinking sampling t=0.7")
+    cfg.data["default_model"] = "ornith_q5"
+    check(abs(cfg.sampling(thinking=True)["temperature"] - 0.6) < 1e-9,
+          "Ornith používá sampling z vlastního model cardu")
+    check(cfg.mmproj_repo() == "ornith-ai/Ornith-1.5-35B-A3B-GGUF",
+          "Ornith vision projektor lze stáhnout z odděleného repozitáře")
+    check(cfg.context_size() == 131072 and cfg.kv_cache_mode() == "q8_0",
+          "Ornith má ověřený 128k kontext a Q8 KV cache")
+    legacy_file = Path(tempfile.mkdtemp()) / "legacy.yaml"
+    try:
+        legacy_file.write_text(
+            "models:\n  q4:\n    ctx_size: 131072\n"
+            "  q5:\n    ctx_size: 98304\n"
+            "agent:\n  max_steps: 40\n  semi_max_steps: 15\n",
+            encoding="utf-8")
+        migrated = load_config(legacy_file)
+        check(migrated.context_size("q4") == 131072
+              and migrated.context_size("q5") == 196608
+              and migrated.kv_cache_mode("q4") == "f16"
+              and migrated.kv_cache_mode("q5") == "q8_0",
+              "starý config převezme nový hlavní Q5/Q8 profil bez změny Q4")
+        migrated.set_kv_cache_mode("q4", "q8_0")
+        check(migrated.context_size("q4") == 262144
+              and migrated.kv_cache_server_args("q4")[-1] == "q8_0",
+              "Qwen přepne Q8 KV profil i odpovídající větší kontext")
+        check(migrated.agent["max_steps"] == 0
+              and migrated.agent["semi_max_steps"] == 0,
+              "starý instalační config nemůže znovu zapnout limit agenta")
+    finally:
+        shutil.rmtree(legacy_file.parent, ignore_errors=True)
     from harness.prompts import build_system_prompt
     discussion_prompt = build_system_prompt("chat", cfg, ROOT, "discussion")
     research_prompt = build_system_prompt("chat", cfg, ROOT, "research")
+    development_prompt = build_system_prompt("agent", cfg, ROOT, "development")
     check("DISCUSSION mode" in discussion_prompt and "coding agent" not in discussion_prompt,
           "Diskuze nemá coding system prompt")
     check("Never filter" in research_prompt and "adult user" in research_prompt,
           "Výzkum zakazuje filtrování zdrojů podle důvěryhodnosti")
+    check("ORNITH DELIBERATE REASONING POLICY" in development_prompt
+          and "Do not optimize for speed" in development_prompt,
+          "Ornith xhigh dostává explicitní politiku hlubokého uvažování")
     from harness.version import APP_VERSION
     installer_version = (ROOT / "installer" / "version.txt").read_text(encoding="utf-8").strip()
-    check(APP_VERSION == installer_version and APP_VERSION == "1.2.19",
-          "viditelná verze aplikace odpovídá instalátoru 1.2.19")
+    check(APP_VERSION == installer_version and APP_VERSION == "1.2.28",
+          "viditelná verze aplikace odpovídá instalátoru 1.2.28")
 
 
 def test_memory_layers() -> None:
@@ -136,6 +171,8 @@ def test_safety() -> None:
     auto = SafetyPolicy("auto", max_steps=40)
     check(not auto.needs_confirmation(Risk.WRITE), "auto: bez potvrzení")
     check(auto.step_limit() == 40, "auto limit = max_steps")
+    unlimited = SafetyPolicy()
+    check(unlimited.step_limit() is None, "výchozí agent nemá limit kroků")
 
     try:
         SafetyPolicy("režimNaval")
@@ -300,7 +337,7 @@ def test_tools_fs_shell() -> None:
 
         schemas = reg.schemas()
         check(all(s["function"]["name"] for s in schemas) and len(schemas) == 12,
-              f"schemas pro 12 nástrojů ({len(schemas)})")
+              f"schemas pro izolovanou sadu 12 nástrojů ({len(schemas)})")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -313,7 +350,7 @@ def test_registry_modes() -> None:
     check(set(chat.names()) == {"read_memory", "save_memory", "web_search", "web_fetch",
                                 "context_status", "pin_context_file", "unpin_context_file",
                                 "list_project_documents", "read_project_document",
-                                "export_document"},
+                                "export_document", "list_skills", "read_skill"},
           f"chat režim: memory + web + context nástroje ({chat.names()})")
     check({"list_dir", "run_command", "view_image"} <= set(agent.names()),
           f"agent režim: fs+patch+shell+vision ({len(agent.names())})")
@@ -393,9 +430,12 @@ def test_workspace() -> None:
         r = build_registry("agent").execute("read_file", {"path": "soubor.txt"}, agent.ctx)
         check("soubor.txt" in r and "1| x" in r, "read_file řeší cestu od workspace")
         agent.new_task("prozkoumej projekt")
-        check("AUTOMATIC PROJECT SNAPSHOT" in session.messages[0]["content"]
-              and "project_symbol" in session.messages[0]["content"],
-              "repo snapshot se automaticky přidá do system promptu")
+        dynamic = agent._api_messages()[-1]["content"]
+        check("CURRENT PROJECT SNAPSHOT" in dynamic and "project_symbol" in dynamic
+              and "project_symbol" not in session.messages[0]["content"],
+              "proměnlivý repo snapshot je na konci requestu a nezneplatňuje stabilní prefix")
+        cached_prefix = json.dumps(session.messages, ensure_ascii=False, sort_keys=True)
+        cached_count = len(session.messages)
         overview = build_registry("agent").execute("repo_overview", {}, agent.ctx)
         check("module.py" in overview and "project_symbol" in overview,
               "repo_overview vrací klíčové symboly workspace")
@@ -403,6 +443,11 @@ def test_workspace() -> None:
         refreshed = build_registry("agent").execute("repo_overview", {}, agent.ctx)
         check("refreshed_symbol" in refreshed and "project_symbol" not in refreshed,
               "repo snapshot invaliduje cache po změně souboru")
+        agent.new_task("pokračuj s aktuálním stavem")
+        check(json.dumps(session.messages[:cached_count], ensure_ascii=False, sort_keys=True)
+              == cached_prefix
+              and "refreshed_symbol" in session.messages[-1]["content"],
+              "nový snapshot se přidá za beze změny znovupoužitelný prefix")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -535,6 +580,12 @@ def test_reasoning_effort_kwargs() -> None:
     data["thinking"] = True
     data["reasoning_effort"] = "blbost"
     check(_template_kwargs(Config(data, ROOT)) == {}, "neplatný effort → bez kwarg (default šablony)")
+    data["default_model"] = "ornith_q5"
+    data["reasoning_effort"] = "xhigh"
+    check(_template_kwargs(Config(data, ROOT)) == {
+        "chat_template_kwargs": {"enable_thinking": True}},
+          "Ornith zapne reasoning bez nepodporovaného reasoning_effort")
+    data["default_model"] = "q4"
 
     class CaptureCompletions:
         def __init__(self):
@@ -668,7 +719,7 @@ def test_dependency_marker() -> None:
 
 def test_streaming_bridge() -> None:
     print("[streaming bridge]")
-    from harness.streaming import StreamHub, step_threaded
+    from harness.streaming import SteeringQueue, StreamHub, step_threaded
 
     hub = StreamHub()
     hub.on_event("reasoning", "uva")
@@ -678,6 +729,17 @@ def test_streaming_bridge() -> None:
     text, reasoning, rev, _ = hub.snapshot()
     check(text == "hotovo" and reasoning == "uvažuji" and rev == 4,
           "StreamHub skládá fragmenty bez ztráty pořadí")
+    hub.on_event("tool_delta", ("write_file", '{"path":"game.py","content":"abc'))
+    progress = hub.progress()
+    check(progress["tool_call_name"] == "write_file"
+          and progress["tool_call_chars"] > 20,
+          "StreamHub zviditelní generování dlouhých argumentů nástroje")
+    hub.on_event("tool_start", ("write_file", {"path": "game.py"}))
+    check(hub.progress()["tools_running"] == [("write_file", {"path": "game.py"})],
+          "StreamHub ukáže právě prováděný nástroj")
+    hub.on_event("tool_result", ("write_file", "OK"))
+    check(not hub.progress()["tools_running"],
+          "StreamHub po výsledku ukončí stav provádění nástroje")
 
     class FakeAgent:
         @staticmethod
@@ -688,6 +750,16 @@ def test_streaming_bridge() -> None:
     thread.join(timeout=2)
     check(not thread.is_alive() and box.get("r") == "step:True",
           "worker bridge vrátí výsledek agent.step")
+
+    steering = SteeringQueue()
+    steering.push("Nejdřív oprav parser.", ["screen.png"])
+    steering.push("A zachovej kompatibilitu.")
+    check(bool(steering)
+          and steering.pop_all() == [
+              ("Nejdřív oprav parser.", ["screen.png"]),
+              ("A zachovej kompatibilitu.", []),
+          ] and not steering,
+          "steering queue zachová pořadí upřesnění a atomicky se vyprázdní")
 
     from harness.agent import Agent, Status
     from harness.llm import AssistantResult
@@ -714,6 +786,28 @@ def test_streaming_bridge() -> None:
         agent.new_task("Nový dotaz po Stop")
         check(not agent.abort_flag.is_set() and agent.step().status is Status.FINAL,
               "nový dotaz po Stop dostane čistý abort stav")
+
+        steered = Session(cfg, session_id="steer-test", system_prompt="SYS")
+        steer_agent = Agent(
+            cfg, LLMStub([AssistantResult(content="První dokončená věta.", stopped=True)]),
+            steered, ToolRegistry(), SafetyPolicy("auto"), mode="chat",
+            work_mode="discussion")
+        steer_agent.new_task("Navrhni řešení")
+        check(steer_agent.step().status is Status.ABORTED,
+              "steering nejprve ukončí aktuální stream u dokončené věty")
+        steer_agent.steer("Zachovej také zpětnou kompatibilitu.")
+        steer_agent.llm = LLMStub([AssistantResult(content="Upravené řešení.")])
+        steer_result = steer_agent.step()
+        visible = [m.get("content") for m in steered.messages
+                   if m.get("role") != "system"
+                   and not str(m.get("content") or "").startswith(Session.INTERNAL_USER_PREFIXES)]
+        check(steer_result.status is Status.FINAL
+              and visible[-3:] == [
+                  "První dokončená věta.",
+                  "Zachovej také zpětnou kompatibilitu.",
+                  "Upravené řešení.",
+              ],
+              "steering zachová část odpovědi a pokračuje s upřesněním ve správném pořadí")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -1091,9 +1185,9 @@ def test_project_document_library() -> None:
             SafetyPolicy("auto"), mode="chat", work_mode="discussion")
         discussion_agent.set_workspace(tmp)
         discussion_agent.new_task("Pověz mi o filmu")
-        prompt = discussion_session.messages[0]["content"]
-        check("PROJECT DOCUMENT LIBRARY" in prompt and "film.md" in prompt
-              and "AUTOMATIC PROJECT SNAPSHOT" not in prompt and "code.py" not in prompt,
+        prompt = discussion_agent._api_messages()[-1]["content"]
+        check("CURRENT PROJECT DOCUMENT LIBRARY" in prompt and "film.md" in prompt
+              and "CURRENT PROJECT SNAPSHOT" not in prompt and "code.py" not in prompt,
               "Diskuze vidí dokumentovou knihovnu bez coding repo snapshotu")
 
         research_session = Session(
@@ -1410,6 +1504,12 @@ def test_projects() -> None:
         # registr vrátí vše
         names = [p["name"] for p in pj.list_all()]
         check(len(names) == 3, f"3 projekty v registru ({names})")
+        managed_file = Path(p1["path"]) / "data" / "artifact.txt"
+        managed_file.parent.mkdir()
+        managed_file.write_text("projektová data", encoding="utf-8")
+        pj.delete_by_path(p1["path"])
+        check(not Path(p1["path"]).exists() and pj.by_path(p1["path"]) is None,
+              "smazání projektu odstraní registraci, složku i všechny soubory")
         # session delete + adopt
         s = Session(cfg, session_id="proj-s", system_prompt="SYS", workspace=str(ext))
         check(Session.delete(cfg, "proj-s") and not (tmp/"sessions"/"proj-s").exists(),
@@ -1419,6 +1519,47 @@ def test_projects() -> None:
         check(s2.meta["workspace"] == str(ext), "adopt workspace")
         s2.adopt_workspace("jina")  # už má - nesmí přepsat
         check(s2.meta["workspace"] == str(ext), "adopt nepřepisuje existující")
+        (ext / "external.txt").write_text("data", encoding="utf-8")
+        pj.delete_by_path(str(ext.resolve()))
+        check(not ext.exists(), "explicitní smazání připojeného projektu odstraní jeho adresář")
+        protected = pj.attach_folder(str(tmp))
+        try:
+            pj.delete_by_path(protected["path"])
+            check(False, "kořen aplikace nelze smazat jako projekt")
+        except ValueError:
+            check(tmp.exists(), "kořen aplikace nelze smazat jako projekt")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_skill_library() -> None:
+    print("[skills]")
+    from harness.skills import SkillLibrary
+    system = SkillLibrary(load_config())
+    names = [item.name for item in system.list()]
+    check({"systematic-debugging", "architecture-options", "implementation-verification"}
+          <= set(names), "systémová knihovna objeví bundlované SKILL.md")
+    check("root cause" in system.read("systematic-debugging").lower(),
+          "tělo skillu se načte až explicitním čtením")
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        custom = tmp / ".qwen-skills" / "override" / "SKILL.md"
+        custom.parent.mkdir(parents=True)
+        custom.write_text(
+            "---\nname: systematic-debugging\n"
+            "description: Project-specific debugging guidance.\n---\n\nPROJECT OVERRIDE\n",
+            encoding="utf-8")
+        library = SkillLibrary(load_config(), tmp)
+        info = next(item for item in library.list() if item.name == "systematic-debugging")
+        check(info.source == "project" and "PROJECT OVERRIDE" in library.read(info.name),
+              "projektový skill může přepsat systémový skill stejného jména")
+        ctx = type("SkillCtx", (), {
+            "cfg": load_config(), "project_workspace": tmp,
+        })()
+        output = build_registry("chat").execute(
+            "read_skill", {"name": "systematic-debugging"}, ctx)
+        check("PROJECT OVERRIDE" in output, "read_skill zpřístupní vybraný postup modelu")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -1460,18 +1601,18 @@ def test_communication_protocol() -> None:
                           SafetyPolicy("auto"), mode="agent")
             return agent, session
 
-        # 1) protokolová poznámka se přidá k úloze (a staré se odstraní)
+        # 1) poznámky zůstávají v historii, aby se neměnil již cachovaný prefix
         agent, session = make_agent([])
         agent.new_task("udelej neco")
         notes = [m for m in session.messages if "[TASK PROTOCOL" in str(m.get("content"))]
         check(len(notes) == 1, "TASK PROTOCOL poznámka přidána (user role)")
         agent.new_task("dalsi ukol")
         notes = [m for m in session.messages if "[TASK PROTOCOL" in str(m.get("content"))]
-        check(len(notes) == 1, "stará poznámka nahrazena (ne hromadí se)")
+        check(len(notes) == 2, "nová úloha nemění starý cachovaný protokol")
         reloaded = Session.load(cfg, session.id)
         persisted_notes = [m for m in reloaded.messages
                            if "[TASK PROTOCOL" in str(m.get("content"))]
-        check(len(persisted_notes) == 1, "protokol se nehromadí ani po reloadu JSONL")
+        check(len(persisted_notes) == 2, "cache-friendly protokoly přežijí reload beze změny")
 
         # 2) progress nudge po 4 tool-krocích bez slov
         script = [AssistantResult(tool_calls=[_tc("list_dir", '{"path": "."}')]) for _ in range(4)]
@@ -1578,6 +1719,7 @@ if __name__ == "__main__":
     test_transient_session()
     test_web_tools()
     test_projects()
+    test_skill_library()
     test_context_compression()
     test_communication_protocol()
     print(f"\n{'=' * 40}\nVÝSLEDEK: {PASS} ✓ / {FAIL} ✗")

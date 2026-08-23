@@ -2,8 +2,8 @@
 
 Režimy autonomie:
   supervised - každá WRITE akce (zápis souboru, shell, GUI) vyžaduje potvrzení
-  semi       - potvrzení jen první WRITE akce v rámci úlohy, pak limit kroků
-  auto       - bez potvrzení, tvrdý limit kroků (+ vždy pyautogui FAILSAFE)
+  semi       - potvrzení jen první WRITE akce v rámci úlohy
+  auto       - bez potvrzení (+ vždy pyautogui FAILSAFE)
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ class Risk(str, Enum):
 
 
 class SafetyPolicy:
-    def __init__(self, autonomy: str = "supervised", max_steps: int = 40, semi_max_steps: int = 15):
+    def __init__(self, autonomy: str = "supervised", max_steps: int = 0, semi_max_steps: int = 0):
         if autonomy not in ("supervised", "semi", "auto"):
             raise ValueError(f"Neznámý režim autonomie: {autonomy}")
         self.autonomy = autonomy
@@ -41,8 +41,10 @@ class SafetyPolicy:
     def mark_confirmed(self) -> None:
         self._confirmed_this_task = True
 
-    def step_limit(self) -> int:
-        return self.semi_max_steps if self.autonomy == "semi" else self.max_steps
+    def step_limit(self) -> int | None:
+        value = self.semi_max_steps if self.autonomy == "semi" else self.max_steps
+        return value if value > 0 else None
 
     def __repr__(self) -> str:  # pragma: no cover
-        return f"SafetyPolicy(autonomy={self.autonomy!r}, max={self.step_limit()})"
+        limit = self.step_limit()
+        return f"SafetyPolicy(autonomy={self.autonomy!r}, max={limit or 'unlimited'})"

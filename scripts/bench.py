@@ -76,7 +76,7 @@ def bench(llm: LLMClient, thinking: bool) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--model", help="přepnout na model (q4/q5) před benchmarket")
+    ap.add_argument("--model", help="přepnout na zadaný model před benchmarket")
     ap.add_argument("--no-thinking", action="store_true", help="vypnout thinking režim")
     args = ap.parse_args()
     cfg = load_config()

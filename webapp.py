@@ -5,6 +5,7 @@ Spuštění:  .venv/Scripts/python webapp.py  →  http://127.0.0.1:7860
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -32,7 +33,7 @@ from harness.processes import ProcessManager
 from harness.prompts import system_prompt
 from harness.safety import SafetyPolicy
 from harness.session import Session, IMG_MIMES
-from harness.streaming import StreamHub, step_threaded
+from harness.streaming import SteeringQueue, StreamHub, step_threaded
 from harness.work_modes import WORK_MODES, mode_choices, normalize_work_mode
 from harness import servermgmt
 
@@ -65,6 +66,9 @@ def _save_ui_state(data: dict) -> None:
 class AppState:
     def __init__(self) -> None:
         self.hub = StreamHub()
+        self.run_active = threading.Event()
+        self.steering = SteeringQueue()
+        self._run_claim_lock = threading.Lock()
         self.model_switch = ModelSwitchController(cfg)
         self.processes = ProcessManager()
         # po smazani chatu: nahradni (transient) chat NABIDNOUT v seznamech az
@@ -74,6 +78,14 @@ class AppState:
         self.model_key = saved.get("model") or cfg.model_key()
         if self.model_key not in cfg.data["models"]:
             self.model_key = cfg.model_key()
+        saved_kv = saved.get("kv_cache_modes") or {}
+        for key in cfg.data["models"]:
+            mode = saved_kv.get(key)
+            if mode in cfg.kv_cache_profiles(key):
+                cfg.set_kv_cache_mode(key, mode)
+        self.kv_cache_modes = {
+            key: cfg.kv_cache_mode(key) for key in cfg.data["models"]
+        }
         cfg.data["default_model"] = self.model_key  # agent podle toho zná ctx limit
         legacy_mode = saved.get("mode") or cfg.agent.get("mode", "agent")
         self.work_mode = normalize_work_mode(
@@ -95,6 +107,16 @@ class AppState:
             from harness.projects import Projects
             Projects(cfg).ensure_registered(self.workspace)  # migrace → projekt
         self._restore_session()
+
+    def claim_submission(self, message: str, files: list[str]) -> str:
+        """Claim a new run, or steer the one that is already active."""
+        with self._run_claim_lock:
+            if not self.run_active.is_set():
+                self.run_active.set()
+                return "run"
+            self.steering.push(message, files)
+            self.abort.set()
+            return "steer"
 
     def _restore_session(self) -> None:
         """Obnov session uloženou jako aktivní (fallback: poslední na disku)."""
@@ -137,6 +159,7 @@ class AppState:
             "workspace": self.workspace,
             "recent": self.recent_ws,
             "model": self.model_key,
+            "kv_cache_modes": self.kv_cache_modes,
             "mode": self.mode,
             "work_mode": self.work_mode,
             "autonomy": self.autonomy,
@@ -158,8 +181,6 @@ class AppState:
     def rebuild_agent(self) -> None:
         safety = SafetyPolicy(
             autonomy=self.autonomy,
-            max_steps=int(cfg.agent.get("max_steps", 40)),
-            semi_max_steps=int(cfg.agent.get("semi_max_steps", 15)),
         )
         self.abort = threading.Event()
         self.agent = Agent(cfg, llm, self.session,
@@ -242,14 +263,63 @@ def _live_message(hub: StreamHub, elapsed_s: int = 0) -> dict:
     uživatel vidí, že se nic neděje; blikající kurzor se obnovuje jen s daty).
     """
     text, reasoning, _, _ = hub.snapshot()
+    progress = hub.progress()
     cursor = ' <span class="blink-cursor">▍</span>'
+    tool_line = ""
+    if progress["tools_running"]:
+        descriptions = [_tool_progress_text(name, args, preparing=False)
+                        for name, args in progress["tools_running"]]
+        tool_line = f"🔧 <i>{' · '.join(descriptions)} ({elapsed_s}s)</i>"
+    elif progress["tool_call_chars"]:
+        name = progress["tool_call_name"] or "nástroj"
+        chars = int(progress["tool_call_chars"])
+        amount = f"{chars}" if chars < 1000 else f"{chars / 1000:.1f}k"
+        detail = _tool_progress_text(
+            name, progress.get("tool_call_preview") or "", preparing=True)
+        tool_line = f"🧰 <i>{detail} · vytvořeno ~{amount} znaků</i>"
     if text:
-        suffix = f"\n\n<i>⏳ {elapsed_s}s bez nových tokenů</i>" if elapsed_s >= 5 else ""
+        if tool_line:
+            suffix = "\n\n" + tool_line
+        else:
+            suffix = f"\n\n<i>⏳ {elapsed_s}s bez nových tokenů</i>" if elapsed_s >= 5 else ""
         return {"role": "assistant", "content": text + cursor + suffix}
+    if tool_line:
+        return {"role": "assistant", "content": tool_line + cursor}
     tail = reasoning[-200:].replace("\n", " ") if reasoning else ""
     head = f"💭 <i>uvažování… ({elapsed_s}s)</i>"
     return {"role": "assistant",
             "content": (head + f" <small>{tail}</small>" if tail else head) + cursor}
+
+
+def _tool_progress_text(name: str, arguments, *, preparing: bool) -> str:
+    import re
+    args = arguments if isinstance(arguments, dict) else {}
+    raw = arguments if isinstance(arguments, str) else ""
+    path = str(args.get("path") or "")
+    if not path and raw:
+        match = re.search(r'"path"\s*:\s*"([^"]+)', raw)
+        path = match.group(1) if match else ""
+    filename = Path(path).name if path else ""
+    target = f" `{filename}`" if filename else ""
+    if name == "write_file":
+        return f"{'Připravuji obsah' if preparing else 'Ukládám soubor'}{target}…"
+    if name == "apply_patch":
+        return "Připravuji úpravy souborů…" if preparing else "Zapisuji úpravy souborů…"
+    if name in ("run_command", "start_command"):
+        return "Připravuji příkaz nebo test…" if preparing else "Spouštím příkaz nebo test…"
+    if name == "poll_command":
+        return "Kontroluji průběh dlouhé operace…"
+    if name == "read_file":
+        return f"Čtu soubor{target}…"
+    if name in ("search_files", "list_dir", "repo_overview"):
+        return "Procházím projekt…"
+    if name in ("web_search", "web_fetch"):
+        return "Procházím internetové zdroje…"
+    return f"{'Připravuji' if preparing else 'Provádím'} `{name}`…"
+
+
+def _live_token_estimate() -> int:
+    return int(state.hub.progress()["generated_chars"]) * 10 // 36
 
 
 state = AppState()
@@ -257,7 +327,7 @@ state = AppState()
 
 # ------------------------------------------------------------- render helpers
 _HIDDEN_NOTE_PREFIXES = ("[TASK PROTOCOL", "[PROGRESS UPDATE", "[FINAL SUMMARY",
-                         "[Interrupted by user]", "[RESEARCH PLAN")
+                         "[Interrupted by user]", "[RESEARCH PLAN", "[DYNAMIC TASK CONTEXT")
 
 
 def chat_view() -> list[dict]:
@@ -340,6 +410,7 @@ def _run_steps(history: list[dict], approve: bool | None = None):
     """
     import time as _time
 
+    state.run_active.set()
     try:
         first = True
         seen_rev = state.session.compression_rev
@@ -407,6 +478,15 @@ def _run_steps(history: list[dict], approve: bool | None = None):
                 seen_rev = state.session.compression_rev
             if r is None:
                 raise RuntimeError("agent step skončil bez výsledku")
+            steering = state.steering.pop_all()
+            if steering:
+                for text, files in steering:
+                    images = [Path(path) for path in files
+                              if Path(path).suffix.lower() in IMG_MIMES]
+                    state.agent.steer(text, images=images)
+                history = chat_view()
+                yield history, gr.update(visible=False), refresh_status()
+                continue
             if r.status is Status.CONTINUE:
                 history = chat_view()
                 yield history, gr.update(visible=False), refresh_status()
@@ -433,10 +513,47 @@ def _run_steps(history: list[dict], approve: bool | None = None):
         history = chat_view()
         history.append({"role": "assistant", "content": _error_message(e)})
         yield history, gr.update(visible=False), refresh_status()
+    finally:
+        state.run_active.clear()
 
 
 # ------------------------------------------------------------- handlery
+def prepare_submission(message: str, files):
+    """Immediately clear the composer and route the message to run or steering."""
+    text = (message or "").strip()
+    paths = [str(path) for path in (files or [])]
+    if not text and not paths:
+        return {"kind": "ignore"}, gr.update(), gr.update(value=""), gr.update(value=None)
+    kind = state.claim_submission(text, paths)
+    if kind == "steer":
+        gr.Info("Upřesnění přijato - dokončuji větu a přesměrovávám běžící úlohu.")
+        return {"kind": kind}, gr.update(), gr.update(value=""), gr.update(value=None)
+    try:
+        cfg.data["thinking"] = state.thinking
+        state.suppress_active_entry = False
+        images = [Path(path) for path in paths if Path(path).suffix.lower() in IMG_MIMES]
+        state.agent.new_task(text or "Please analyze the attached image(s).", images=images)
+        return {"kind": kind}, chat_view(), gr.update(value=""), gr.update(value=None)
+    except Exception:
+        state.run_active.clear()
+        raise
+
+
+def run_prepared_submission(submission: dict, _browser_history: list[dict]):
+    kind = (submission or {}).get("kind")
+    if kind != "run":
+        yield chat_view(), gr.update(visible=False), refresh_status()
+        return
+    try:
+        history = chat_view()
+        yield history, gr.update(visible=False), refresh_status()
+        yield from _run_steps(history)
+    finally:
+        state.run_active.clear()
+
+
 def send_message(message: str, files, _browser_history: list[dict]):
+    """Compatibility wrapper for non-Gradio callers."""
     try:
         history = chat_view()
         if not (message or "").strip() and not files:
@@ -672,7 +789,7 @@ def load_from_row(sel_evt, df_value):
 
 
 def rename_session(name: str):
-    """Přejmenuj aktuální chat (potvrdí tlačítko Uložit)."""
+    """Přejmenuj aktuální chat po potvrzení Enterem."""
     try:
         name = (name or "").strip()
         if not name:
@@ -768,6 +885,38 @@ def change_model(key: str):
     return refresh_runtime_controls()
 
 
+def kv_cache_choices(key: str) -> list[tuple[str, str]]:
+    return [
+        (str(profile.get("label") or mode), mode)
+        for mode, profile in cfg.kv_cache_profiles(key).items()
+    ]
+
+
+def kv_cache_control_update(key: str | None = None, *, busy: bool = False):
+    key = key or state.model_key
+    choices = kv_cache_choices(key)
+    return gr.update(
+        choices=choices,
+        value=cfg.kv_cache_mode(key),
+        interactive=len(choices) > 1 and not busy,
+    )
+
+
+def change_kv_cache(mode: str):
+    key = state.model_key
+    try:
+        cfg.set_kv_cache_mode(key, mode)
+    except ValueError as exc:
+        gr.Warning(str(exc))
+        return refresh_runtime_controls()
+    state.kv_cache_modes[key] = mode
+    state.save_ui_state()
+    if not state.model_switch.request(
+            key, restart=True, on_success=_model_switch_succeeded):
+        gr.Info("Model se už načítá; KV cache nyní nelze přepnout.")
+    return refresh_runtime_controls()
+
+
 def change_mode(mode: str):
     state.set_mode(mode)
     state.save_ui_state()
@@ -816,8 +965,8 @@ def change_thinking(value: str):
 
 def _ctx_pct() -> int:
     try:
-        est = state.session.estimate_context_tokens()
-        limit = int(cfg.model().get("ctx_size", 32768))
+        est = state.agent.estimate_context_tokens()
+        limit = cfg.context_size()
         return min(200, est * 100 // max(limit, 1))
     except Exception:
         return 0
@@ -850,6 +999,7 @@ def _projects() -> Projects:
 
 
 NOPROJ_NAME = "žádný projekt"
+_project_del_arm: dict = {"ts": 0.0, "path": None}
 
 
 def project_choices() -> list[str]:
@@ -913,6 +1063,49 @@ def create_project_handler(name: str):
     except Exception as e:
         gr.Warning(f"❌ {e}")
         return gr.update(), gr.update(visible=False), ""
+
+
+def delete_project_handler(name: str):
+    """Two-click deletion of the registry entry, project chats and workspace tree."""
+    import time as _t
+    empty = (gr.update(),) * 5
+    if not name or name == NOPROJ_NAME:
+        gr.Warning("Nejdřív vyber projekt, který chceš smazat.")
+        return (*empty, gr.update(value=""), gr.update())
+    project = next((item for item in _projects().list_all() if item["name"] == name), None)
+    if project is None:
+        gr.Warning("Projekt už není v registru.")
+        choices = project_choices()
+        return (gr.update(choices=choices, value=NOPROJ_NAME), *empty[1:],
+                gr.update(value=""), gr.update(choices=move_project_choices(), value=""))
+    now = _t.time()
+    if (_project_del_arm.get("path") != project["path"]
+            or now - float(_project_del_arm.get("ts") or 0) >= 8.0):
+        _project_del_arm.update(ts=now, path=project["path"])
+        gr.Warning("Potvrď úplné smazání projektu druhým kliknutím do 8 sekund.")
+        warning = ("⚠️ **Klikni znovu: nenávratně smažu celý projekt, jeho chaty a adresář**  "
+                   f"`{project['path']}`")
+        return (*empty, gr.update(value=warning), gr.update())
+
+    _project_del_arm.update(ts=0.0, path=None)
+    project_path = project["path"]
+    sessions = [item for item in Session.list_sessions(cfg, limit=10000)
+                if item.get("workspace") == project_path]
+    for item in sessions:
+        Session.delete(cfg, item["id"])
+    _projects().delete_by_path(project_path)
+    state.clear_workspace()
+    state.new_session()
+    state.suppress_active_entry = True
+    choices = project_choices()
+    chats_update, noproj_update, _ = update_chats_radio()
+    gr.Info(f"Projekt {project['name']} včetně adresáře a {len(sessions)} chatů byl smazán.")
+    return (
+        gr.update(choices=choices, value=NOPROJ_NAME),
+        chat_view(), chats_update, noproj_update, refresh_status(),
+        gr.update(value=""),
+        gr.update(choices=move_project_choices(), value=""),
+    )
 
 
 def _active_entry() -> tuple[str, str] | None:
@@ -1012,13 +1205,24 @@ def _current_chat_project() -> str:
     return p["name"] if p else Path(ws).name
 
 
+def move_project_choices() -> list[tuple[str, str]]:
+    current = _current_chat_project()
+    return [("Přesunout chat…", "")] + [
+        (name, name) for name in project_choices() if name != current
+    ]
+
+
 def move_chat_to(project_name: str):
     """Přesuň AKTIVNÍ chat do vybraného projektu (nebo mimo projekty)."""
     try:
+        if not project_name:
+            return (gr.update(), gr.update(), gr.update(), gr.update(),
+                    gr.update(value="", choices=move_project_choices()))
         s = state.session
         if s.transient:
             gr.Warning("Chat není uložený - pošli nejdřív zprávu.")
-            return gr.update(), gr.update(), gr.update(), gr.update()
+            return (gr.update(), gr.update(), gr.update(), gr.update(),
+                    gr.update(value="", choices=move_project_choices()))
         if not project_name or project_name == NOPROJ_NAME:
             s.meta["workspace"] = None
             target = "bez projektu"
@@ -1027,7 +1231,8 @@ def move_chat_to(project_name: str):
             proj = next((p for p in _projects().list_all() if p["name"] == project_name), None)
             if not proj:
                 gr.Warning(f"Projekt '{project_name}' nenalezen.")
-                return gr.update(), gr.update(), gr.update(), gr.update()
+                return (gr.update(), gr.update(), gr.update(), gr.update(),
+                        gr.update(value="", choices=move_project_choices()))
             s.meta["workspace"] = proj["path"]
             target = proj["name"]
             target_workspace = proj["path"]
@@ -1040,11 +1245,13 @@ def move_chat_to(project_name: str):
         state.save_ui_state()
         gr.Info(f"📁 Chat přesunut → {target}")
         r1, r2, ds = update_chats_radio()
-        return r1, r2, ds, gr.update(
-            choices=project_choices(), value=current_project_name())
+        return (r1, r2, ds,
+                gr.update(choices=project_choices(), value=current_project_name()),
+                gr.update(choices=move_project_choices(), value=""))
     except Exception as e:
         gr.Warning(f"❌ {e}")
-        return gr.update(), gr.update(), gr.update(), gr.update()
+        return (gr.update(), gr.update(), gr.update(), gr.update(),
+                gr.update(value="", choices=move_project_choices()))
 
 
 def open_in_editor(path: Path | str):
@@ -1058,6 +1265,22 @@ def open_in_editor(path: Path | str):
         return f"Otevírám: {p}"
     except Exception as e:
         return f"❌ {e}"
+
+
+def skills_info_text() -> str:
+    from harness.skills import SkillLibrary
+    return SkillLibrary(cfg, Path(state.workspace) if state.workspace else None).catalog()
+
+
+def open_skills_folder() -> None:
+    import os as _os
+    folder = cfg.root / cfg.data.get("skills", {}).get("user_directory", "user-skills")
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        _os.startfile(str(folder))  # noqa: S606 - local Windows folder
+        gr.Info(f"Otevírám složku skills: {folder}")
+    except OSError as exc:
+        gr.Warning(f"Složku skills nelze otevřít: {exc}")
 
 
 # ------------------------------------------------------------- mazání chatů
@@ -1118,6 +1341,7 @@ def delete_selected_session():
 def _mem_infos():
     """Info texty o souborech paměti (cesty k otevření)."""
     try:
+        _project_del_arm.update(ts=0.0, path=None)
         store = _memory_paths()
         g = f"**Globální pro vše:** `{store.global_path}`"
         mode = WORK_MODES[state.work_mode].label
@@ -1194,33 +1418,37 @@ def refresh_status():
     st = servermgmt.server_state(cfg)
     key = switch.target if switch.busy or switch.status == "failed" \
         else (servermgmt.running_model(cfg) or state.model_key)
-    mfile = cfg.data["models"].get(key, {}).get("file", "")
-    verze = mfile.replace("Qwen3.8-27B-", "").replace(".gguf", "") or key
-    model_name = f"Qwen3.8-27B · {verze}"
+    model = cfg.data["models"].get(key, {})
+    model_name = str(model.get("status_label") or model.get("alias") or key)
+    kv_name = "F16" if cfg.kv_cache_mode(key) == "f16" else "Q8"
     if switch.busy:
-        line1 = f"⏳ načítám {model_name} do VRAM…"
-        line2 = "🖥️ GPU VRAM: —"
+        line1 = f"⏳ Načítám {model_name}…"
+        line2 = f"🖥️ GPU VRAM: — · KV cache: {kv_name}"
     elif switch.status == "failed":
         line1 = f"❌ {model_name} — přepnutí selhalo"
         line2 = f"<small>{switch.error}</small>"
     elif st == "running":
         line1 = f"🟢 {model_name}"
-        line2 = f"🖥️ GPU VRAM: {servermgmt.vram_str()}"
+        line2 = f"🖥️ GPU VRAM: {servermgmt.vram_str()} · KV cache: {kv_name}"
     elif st == "starting":
-        line1 = f"⏳ načítám {model_name} do VRAM…"
-        line2 = "🖥️ GPU VRAM: —"
+        line1 = f"⏳ Načítám {model_name}…"
+        line2 = f"🖥️ GPU VRAM: — · KV cache: {kv_name}"
     else:
         line1 = f"🔴 {model_name} — server stojí"
-        line2 = "🖥️ GPU VRAM: —"
+        line2 = f"🖥️ GPU VRAM: — · KV cache: {kv_name}"
     pct = 0
     try:
-        est = state.session.estimate_context_tokens()
-        limit = int(cfg.data["models"].get(key, {}).get("ctx_size", 32768))
+        est = state.agent.estimate_context_tokens()
+        limit = cfg.context_size(key)
         pct = min(100, est * 100 // max(limit, 1))
         warn = " 🔴" if pct >= 85 else (" 🟠" if pct >= 70 else "")
-        line3 = f"📊 ctx ~{est / 1000:.1f}k / {limit // 1000}k tokenů{warn}"
+        live = _live_token_estimate() if state.run_active.is_set() else 0
+        live_count = f"{live}" if live < 1000 else f"{live / 1000:.1f}k"
+        live_text = f" · živě generováno: ~{live_count} tokenů" if live else ""
+        line3 = (f"📊 Kontext chatu: ~{est / 1000:.1f}k / {limit // 1000}k tokenů"
+                 f"{live_text}{warn}")
     except Exception:
-        line3 = "📊 ctx —"
+        line3 = "📊 Kontext chatu: —"
     _check_ctx_warning(pct)
     return f"{line1}<br>{line2}<br>{line3}"
 
@@ -1230,7 +1458,9 @@ def refresh_runtime_controls():
     update_args = {"interactive": not switch.busy}
     if switch.status == "failed":
         update_args["value"] = state.model_key
-    return refresh_status(), gr.update(**update_args)
+    key = switch.target if switch.busy and switch.target else state.model_key
+    return (refresh_status(), gr.update(**update_args),
+            kv_cache_control_update(key, busy=switch.busy))
 
 
 def _autostart_server_thread() -> None:
@@ -1255,6 +1485,18 @@ $d = New-Object System.Windows.Forms.FolderBrowserDialog
 $d.Description = 'Vyber slozku projektu (workspace)'
 if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
     Write-Output $d.SelectedPath
+}
+"""
+
+_PS_FILE_DIALOG = r"""
+Add-Type -AssemblyName System.Windows.Forms
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true; $owner.ShowInTaskbar = $false
+$d = New-Object System.Windows.Forms.OpenFileDialog
+$d.Title = 'Vyber textovy soubor k pripnuti do kontextu'
+$d.Filter = 'Text and source files|*.md;*.txt;*.rst;*.py;*.js;*.ts;*.json;*.yaml;*.yml;*.toml;*.html;*.css;*.rs;*.go;*.java;*.cs;*.cpp;*.h|All files|*.*'
+if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
+    Write-Output $d.FileName
 }
 """
 
@@ -1295,6 +1537,59 @@ def pick_directory_dialog() -> str | None:
     except Exception:
         pass
     return None
+
+
+def pick_context_file_dialog() -> str | None:
+    initial = state.workspace or str(Path.home())
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        selected = filedialog.askopenfilename(
+            parent=root, initialdir=initial,
+            title="Vyber textový soubor k připnutí do kontextu",
+            filetypes=[
+                ("Textové a zdrojové soubory",
+                 "*.md *.txt *.rst *.py *.js *.ts *.json *.yaml *.yml *.toml *.html *.css"),
+                ("Všechny soubory", "*.*"),
+            ],
+        )
+        root.destroy()
+        return selected or None
+    except Exception:
+        pass
+    try:
+        proc = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-STA", "-Command", _PS_FILE_DIALOG],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=120, creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        selected = proc.stdout.strip()
+        return selected or None
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def pin_context_file_dialog():
+    selected = pick_context_file_dialog()
+    if not selected:
+        return context_inspector_text(), gr.update(
+            interactive=bool(state.session.meta.get("pinned_files")))
+    path = Path(selected)
+    try:
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        added = state.session.pin_context_file(path)
+        if added:
+            gr.Info(f"Připnuto do tohoto chatu: {path.name}")
+        else:
+            gr.Info(f"Soubor už je připnutý: {path.name}")
+    except OSError as exc:
+        gr.Warning(f"Soubor se nepodařilo připnout: {exc}")
+    return context_inspector_text(), gr.update(
+        interactive=bool(state.session.meta.get("pinned_files")))
 
 
 def set_workspace_handler(path: str):
@@ -1404,8 +1699,8 @@ def stop_all_processes():
 
 def context_inspector_text() -> str:
     info = state.session.context_breakdown()
-    limit = int(cfg.data["models"].get(state.model_key, {}).get("ctx_size", 32768))
-    tokens = int(info["estimated_tokens"])
+    limit = cfg.context_size(state.model_key)
+    tokens = state.agent.estimate_context_tokens()
     pct = min(100, tokens * 100 // max(1, limit))
     lines = [
         f"**Kontext: ~{tokens / 1000:.1f}k / {limit // 1000}k tokenů ({pct} %)**",
@@ -1543,8 +1838,32 @@ button.primary:hover { filter: brightness(1.12) !important; }
   border: 1px solid #30363d !important;
 }
 /* vstup */
-#msg-in textarea { min-height: 44px !important; max-height: 110px !important; border-radius: 10px !important; }
-#files-in { max-height: 72px !important; overflow-y: auto !important; }
+#composer-layout { align-items: stretch !important; flex-wrap: nowrap !important; gap: 8px !important; }
+#prompt-column, #composer-side { gap: 6px !important; min-width: 0 !important; }
+#composer-side { flex: 0 0 150px !important; max-width: 150px !important; }
+#msg-in textarea { min-height: 72px !important; max-height: 132px !important; border-radius: 8px !important; }
+#prompt-actions { width: 100% !important; gap: 6px !important; }
+#prompt-actions button { min-height: 32px !important; height: 32px !important;
+  padding: 4px 8px !important; border-radius: 6px !important; font-size: 12px !important; }
+.prompt-action { min-width: 0 !important; flex: 1 1 0 !important; width: 0 !important; }
+#composer-side button { min-height: 32px !important; height: 32px !important;
+  padding: 4px 7px !important; border-radius: 6px !important; font-size: 12px !important; }
+#files-in { height: 42px !important; min-height: 42px !important; max-height: 42px !important;
+  overflow: hidden !important; border: 1px dashed #3c5162 !important;
+  border-radius: 6px !important; background: #0e151d !important; }
+#files-in > div, #files-in .wrap, #files-in [data-testid="file"] {
+  min-height: 38px !important; height: 38px !important; padding: 2px 5px !important;
+  font-size: 11px !important; overflow: hidden !important; }
+#files-in .or, #files-in [class*="or"] { display: none !important; }
+#files-in button { min-height: 28px !important; height: 28px !important; padding: 2px 5px !important;
+  font-size: 0 !important; color: transparent !important; }
+#files-in button * { display: none !important; }
+#files-in button::after { content: "Příloha"; font-size: 10.5px !important;
+  color: #c9d7e3 !important; font-weight: 600 !important; }
+@media (max-width: 760px) {
+  #composer-side { flex-basis: 132px !important; max-width: 132px !important; }
+  #prompt-actions button { font-size: 11px !important; padding: 3px 5px !important; }
+}
 /* historie - tabulka */
 #sessions-df table { font-size: 0.92em !important; }
 #sessions-df tr:hover td { background: #1c2430 !important; }
@@ -1576,12 +1895,65 @@ button.primary:hover { filter: brightness(1.12) !important; }
 .side-h { color: #2dd4bf !important; font-weight: 700 !important;
   letter-spacing: .08em !important; margin: 14px 0 4px 2px !important; display: block; }
 .sqsm { min-height: 34px !important; font-size: 12px !important; border-radius: 9px !important; }
+#sidebar button { min-height: 32px !important; padding: 5px 9px !important;
+  border-radius: 6px !important; font-size: 12px !important; }
+.compact-btn button, button.compact-btn { min-height: 30px !important; height: 30px !important;
+  padding: 3px 8px !important; border-radius: 5px !important; font-weight: 600 !important; }
+.compact-btn { min-width: 0 !important; flex: 1 1 0 !important; }
+#server-control-bar { background: #151a21 !important; border: 1px solid #303844 !important;
+  border-radius: 7px !important; padding: 7px !important; margin-bottom: 4px !important; }
+#server-control-bar #server-control-bar { background: transparent !important; border: 0 !important;
+  border-radius: 0 !important; padding: 0 !important; margin: 0 !important; }
+#server-control-bar .styler { background: transparent !important; }
+.server-panel-title p { color: #2dd4bf !important; font-size: 10px !important;
+  font-weight: 700 !important; letter-spacing: .08em !important; margin: 0 0 4px 1px !important; }
+.server-start, .server-stop, .server-restart { min-width: 0 !important;
+  flex: 1 1 0 !important; width: 0 !important; }
+#server-control-bar .gap { flex-wrap: nowrap !important; width: 100% !important; }
+.server-start button, button.server-start, .chat-new button, button.chat-new,
+.soft-positive button, button.soft-positive {
+  background: #123523 !important; border-color: #1f6b46 !important; color: #baf7d2 !important;
+}
+.server-start button:hover, .chat-new button:hover, .soft-positive button:hover {
+  background: #17472e !important; border-color: #2d8a5e !important;
+}
+.server-stop button, button.server-stop, .chat-delete button, button.chat-delete,
+.soft-danger button, button.soft-danger {
+  background: #3a1d22 !important; border-color: #7b3540 !important; color: #ffc7ce !important;
+}
+.server-stop button:hover, .chat-delete button:hover, .soft-danger button:hover {
+  background: #51252d !important; border-color: #a14552 !important;
+}
+.server-restart button, button.server-restart {
+  background: #123346 !important; border-color: #27617e !important; color: #c9ebff !important;
+}
+.server-restart button:hover { background: #17455e !important; border-color: #347da1 !important; }
+.sidebar-section { border-radius: 7px !important; margin: 3px 0 !important; overflow: hidden !important; }
+.sidebar-section.info-section { border-color: #293442 !important; background: #101720 !important; }
+.sidebar-section.action-section { border-color: #3b3831 !important; background: #171714 !important; }
+.sidebar-section.settings-section { border-color: #2f3d39 !important; background: #111a18 !important; }
+.sidebar-section.attention-section { border-color: #66532b !important; background: #211c11 !important; }
+#active-chat-panel { background: #141a22 !important; border: 1px solid #354453 !important;
+  border-left: 3px solid #2dd4bf !important; border-radius: 7px !important;
+  padding: 8px !important; margin-top: 10px !important; gap: 6px !important; }
+#active-chat-panel #active-chat-panel { background: transparent !important; border: 0 !important;
+  border-left: 0 !important; border-radius: 0 !important; padding: 0 !important;
+  margin: 0 !important; gap: 6px !important; }
+#active-chat-panel .styler { background: transparent !important; }
+#active-chat-panel > .gap { flex-wrap: nowrap !important; width: 100% !important; }
+#active-chat-panel .chat-new, #active-chat-panel .chat-delete {
+  min-width: 0 !important; flex: 1 1 0 !important; width: 0 !important; }
+#rename-chat-input, #move-dd { background: #0d1219 !important; border: 1px solid #35404d !important;
+  border-radius: 6px !important; min-height: 34px !important; }
+#rename-chat-input textarea, #rename-chat-input input { font-size: 12.5px !important; }
+#proj-dd { background: #0d1219 !important; border: 1px solid #35404d !important;
+  border-radius: 6px !important; }
 #del-state p { color: #f87171 !important; font-size: 12px !important; margin: 2px 0 0 4px !important; }
 #chats-radio label, #noproj-radio label { padding: 5px 8px !important; border-radius: 8px !important;
   font-size: 12.5px !important; }
 #chats-radio label:hover, #noproj-radio label:hover { background: #1c2430 !important; }
 #chats-radio label.selected, #noproj-radio label.selected { background: #14323c !important; border: 1px solid #2dd4bf55 !important; }
-#main-chat { height: calc(100vh - 210px) !important; min-height: 340px !important; border-radius: 12px !important; }
+#main-chat { height: calc(100vh - 234px) !important; min-height: 340px !important; border-radius: 12px !important; }
 #footer-hint { margin-top: 4px !important; }
 /* blikající kurzor */
 @keyframes qwen-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
@@ -1591,7 +1963,10 @@ button.primary:hover { filter: brightness(1.12) !important; }
 
 # Nový build_ui - layout ve stylu ZCode/Codex: levý sidebar + hlavní chat
 def build_ui() -> gr.Blocks:
-    model_choices = list(cfg.data["models"].keys())
+    model_choices = [
+        (str(model.get("status_label") or key), key)
+        for key, model in cfg.data["models"].items()
+    ]
     with gr.Blocks(title=f"Qwen3.8-27B Harness v{APP_VERSION}") as ui:
         with gr.Row(elem_id="app-row", elem_classes=["gap"]):
             # ================= LEVÝ SIDEBAR =================
@@ -1607,16 +1982,34 @@ def build_ui() -> gr.Blocks:
                 )
 
                 gr.Markdown("<small class='side-h'>⚙ FUNKCE</small>", elem_classes=["hdr"])
-                with gr.Row(elem_classes=["gap"]):
-                    btn_start = gr.Button("start server", size="sm", elem_classes=["sqsm"], scale=1)
-                    btn_stop = gr.Button("stop server", size="sm", elem_classes=["sqsm"], scale=1)
-                    btn_refresh = gr.Button("restart server", size="sm", elem_classes=["sqsm"], scale=1)
-                btn_compress = gr.Button("komprimuj aktuální chat", size="sm", elem_classes=["sqsm"])
-                btn_handoff = gr.Button("předej novému chatu", size="sm", elem_classes=["sqsm"])
+                with gr.Group(elem_id="server-control-bar"):
+                    gr.Markdown("SERVER", elem_classes=["server-panel-title"])
+                    with gr.Row(elem_classes=["gap"]):
+                        btn_start = gr.Button(
+                            "start", size="sm", scale=1,
+                            elem_classes=["compact-btn", "server-start"])
+                        btn_stop = gr.Button(
+                            "stop", size="sm", scale=1,
+                            elem_classes=["compact-btn", "server-stop"])
+                        btn_refresh = gr.Button(
+                            "restart", size="sm", scale=1,
+                            elem_classes=["compact-btn", "server-restart"])
 
                 with gr.Accordion(
-                        "Změny této úlohy", open=True,
-                        visible=state.work_mode in ("writing", "development", "computer")) as changes_panel:
+                        "Kontext a předání", open=False,
+                        elem_classes=["sidebar-section", "action-section"]):
+                    with gr.Row(elem_classes=["gap"]):
+                        btn_compress = gr.Button(
+                            "Komprimovat", size="sm", scale=1,
+                            elem_classes=["compact-btn"])
+                        btn_handoff = gr.Button(
+                            "Předat chatu", size="sm", scale=1,
+                            elem_classes=["compact-btn"])
+
+                with gr.Accordion(
+                        "Změny této úlohy", open=False,
+                        visible=state.work_mode in ("writing", "development", "computer"),
+                        elem_classes=["sidebar-section", "info-section"]) as changes_panel:
                     task_changes = gr.Markdown(task_changes_text, elem_classes=["hdr"])
                     btn_undo_task = gr.Button(
                         "Vrátit změny této úlohy", size="sm", variant="stop",
@@ -1625,7 +2018,8 @@ def build_ui() -> gr.Blocks:
 
                 with gr.Accordion(
                         "Rozpracovaná úloha", open=True,
-                        visible=state.agent.has_resumable_task) as resumable_panel:
+                        visible=state.agent.has_resumable_task,
+                        elem_classes=["sidebar-section", "attention-section"]) as resumable_panel:
                     resumable_status = gr.Markdown(resumable_task_text, elem_classes=["hdr"])
                     btn_resume_task = gr.Button(
                         "Pokračovat v úloze", size="sm",
@@ -1634,23 +2028,35 @@ def build_ui() -> gr.Blocks:
 
                 with gr.Accordion(
                         "Dlouhé operace", open=False,
-                        visible=state.work_mode in ("development", "computer")) as process_panel:
+                        visible=state.work_mode in ("development", "computer"),
+                        elem_classes=["sidebar-section", "info-section"]) as process_panel:
                     process_status = gr.Markdown(active_processes_text, elem_classes=["hdr"])
                     btn_stop_processes = gr.Button(
                         "Zastavit běžící operace", size="sm", variant="stop",
                         interactive=False,
                     )
 
-                with gr.Accordion("Co model právě používá", open=False):
+                with gr.Accordion(
+                        "Co model právě používá", open=False,
+                        elem_classes=["sidebar-section", "info-section"]):
                     context_info = gr.Markdown(context_inspector_text, elem_classes=["hdr"])
-                    btn_clear_pins = gr.Button(
-                        "Odepnout všechny soubory", size="sm",
-                        interactive=bool(state.session.meta.get("pinned_files")),
-                    )
+                    with gr.Row(elem_classes=["gap"]):
+                        btn_pin_file = gr.Button("Připnout soubor", size="sm", scale=1)
+                        btn_clear_pins = gr.Button(
+                            "Odepnout vše", size="sm", scale=1,
+                            interactive=bool(state.session.meta.get("pinned_files")),
+                        )
+
+                with gr.Accordion(
+                        "Dostupné skills", open=False,
+                        elem_classes=["sidebar-section", "info-section"]):
+                    skills_info = gr.Markdown(skills_info_text, elem_classes=["hdr"])
+                    btn_open_skills = gr.Button("Otevřít složku skills", size="sm")
 
                 with gr.Accordion(
                         "Průběh výzkumu", open=False,
-                        visible=state.work_mode == "research") as research_panel:
+                        visible=state.work_mode == "research",
+                        elem_classes=["sidebar-section", "info-section"]) as research_panel:
                     research_status = gr.Markdown(research_status_text, elem_classes=["hdr"])
                     btn_export_research = gr.Button("Exportovat všechny podklady", size="sm")
                     with gr.Row(elem_classes=["gap"]):
@@ -1659,10 +2065,19 @@ def build_ui() -> gr.Blocks:
                     research_export_file = gr.File(
                         label="Research ledger", visible=False, interactive=False)
 
-                with gr.Accordion("⚙️ Nastavení", open=False):
+                with gr.Accordion(
+                        "⚙️ Nastavení", open=False,
+                        elem_classes=["sidebar-section", "settings-section"]):
                     model_dd = gr.Dropdown(
                         model_choices, value=state.model_key, label="Model",
                         interactive=not state.model_switch.snapshot().busy,
+                    )
+                    kv_cache_dd = gr.Dropdown(
+                        choices=kv_cache_choices(state.model_key),
+                        value=cfg.kv_cache_mode(state.model_key),
+                        label="Přesnost KV cache",
+                        interactive=(len(kv_cache_choices(state.model_key)) > 1
+                                     and not state.model_switch.snapshot().busy),
                     )
                     autonomy_dd = gr.Dropdown(["supervised", "semi", "auto"], value=state.autonomy,
                                               label="Autonomie")
@@ -1685,13 +2100,27 @@ def build_ui() -> gr.Blocks:
                 proj_dd = gr.Dropdown(choices=project_choices(), value=current_project_name(),
                                       interactive=True, show_label=False, container=False,
                                       elem_id="proj-dd", info=None)
-                with gr.Row(elem_classes=["gap"]):
-                    btn_proj_new = gr.Button("+ nový projekt", size="sm", scale=1, elem_classes=["sqsm"])
-                    btn_proj_attach = gr.Button("připojit adresář", size="sm", scale=1, elem_classes=["sqsm"])
-                with gr.Row(visible=False) as proj_new_row:
-                    proj_new_tb = gr.Textbox(placeholder="název nového projektu…",
-                                             show_label=False, container=False, scale=3)
-                    btn_proj_create = gr.Button("OK", variant="primary", size="sm", scale=1)
+                with gr.Accordion(
+                        "Správa projektů", open=False,
+                        elem_classes=["sidebar-section", "action-section"]):
+                    with gr.Row(elem_classes=["gap"]):
+                        btn_proj_new = gr.Button(
+                            "Nový", size="sm", scale=1,
+                            elem_classes=["compact-btn", "soft-positive"])
+                        btn_proj_attach = gr.Button(
+                            "Připojit", size="sm", scale=1,
+                            elem_classes=["compact-btn"])
+                    btn_proj_delete = gr.Button(
+                        "Smazat projekt i složku", size="sm", variant="stop",
+                        elem_classes=["compact-btn", "soft-danger"])
+                    proj_delete_state = gr.Markdown("", elem_classes=["hdr"])
+                    with gr.Row(visible=False) as proj_new_row:
+                        proj_new_tb = gr.Textbox(
+                            placeholder="název nového projektu…",
+                            show_label=False, container=False, scale=3)
+                        btn_proj_create = gr.Button(
+                            "OK", variant="primary", size="sm", scale=1,
+                            elem_classes=["compact-btn"])
 
                 gr.Markdown("<small class='side-h'>💬 CHATY PROJEKTU</small>", elem_classes=["hdr"])
                 chats_radio = gr.Radio(choices=chat_choices(), value=state.session.id,
@@ -1711,51 +2140,68 @@ def build_ui() -> gr.Blocks:
                     btn_history_search = gr.Button("Hledat", size="sm")
                     history_results = gr.Radio(choices=[], show_label=False, container=False)
 
-                gr.Markdown("<small class='side-h'>🔧 AKTIVNÍ CHAT</small>", elem_classes=["hdr"])
-                with gr.Row(elem_classes=["gap"]):
-                    btn_new = gr.Button("+ Nový chat", size="sm", scale=2, elem_classes=["sqsm"])
-                    btn_del_chat = gr.Button("Smaž chat", size="sm", scale=1, elem_classes=["sqsm"])
-                del_state = gr.Markdown("", elem_id="del-state", elem_classes=["hdr"])
-                with gr.Row(elem_classes=["gap"]):
-                    rename_tb = gr.Textbox(placeholder="přejmenovat aktuální…", show_label=False,
-                                           container=False, scale=3)
-                    btn_rename = gr.Button("Uložit", size="sm", scale=1, elem_classes=["sqsm"])
-                with gr.Row(elem_classes=["gap"]):
-                    move_dd = gr.Dropdown(choices=project_choices(), value=_current_chat_project(),
-                                          show_label=False, container=False, scale=3,
-                                          elem_id="move-dd", info=None)
-                    btn_move = gr.Button("přesunout", size="sm", scale=1, elem_classes=["sqsm"])
-
-                with gr.Accordion("Export / import chatu", open=False):
+                with gr.Group(elem_id="active-chat-panel"):
                     with gr.Row(elem_classes=["gap"]):
-                        btn_export_md = gr.Button("Export Markdown", size="sm")
-                        btn_export_jsonl = gr.Button("Export JSONL", size="sm")
-                    export_file = gr.File(label="Připravený export", visible=False,
-                                          interactive=False)
-                    import_file = gr.File(label="Importovat JSONL", file_types=[".jsonl"],
-                                          type="filepath")
-                    btn_import_chat = gr.Button("Importovat jako nový chat", size="sm")
+                        btn_new = gr.Button(
+                            "Nový chat", size="sm", scale=1,
+                            elem_classes=["compact-btn", "chat-new"])
+                        btn_del_chat = gr.Button(
+                            "Smazat", size="sm", scale=1,
+                            elem_classes=["compact-btn", "chat-delete"])
+                    del_state = gr.Markdown("", elem_id="del-state", elem_classes=["hdr"])
+                    rename_tb = gr.Textbox(
+                        placeholder="Přejmenovat a potvrdit Enterem…",
+                        show_label=False, container=False,
+                        elem_id="rename-chat-input")
+                    move_dd = gr.Dropdown(
+                        choices=move_project_choices(), value="",
+                        show_label=False, container=False,
+                        elem_id="move-dd", info=None)
+
+                    with gr.Accordion(
+                            "Export / import", open=False,
+                            elem_classes=["sidebar-section", "info-section"]):
+                        with gr.Row(elem_classes=["gap"]):
+                            btn_export_md = gr.Button(
+                                "Markdown", size="sm", elem_classes=["compact-btn"])
+                            btn_export_jsonl = gr.Button(
+                                "JSONL", size="sm", elem_classes=["compact-btn"])
+                        export_file = gr.File(label="Připravený export", visible=False,
+                                              interactive=False)
+                        import_file = gr.File(label="Importovat JSONL", file_types=[".jsonl"],
+                                              type="filepath")
+                        btn_import_chat = gr.Button(
+                            "Importovat jako nový chat", size="sm",
+                            elem_classes=["compact-btn"])
 
             # ================= HLAVNÍ CHAT =================
             with gr.Column(scale=5, elem_id="main"):
                 chat = gr.Chatbot(value=chat_view(), show_label=False, height=560,
                                   render_markdown=True, elem_id="main-chat")
-                with gr.Row(elem_classes=["gap"]):
-                    msg_in = gr.Textbox(
-                        placeholder="Napiš zprávu…  (Enter / Ctrl+Enter = odeslat, Shift+Enter = nový řádek)",
-                        show_label=False, container=False, lines=1, max_lines=8,
-                        elem_id="msg-in", scale=6)
-                    btn_send = gr.Button("Odeslat", variant="primary", size="sm", min_width=52,
-                                         elem_id="btn-send")
-                    btn_stop_run = gr.Button("Stop", size="sm", min_width=40)
-                files_in = gr.File(label=None, show_label=False, container=False,
-                                   file_count="multiple", file_types=["image"], type="filepath",
-                                   elem_id="files-in")
-                with gr.Row(elem_classes=["gap"]):
-                    btn_retry = gr.Button("Znovu odpovědět", size="sm")
-                    btn_edit_last = gr.Button("Upravit dotaz", size="sm")
-                    btn_undo_round = gr.Button("Vrátit poslední kolo", size="sm")
-                    btn_fork = gr.Button("Nová větev", size="sm")
+                with gr.Row(elem_id="composer-layout", elem_classes=["gap"]):
+                    with gr.Column(scale=6, min_width=0, elem_id="prompt-column"):
+                        msg_in = gr.Textbox(
+                            placeholder="Napiš zprávu…  (Enter / Ctrl+Enter = odeslat, Shift+Enter = nový řádek)",
+                            show_label=False, container=False, lines=1, max_lines=8,
+                            elem_id="msg-in")
+                        with gr.Row(elem_id="prompt-actions", elem_classes=["gap"]):
+                            btn_retry = gr.Button(
+                                "Znovu", size="sm", scale=1, elem_classes=["prompt-action"])
+                            btn_undo_round = gr.Button(
+                                "Vrátit", size="sm", scale=1, elem_classes=["prompt-action"])
+                            btn_fork = gr.Button(
+                                "Větev", size="sm", scale=1, elem_classes=["prompt-action"])
+                    with gr.Column(scale=1, min_width=150, elem_id="composer-side"):
+                        with gr.Row(elem_classes=["gap"]):
+                            btn_send = gr.Button(
+                                "Odeslat", variant="primary", size="sm", scale=1,
+                                elem_id="btn-send")
+                            btn_stop_run = gr.Button("Stop", size="sm", scale=1)
+                        files_in = gr.File(
+                            label=None, show_label=False, container=False,
+                            file_count="multiple", file_types=["image"], type="filepath",
+                            elem_id="files-in")
+                submission_state = gr.State({})
                 with gr.Row(visible=False) as confirm_row:
                     gr.Markdown("⚠️ **Agent čeká na potvrzení akce**", scale=3)
                     btn_yes = gr.Button("Povolit", variant="primary", size="sm", scale=1)
@@ -1782,6 +2228,13 @@ def build_ui() -> gr.Blocks:
                               [proj_dd, proj_new_row, proj_new_tb], queue=True,
                               concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)\
+            .then(memory_info_updates, None,
+                  [mem_g_info, mem_mode_info, mem_p_info], queue=False)
+        btn_proj_delete.click(
+            delete_project_handler, proj_dd,
+            [proj_dd, chat, chats_radio, noproj_radio, status_box,
+             proj_delete_state, move_dd],
+            queue=True, concurrency_id="chat-run", concurrency_limit=1)\
             .then(memory_info_updates, None,
                   [mem_g_info, mem_mode_info, mem_p_info], queue=False)
 
@@ -1818,10 +2271,10 @@ def build_ui() -> gr.Blocks:
         btn_del_chat.click(delete_current_chat, None,
                            [chat, chats_radio, noproj_radio, status_box, del_state], queue=True,
                            concurrency_id="chat-run", concurrency_limit=1)
-        btn_rename.click(rename_session, rename_tb,
+        rename_tb.submit(rename_session, rename_tb,
                          [rename_tb, chats_radio, noproj_radio, del_state], queue=False)
-        btn_move.click(move_chat_to, move_dd,
-                       [chats_radio, noproj_radio, del_state, proj_dd], queue=True,
+        move_dd.input(move_chat_to, move_dd,
+                       [chats_radio, noproj_radio, del_state, proj_dd, move_dd], queue=True,
                        concurrency_id="chat-run", concurrency_limit=1)\
             .then(memory_info_updates, None,
                   [mem_g_info, mem_mode_info, mem_p_info], queue=False)
@@ -1841,15 +2294,19 @@ def build_ui() -> gr.Blocks:
                         None, mem_p_info, queue=False)
 
         # chat zprávy
-        btn_send.click(send_message, [msg_in, files_in, chat],
-                       [chat, confirm_row, status_box], queue=True,
-                       concurrency_id="chat-run", concurrency_limit=1)\
-            .then(_clear_inputs, None, [msg_in, files_in])\
+        btn_send.click(
+            prepare_submission, [msg_in, files_in],
+            [submission_state, chat, msg_in, files_in], queue=False)\
+            .then(run_prepared_submission, [submission_state, chat],
+                  [chat, confirm_row, status_box], queue=True,
+                  concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
-        msg_in.submit(send_message, [msg_in, files_in, chat],
-                      [chat, confirm_row, status_box], queue=True,
-                      concurrency_id="chat-run", concurrency_limit=1)\
-            .then(_clear_inputs, None, [msg_in, files_in])\
+        msg_in.submit(
+            prepare_submission, [msg_in, files_in],
+            [submission_state, chat, msg_in, files_in], queue=False)\
+            .then(run_prepared_submission, [submission_state, chat],
+                  [chat, confirm_row, status_box], queue=True,
+                  concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         btn_yes.click(confirm_yes, chat, [chat, confirm_row, status_box], queue=True,
                       concurrency_id="chat-run", concurrency_limit=1)
@@ -1858,9 +2315,6 @@ def build_ui() -> gr.Blocks:
         btn_stop_run.click(stop_run, chat, [chat, confirm_row, status_box], queue=False)
         btn_retry.click(retry_last_answer, None, [chat, confirm_row, status_box], queue=True,
                         concurrency_id="chat-run", concurrency_limit=1)
-        btn_edit_last.click(edit_last_question, None,
-                            [chat, msg_in, confirm_row, status_box], queue=True,
-                            concurrency_id="chat-run", concurrency_limit=1)
         btn_undo_round.click(undo_last_round, None,
                              [chat, confirm_row, status_box], queue=True,
                              concurrency_id="chat-run", concurrency_limit=1)
@@ -1881,6 +2335,9 @@ def build_ui() -> gr.Blocks:
                                  [process_status, btn_stop_processes], queue=False)
         btn_clear_pins.click(clear_pinned_context, None,
                              [context_info, btn_clear_pins], queue=False)
+        btn_pin_file.click(pin_context_file_dialog, None,
+                           [context_info, btn_clear_pins], queue=False)
+        btn_open_skills.click(open_skills_folder, None, None, queue=False)
         btn_export_research.click(export_research_ledger, None,
                                   research_export_file, queue=False)
         btn_export_research_docx.click(
@@ -1889,7 +2346,9 @@ def build_ui() -> gr.Blocks:
         btn_export_research_pdf.click(
             lambda: export_research_synthesis("pdf"), None,
             research_export_file, queue=False)
-        model_dd.input(change_model, model_dd, [status_box, model_dd])
+        model_dd.input(change_model, model_dd, [status_box, model_dd, kv_cache_dd])
+        kv_cache_dd.input(
+            change_kv_cache, kv_cache_dd, [status_box, model_dd, kv_cache_dd])
         work_mode_dd.change(
             change_work_mode, work_mode_dd,
             [settings_info, changes_panel, process_panel, research_panel,
@@ -1897,9 +2356,9 @@ def build_ui() -> gr.Blocks:
             concurrency_id="chat-run", concurrency_limit=1)
         autonomy_dd.change(change_autonomy, autonomy_dd, settings_info)
         thinking_dd.change(change_thinking, thinking_dd, settings_info)
-        btn_start.click(lambda: server_cmd("start"), None, [status_box, model_dd])
-        btn_stop.click(lambda: server_cmd("stop"), None, [status_box, model_dd])
-        btn_refresh.click(lambda: server_cmd("restart"), None, [status_box, model_dd])
+        btn_start.click(lambda: server_cmd("start"), None, [status_box, model_dd, kv_cache_dd])
+        btn_stop.click(lambda: server_cmd("stop"), None, [status_box, model_dd, kv_cache_dd])
+        btn_refresh.click(lambda: server_cmd("restart"), None, [status_box, model_dd, kv_cache_dd])
 
         gr.Markdown("<small>🛡️ FAILSAFE: myš do levého horního rohu přeruší GUI akce · "
                     "čtecí příkazy bez potvrzení · vše lokálně</small>", elem_classes=["hdr"],
@@ -1954,7 +2413,8 @@ def build_ui() -> gr.Blocks:
 
         # živý status (⏳ načítám model → 🟢) každých 5 s
         if hasattr(gr, "Timer"):
-            gr.Timer(5.0).tick(refresh_runtime_controls, outputs=[status_box, model_dd])
+            gr.Timer(5.0).tick(
+                refresh_runtime_controls, outputs=[status_box, model_dd, kv_cache_dd])
             gr.Timer(2.0).tick(refresh_task_changes, outputs=[task_changes, btn_undo_task])
             gr.Timer(2.0).tick(
                 refresh_resumable_task,
@@ -1962,6 +2422,7 @@ def build_ui() -> gr.Blocks:
             gr.Timer(2.0).tick(refresh_processes, outputs=[process_status, btn_stop_processes])
             gr.Timer(5.0).tick(refresh_context_inspector,
                                outputs=[context_info, btn_clear_pins])
+            gr.Timer(10.0).tick(skills_info_text, outputs=skills_info)
             gr.Timer(2.0).tick(research_status_text, outputs=research_status)
     return ui
 

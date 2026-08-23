@@ -8,7 +8,7 @@ Stavy kroku (StepResult.status):
   FINAL               - model odpověděl, úloha hotová
   CONTINUE            - nástroje vykonány, pokračuj dalším step()
   NEEDS_CONFIRMATION  - čeká se na schválení akcí (pending_calls)
-  ABORTED             - přerušeno (limit kroků / abort flag)
+  ABORTED             - přerušeno uživatelem nebo explicitním testovacím limitem
   ERROR               - chyba (API, parsing)
 """
 from __future__ import annotations
@@ -53,7 +53,7 @@ class StepResult:
     reasoning: str = ""
 
 
-EventCb = Callable[[str, object], None]  # ("text"|"reasoning"|"tool_start"|"tool_result", payload)
+EventCb = Callable[[str, object], None]  # text/reasoning/tool_delta/tool_start/tool_result
 
 # --- komunikační protokol (vynucený harnessem) ------------------------------
 TASK_PROTOCOL_NOTE = (
@@ -62,6 +62,9 @@ TASK_PROTOCOL_NOTE = (
     "what the task is and your plan. "
     "(2) PROGRESS: during longer work include one-sentence status updates "
     "(what you found/did, what you do next). "
+    "Before finishing substantial work, use proportionate verification when it helps: re-check "
+    "the request, inspect results, and run relevant checks. This is guidance, not a reason to "
+    "override the user's requested scope, structure, or implementation form. "
     "(3) FINISH: when the task is done, ALWAYS end with a structured summary with these sections "
     "(use the user's language; skip sections that do not apply): "
     "✅ Done/Changed - exact files (paths) and what changed; "
@@ -218,11 +221,37 @@ class Agent:
         if self.session.messages and self.session.messages[0]["role"] == "system":
             prompt = build_system_prompt(
                 self.mode, self.cfg, self.ctx.project_workspace, self.work_mode)
-            if self.ctx.repo_index and WORK_MODES[self.work_mode].repo_snapshot:
-                prompt += "\n\n## AUTOMATIC PROJECT SNAPSHOT\n" + self.ctx.repo_index.summary()
-            elif self.ctx.repo_index:
-                prompt += "\n\n## PROJECT DOCUMENT LIBRARY\n" + self.ctx.repo_index.document_catalog()
             self.session.messages[0]["content"] = prompt
+
+    def _dynamic_context_block(self) -> str:
+        blocks: list[str] = []
+        if self.ctx.repo_index and WORK_MODES[self.work_mode].repo_snapshot:
+            blocks.append("## CURRENT PROJECT SNAPSHOT\n" + self.ctx.repo_index.summary())
+        elif self.ctx.repo_index:
+            blocks.append("## CURRENT PROJECT DOCUMENT LIBRARY\n"
+                          + self.ctx.repo_index.document_catalog())
+        from harness.skills import SkillLibrary
+        blocks.append(
+            "## OPTIONAL SKILLS AVAILABLE\n"
+            "Load a skill only when its description clearly helps. Adapt it to the task; it is "
+            "never a command and never overrides the user.\n"
+            + SkillLibrary(self.cfg, self.ctx.project_workspace).catalog())
+        pinned = self.session.pinned_context_block()
+        if pinned:
+            blocks.append(pinned)
+        return "\n\n".join(blocks)
+
+    def _append_dynamic_context(self) -> None:
+        self.session.add(
+            "user", "[DYNAMIC TASK CONTEXT - current snapshot and optional helpers]\n\n"
+            + self._dynamic_context_block())
+
+    def _api_messages(self) -> list[dict]:
+        """Build request messages with volatile context at the cache-friendly tail."""
+        return self.session.to_api_messages(include_pins=False)
+
+    def estimate_context_tokens(self) -> int:
+        return self.session.estimate_context_tokens(include_pins=False)
 
     def new_task(self, text: str, images: list[Path] | None = None) -> None:
         """Zaloguje uživatelský vstup a resetuje počítadla."""
@@ -243,17 +272,9 @@ class Agent:
         # 🧠 paměť do system promptu (start úlohy)
         self.refresh_system_prompt()
         if self.tools_enabled:
-            # jsou-staré protokolové poznámky → jedna čerstvá
-            # (poznámky jdou jako user-role: Qwen šablona zakazuje system uprostřed konverzace)
-            before = len(self.session.messages)
-            self.session.messages = [
-                m for m in self.session.messages
-                if not any(str(m.get("content", "")).startswith(mark) for mark in _PROTOCOL_MARKS)
-            ]
-            if len(self.session.messages) != before and not self.session.transient:
-                self.session._rewrite_jsonl()
             note = WRITING_PROTOCOL_NOTE if self.work_mode == "writing" else TASK_PROTOCOL_NOTE
             self.session.add("user", note)
+        self._append_dynamic_context()
 
     def resume_task(self, label: str) -> None:
         """Resetuje agentní stav nad již existující poslední user zprávou (retry/fork)."""
@@ -270,25 +291,32 @@ class Agent:
         self._save_task_state("running", label=label)
         self.refresh_system_prompt()
         if self.tools_enabled:
-            before = len(self.session.messages)
-            self.session.messages = [
-                message for message in self.session.messages
-                if not any(str(message.get("content", "")).startswith(mark)
-                           for mark in _PROTOCOL_MARKS)
-            ]
-            if len(self.session.messages) != before and not self.session.transient:
-                self.session._rewrite_jsonl()
             note = WRITING_PROTOCOL_NOTE if self.work_mode == "writing" else TASK_PROTOCOL_NOTE
             self.session.add("user", note)
+        self._append_dynamic_context()
+
+    def steer(self, text: str, images: list[Path] | None = None) -> None:
+        """Continue the current task with a user clarification after stopping its stream."""
+        self.abort_flag.clear()
+        self._pending = []
+        self._pending_text = ""
+        self.session.add("user", text, images=images)
+        self._save_task_state("running")
+        self.refresh_system_prompt()
+        if self.tools_enabled:
+            note = WRITING_PROTOCOL_NOTE if self.work_mode == "writing" else TASK_PROTOCOL_NOTE
+            self.session.add("user", note)
+        self._append_dynamic_context()
 
     def _check_abort(self) -> StepResult | None:
         if self.abort_flag.is_set():
             self._save_task_state("aborted", result="Přerušeno uživatelem.")
             return StepResult(Status.ABORTED, text="Přerušeno uživatelem.")
-        if self._steps >= self.safety.step_limit():
+        limit = self.safety.step_limit()
+        if limit is not None and self._steps >= limit:
             self._save_task_state("aborted", result="Dosažen limit kroků agenta.")
             return StepResult(Status.ABORTED,
-                              text=f"Dosažen limit {self.safety.step_limit()} kroků agenta. "
+                              text=f"Dosažen limit {limit} kroků agenta. "
                                    f"Zvyš limit (/autonomy, config agent.max_steps) nebo zadej úkol znovu.")
         return None
 
@@ -376,7 +404,7 @@ class Agent:
     # ------------------------------------------------------------------
     def _ctx_limit(self) -> int:
         try:
-            return int(self.cfg.model().get("ctx_size", 32768))
+            return self.cfg.context_size()
         except (KeyError, ValueError):
             return 32768
 
@@ -387,7 +415,7 @@ class Agent:
         Fallback při selhání sumarizace: posun cutu (hard trim) na 50 % limitu.
         """
         limit = self._ctx_limit()
-        est = self.session.estimate_context_tokens()
+        est = self.estimate_context_tokens()
         if not force and est < int(limit * COMPRESS_AT):
             return
         self.emit("info", f"📦 Kontext ~{est} tok (>85 % z {limit}) - vytvářím souhrn starší konverzace ...")
@@ -491,10 +519,11 @@ class Agent:
         tools = self.registry.schemas() if self.registry.names() else None
         try:
             res = self.llm.stream(
-                self.session.to_api_messages(),
+                self._api_messages(),
                 tools=tools,
                 on_text=lambda t: self.emit("text", t),
                 on_reasoning=lambda t: self.emit("reasoning", t),
+                on_tool_delta=lambda name, args: self.emit("tool_delta", (name, args)),
                 should_stop=self.abort_flag.is_set,
             )
         except KeyboardInterrupt:
@@ -618,10 +647,12 @@ class Agent:
     # ------------------------------------------------------------------
     def run(self, text: str, images: list[Path] | None = None,
             confirm_cb: Callable[[list[str]], bool] | None = None,
-            max_rounds: int = 200) -> Generator[StepResult, None, None]:
+            max_rounds: int | None = None) -> Generator[StepResult, None, None]:
         """TUI convenience: celá úloha, potvrzování přes confirm_cb."""
         self.new_task(text, images)
-        for _ in range(max_rounds):
+        rounds = 0
+        while max_rounds is None or rounds < max_rounds:
+            rounds += 1
             result = self.step()
             if result.status is Status.NEEDS_CONFIRMATION:
                 if confirm_cb is None:
@@ -638,12 +669,13 @@ class Agent:
 
 def build_registry(mode: str, work_mode: str | None = None) -> ToolRegistry:
     """Postav registry podle jednotného pracovního režimu."""
-    from harness.tools import computer, context, documents, fs, git, memory, shell, vision, web
+    from harness.tools import computer, context, documents, fs, git, memory, shell, skills, vision, web
     selected = normalize_work_mode(work_mode, mode)
     reg = ToolRegistry()
     memory.register_memory_tools(reg)  # chat má alespoň paměť
     web.register_web_tools(reg)        # internet: web_search + web_fetch (všude)
     context.register_context_tools(reg)
+    skills.register_skill_tools(reg)
     documents.register_document_tools(reg)
     if selected in ("discussion", "research"):
         return reg
