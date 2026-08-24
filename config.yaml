@@ -36,7 +36,12 @@ models:
     ctx_size: 49152
     kv_cache: "q8_0"
     kv_cache_profiles:
-      q8_0: {label: "8-bit - context 48k (borderline operation)", label_cs: "8 bit - kontext 48k (hraniční provoz)", ctx_size: 49152, min_vram_gb: 15}
+      q8_0: {label: "8-bit - context 48k (16 GB borderline)", label_cs: "8 bit - kontext 48k (16 GB hraniční)", ctx_size: 49152, min_vram_gb: 15}
+      q8_0_32k: {cache_type: q8_0, label: "8-bit - context 32k (16 GB safe)", label_cs: "8 bit - kontext 32k (16 GB bezpečné)", ctx_size: 32768, min_vram_gb: 14}
+      q8_0_128k: {cache_type: q8_0, label: "8-bit - context 128k (24 GB)", label_cs: "8 bit - kontext 128k (24 GB)", ctx_size: 131072, min_vram_gb: 20}
+      f16_96k: {cache_type: f16, label: "16-bit - context 96k (24 GB, max precision)", label_cs: "16 bit - kontext 96k (24 GB, max přesnost)", ctx_size: 98304, min_vram_gb: 23}
+      q8_0_256k: {cache_type: q8_0, label: "8-bit - context 256k (32 GB)", label_cs: "8 bit - kontext 256k (32 GB)", ctx_size: 262144, min_vram_gb: 26}
+      f16_192k: {cache_type: f16, label: "16-bit - context 192k (32 GB, borderline)", label_cs: "16 bit - kontext 192k (32 GB, hraniční)", ctx_size: 196608, min_vram_gb: 31}
     server_args: ["-fa", "on"]
   q5:
     alias: "Qwen3.8-27B Q5_K_M (19.8 GB, high quality)"

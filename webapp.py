@@ -989,12 +989,25 @@ def change_model(key: str):
 
 
 def kv_cache_choices(key: str) -> list[tuple[str, str]]:
+    """Volby KV cache: jen profily, které se vejdou na kartu (dle effective VRAM).
+
+    Aktuální profil zůstane v nabídce viditelný i když se nevejde, aby
+    dropdown nezevrátil prázdný; změna pak vyvolá varování o přetečení.
+    """
+    from harness.gpu import effective_vram_gb, fits
     from harness.i18n import get_language
     suffix = "cs" if get_language() == "cs" else "en"
-    return [
-        (str(profile.get(f"label_{suffix}") or profile.get("label") or mode), mode)
-        for mode, profile in cfg.kv_cache_profiles(key).items()
-    ]
+    vram = effective_vram_gb(cfg)
+    current = cfg.kv_cache_mode(key)
+    out = []
+    for mode, profile in cfg.kv_cache_profiles(key).items():
+        if (vram is not None and mode != current
+                and profile.get("min_vram_gb") is not None
+                and float(profile["min_vram_gb"]) > vram):
+            continue  # nevejde se na kartu - nenabízet
+        label = profile.get(f"label_{suffix}") or profile.get("label") or mode
+        out.append((str(label), mode))
+    return out
 
 
 def kv_cache_control_update(key: str | None = None, *, busy: bool = False):

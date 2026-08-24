@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.4",
-          "viditelná verze aplikace odpovídá instalátoru 1.3.4")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.5",
+          "viditelná verze aplikace odpovídá instalátoru 1.3.5")
 
 
 def test_memory_layers() -> None:
@@ -394,6 +394,12 @@ def test_gpu_autofit() -> None:
           "setup pro 16 GB stahuje jen IQ3_S (hraniční provoz)")
     check(best_fit(cfg, 16.0) == ("q3", "q8_0"),
           "auto-fit pro 16 GB vybere IQ3_S")
+    q3_profiles = cfg.kv_cache_profiles("q3")
+    check(set(q3_profiles) == {"q8_0", "q8_0_32k", "q8_0_128k", "f16_96k",
+                               "q8_0_256k", "f16_192k"},
+          "q3 má KV varianty pro 16/24/32 GB karty")
+    check(all("min_vram_gb" in p for p in q3_profiles.values()),
+          "každý q3 profil má min_vram_gb")
     check(set(download_keys(cfg, 32.0)) == {"q3", "q4", "q5", "ornith_q5"},
           "setup pro 32 GB stahuje vše")
     check(best_fit(cfg, 32.0) == ("q5", "q8_0"),
@@ -1772,9 +1778,9 @@ def test_user_manuals() -> None:
 
     expected = {
         "QwenHarness-Manual-EN.pdf": (
-            15, ("1.3.4", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
+            15, ("1.3.5", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
         "QwenHarness-Manual-CS.pdf": (
-            10, ("1.3.4", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
+            10, ("1.3.5", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():
         # dev strom: output/pdf; instalovaná kopie: docs (tam je umísťuje instalátor)
