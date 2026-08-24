@@ -36,10 +36,11 @@ echo ============================================================
 if errorlevel 1 ( echo [ERROR] llama.cpp download failed. & pause & exit /b 1 )
 
 echo ============================================================
-echo  [4/4] Qwen Q4 + Q5 + Ornith Q5 models + vision (~59 GiB)
-echo         (may take a long time depending on your connection)
+echo  [4/4] Qwen Q4 + Q5 + Ornith Q5 models + vision
+echo         (auto: only models that fit the detected GPU VRAM;
+echo          may take a long time depending on your connection)
 echo ============================================================
-".venv\Scripts\python.exe" scripts\download_models.py --model all
+".venv\Scripts\python.exe" scripts\download_models.py --model auto
 if errorlevel 1 ( echo [ERROR] Model download failed - run again, only missing files are re-downloaded. & pause & exit /b 1 )
 
 echo.

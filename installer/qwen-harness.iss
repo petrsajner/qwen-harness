@@ -10,7 +10,7 @@
 ; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
 ; (používá installer\release.bat s verzí z installer\version.txt)
 #ifndef MyAppVersion
-#define MyAppVersion "1.3.2"
+#define MyAppVersion "1.3.3"
 #endif
 
 #define MyAppName "Qwen3.8-27B Harness"
@@ -45,14 +45,14 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "cze"; MessagesFile: "compiler:Languages\Czech.isl"
 
 [CustomMessages]
-en.SetupEnvMenu=Set up environment and models (~59 GiB)
-cze.SetupEnvMenu=Instalace prostředí a modelů (59 GiB)
-en.RunSetupDesc=Set up the environment and download models (~59 GiB, required to run)
-cze.RunSetupDesc=Nainstalovat prostředí a stáhnout modely (~59 GiB, nutné pro provoz)
+en.SetupEnvMenu=Set up environment and models (up to ~59 GiB)
+cze.SetupEnvMenu=Instalace prostředí a modelů (až 59 GiB)
+en.RunSetupDesc=Set up the environment and download models (up to ~59 GiB, only what fits your GPU, required to run)
+cze.RunSetupDesc=Nainstalovat prostředí a stáhnout modely (až 59 GiB, jen co se vejde na GPU, nutné pro provoz)
 
 [Messages]
-en.WelcomeLabel2=This wizard will install [name/ver], a local AI harness for Qwen and Ornith (RTX 5090).%n%nAfter installation, the environment and models (~59 GiB) will download automatically on first launch.%n%nContinue?
-cze.WelcomeLabel2=Tento pruvodce nainstaluje [name/ver] - lokalni AI harness pro Qwen a Ornith (RTX 5090).%n%nPo instalaci se pri prvnim spusteni automaticky stahne prostredi a modely (~59 GiB).%n%nPOKRACOVAT?
+en.WelcomeLabel2=This wizard will install [name/ver], a local AI harness for Qwen and Ornith.%n%nAfter installation, the environment and models (up to ~59 GiB, only what fits your GPU) will download automatically on first launch.%n%nContinue?
+cze.WelcomeLabel2=Tento pruvodce nainstaluje [name/ver] - lokalni AI harness pro Qwen a Ornith.%n%nPo instalaci se pri prvnim spusteni automaticky stahne prostredi a modely (až 59 GiB, jen co se vejde na GPU).%n%nPOKRACOVAT?
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"

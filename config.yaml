@@ -22,8 +22,21 @@ models:
     ctx_size: 131072
     kv_cache: "f16"
     kv_cache_profiles:
-      f16: {label: "16-bit - more precise, context 128k", label_cs: "16 bit - přesnější, kontext 128k", ctx_size: 131072}
-      q8_0: {label: "8-bit - larger context 256k", label_cs: "8 bit - větší kontext 256k", ctx_size: 262144}
+      f16: {label: "16-bit - more precise, context 128k", label_cs: "16 bit - přesnější, kontext 128k", ctx_size: 131072, min_vram_gb: 30}
+      q8_0: {label: "8-bit - larger context 256k", label_cs: "8 bit - větší kontext 256k", ctx_size: 262144, min_vram_gb: 30}
+      q8_0_compact: {cache_type: q8_0, label: "8-bit - compact for 24 GB, context 96k", label_cs: "8 bit - kompaktní pro 24 GB, kontext 96k", ctx_size: 98304, min_vram_gb: 23}
+      f16_compact: {cache_type: f16, label: "16-bit - compact for 24 GB, context 64k", label_cs: "16 bit - kompaktní pro 24 GB, kontext 64k", ctx_size: 65536, min_vram_gb: 24}
+    server_args: ["-fa", "on"]
+  q3:
+    alias: "Qwen3.8-27B IQ3_S (12.0 GB, borderline quality - for 16 GB GPUs)"
+    status_label: "Qwen 3.8 27B · IQ3_S"
+    repo: "unsloth/Qwen3.8-27B-GGUF"
+    file: "Qwen3.8-27B-UD-IQ3_S.gguf"
+    mmproj: "mmproj-F16.gguf"
+    ctx_size: 49152
+    kv_cache: "q8_0"
+    kv_cache_profiles:
+      q8_0: {label: "8-bit - context 48k (borderline operation)", label_cs: "8 bit - kontext 48k (hraniční provoz)", ctx_size: 49152, min_vram_gb: 15}
     server_args: ["-fa", "on"]
   q5:
     alias: "Qwen3.8-27B Q5_K_M (19.8 GB, high quality)"
@@ -34,8 +47,8 @@ models:
     ctx_size: 98304
     kv_cache: "q8_0"
     kv_cache_profiles:
-      f16: {label: "16-bit - more precise, context 96k", label_cs: "16 bit - přesnější, kontext 96k", ctx_size: 98304}
-      q8_0: {label: "8-bit - larger context 192k", label_cs: "8 bit - větší kontext 192k", ctx_size: 196608}
+      f16: {label: "16-bit - more precise, context 96k", label_cs: "16 bit - přesnější, kontext 96k", ctx_size: 98304, min_vram_gb: 24}
+      q8_0: {label: "8-bit - larger context 192k", label_cs: "8 bit - větší kontext 192k", ctx_size: 196608, min_vram_gb: 30}
     server_args: ["-fa", "on"]
   ornith_q5:
     alias: "Ornith 1.5 35B-A3B Abliterated Q5 (23.0 GB, reasoning, context 128k)"
@@ -48,7 +61,7 @@ models:
     ctx_size: 131072       # ověřeno na RTX 5090 včetně vision, cca 2.8 GiB rezerva
     kv_cache: "q8_0"
     kv_cache_profiles:
-      q8_0: {label: "8-bit - solid, context 128k", label_cs: "8 bit - pevné, kontext 128k", ctx_size: 131072}
+      q8_0: {label: "8-bit - solid, context 128k", label_cs: "8 bit - pevné, kontext 128k", ctx_size: 131072, min_vram_gb: 30}
     server_args: ["-fa", "on"]
     supports_reasoning_effort: false
     sampling:
@@ -57,6 +70,12 @@ models:
         top_p: 0.95
         top_k: 20
         presence_penalty: 0.0
+
+# Grafická karta: auto = detekce přes nvidia-smi; číslo (24 / 32) přepisuje
+# detekci. Podle VRAM se při startu i v setupu vybírá model+KV profil, který
+# se vejde (min_vram_gb v profilech), a stahují se jen modely pro danou kartu.
+hardware:
+  vram_gb: auto
 
 default_model: q5           # hlavní profil; výchozí KV Q8 = kontext 192k
 

@@ -58,6 +58,16 @@ def _load_ui_state() -> dict:
         return {}
 
 
+def _load_gpu_choice(cfg) -> object:
+    """"'auto" nebo číslo - hodnota pro dropdown v Nastavení."""
+    value = (cfg.data.get("hardware", {}) or {}).get("vram_gb", "auto")
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str) and value.replace(".", "").isdigit():
+        return float(value) if "." in value else int(value)
+    return "auto"
+
+
 def _save_ui_state(data: dict) -> None:
     import json
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -79,6 +89,11 @@ class AppState:
         saved = _load_ui_state()
         self.language = set_language(saved.get("language") or detect_language(ROOT))
         self.ui_reload = threading.Event()
+        # GPU přepínač z UI má přednost; jinak hardware.vram_gb z configu / auto
+        saved_gpu = saved.get("vram_gb")
+        if saved_gpu is not None:
+            cfg.data.setdefault("hardware", {})["vram_gb"] = saved_gpu
+        self.gpu_choice = _load_gpu_choice(cfg)
         self.model_key = saved.get("model") or cfg.model_key()
         if self.model_key not in cfg.data["models"]:
             self.model_key = cfg.model_key()
@@ -90,6 +105,23 @@ class AppState:
         self.kv_cache_modes = {
             key: cfg.kv_cache_mode(key) for key in cfg.data["models"]
         }
+        # auto-fit: zjisti VRAM (hardware.vram_gb > nvidia-smi) a pokud výchozí
+        # kombinace model+KV nevejde, přepni na největší kombinaci, která vejde
+        from harness.gpu import best_fit, effective_vram_gb, fits
+        self.vram_gb = effective_vram_gb(cfg)
+        self.autofit_applied = False
+        if self.vram_gb and not fits(cfg, self.model_key,
+                                     cfg.kv_cache_mode(self.model_key), self.vram_gb):
+            choice = best_fit(cfg, self.vram_gb)
+            if choice:
+                fit_key, fit_profile = choice
+                cfg.set_kv_cache_mode(fit_key, fit_profile)
+                self.model_key = fit_key
+                self.kv_cache_modes[fit_key] = fit_profile
+                self.autofit_applied = True
+                print(f"[AUTOFIT] {self.vram_gb} GB VRAM -> {fit_key}/{fit_profile}")
+            else:
+                print(f"[AUTOFIT] WARNING: no profile fits {self.vram_gb} GB VRAM")
         cfg.data["default_model"] = self.model_key  # agent podle toho zná ctx limit
         legacy_mode = saved.get("mode") or cfg.agent.get("mode", "agent")
         self.work_mode = normalize_work_mode(
@@ -170,6 +202,7 @@ class AppState:
             "thinking": bool(self.thinking),
             "reasoning_effort": self.reasoning_effort,
             "language": self.language,
+            "vram_gb": getattr(self, "gpu_choice", None),
             "session_id": getattr(self, "session", None).id if getattr(self, "session", None) else None,
         })
 
@@ -894,7 +927,62 @@ def _model_switch_succeeded(key: str) -> None:
     state.save_ui_state()
 
 
+def _warn_if_not_fitting(model_key: str, profile_key: str | None = None) -> None:
+    """Toast varování, když kombinace model+KV přeteče detekovanou VRAM (pouze upozornění)."""
+    from harness.gpu import effective_vram_gb, fits, profile_min_vram
+    vram = effective_vram_gb(cfg)
+    if vram is None:
+        return
+    profile = profile_key or cfg.kv_cache_mode(model_key)
+    if fits(cfg, model_key, profile, vram):
+        return
+    need = profile_min_vram(cfg.kv_cache_profiles(model_key).get(profile, {}))
+    gr.Warning(t("⚠ {model} needs ~{need} GB VRAM — the GPU has {vram} GB, "
+                 "it will likely run out of memory",
+                 model=model_key, need=need, vram=vram))
+
+
+def gpu_setting_choices() -> list[tuple[str, object]]:
+    return [(t("Auto (detect)"), "auto"), ("16 GB", 16), ("24 GB", 24), ("32 GB", 32)]
+
+
+def _current_gpu_choice():
+    """Aktuální volba přepínače: 'auto' nebo číslo (musí sedět na choice value)."""
+    value = (cfg.data.get("hardware", {}) or {}).get("vram_gb", "auto")
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str) and value.replace(".", "").isdigit():
+        return float(value) if "." in value else int(value)
+    return "auto"
+
+
+def change_gpu_setting(value):
+    """Přepínač GPU v Nastavení: auto/16/24/32 - uloží a hned přepne model dle fit."""
+    from harness.gpu import best_fit, effective_vram_gb, fits
+    state.gpu_choice = value if value == "auto" else float(value)
+    cfg.data.setdefault("hardware", {})["vram_gb"] = state.gpu_choice
+    state.vram_gb = effective_vram_gb(cfg)
+    state.save_ui_state()
+    if state.vram_gb and not fits(cfg, state.model_key,
+                                  cfg.kv_cache_mode(state.model_key), state.vram_gb):
+        choice = best_fit(cfg, state.vram_gb)
+        if choice:
+            fit_key, fit_profile = choice
+            cfg.set_kv_cache_mode(fit_key, fit_profile)
+            state.kv_cache_modes[fit_key] = fit_profile
+            gr.Info(t("⚡ GPU set to {vram} GB — switching to {model} ({profile})",
+                      vram=state.vram_gb, model=fit_key, profile=fit_profile))
+            if fit_key != state.model_key:
+                state.model_switch.request(fit_key, on_success=_model_switch_succeeded)
+            state.autofit_applied = True
+    else:
+        state.autofit_applied = False
+        gr.Info(t("✅ GPU setting saved ({vram})", vram=state.gpu_choice))
+    return refresh_runtime_controls()
+
+
 def change_model(key: str):
+    _warn_if_not_fitting(key)
     if not state.model_switch.request(key, on_success=_model_switch_succeeded):
         gr.Info(t("A model is already loading; wait for the current operation to finish."))
     return refresh_runtime_controls()
@@ -921,6 +1009,7 @@ def kv_cache_control_update(key: str | None = None, *, busy: bool = False):
 
 def change_kv_cache(mode: str):
     key = state.model_key
+    _warn_if_not_fitting(key, mode)
     try:
         cfg.set_kv_cache_mode(key, mode)
     except ValueError as exc:
@@ -1493,6 +1582,8 @@ def refresh_status():
     except Exception:
         line3 = t("📊 Chat context: —")
     _check_ctx_warning(pct)
+    if getattr(state, "autofit_applied", False):
+        line1 = t("⚡ Auto-fit for a {vram} GB GPU", vram=state.vram_gb) + "<br>" + line1
     return f"{line1}<br>{line2}<br>{line3}"
 
 
@@ -2179,6 +2270,9 @@ def build_ui() -> gr.Blocks:
                     lang_dd = gr.Dropdown(
                         choices=language_choices(), value=get_language(),
                         label=t("Language"))
+                    gpu_dd = gr.Dropdown(
+                        choices=gpu_setting_choices(), value=state.gpu_choice,
+                        label=t("GPU (VRAM)"), info=None)
                     settings_info = gr.Markdown("")
                     gr.Markdown(f"<small class='side-h'>{t('🧠 MEMORY')}</small>", elem_classes=["hdr"])
                     gr.Markdown(t("The model reads memory on every task and after compression; "
@@ -2457,6 +2551,8 @@ def build_ui() -> gr.Blocks:
         model_dd.input(change_model, model_dd, [status_box, model_dd, kv_cache_dd])
         kv_cache_dd.input(
             change_kv_cache, kv_cache_dd, [status_box, model_dd, kv_cache_dd])
+        gpu_dd.change(change_gpu_setting, gpu_dd,
+                      [status_box, model_dd, kv_cache_dd])
         work_mode_dd.change(
             change_work_mode, work_mode_dd,
             [settings_info, changes_panel, process_panel, research_panel,

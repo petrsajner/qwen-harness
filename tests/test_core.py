@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.2",
-          "viditelná verze aplikace odpovídá instalátoru 1.3.2")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.3",
+          "viditelná verze aplikace odpovídá instalátoru 1.3.3")
 
 
 def test_memory_layers() -> None:
@@ -365,6 +365,45 @@ def test_tools_fs_shell() -> None:
               f"schemas pro izolovanou sadu 12 nástrojů ({len(schemas)})")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_gpu_autofit() -> None:
+    print("[gpu auto-fit]")
+    from copy import deepcopy
+    from harness.config import DEFAULTS, Config
+    from harness.gpu import (best_fit, download_keys, effective_vram_gb, fits,
+                             fitting_profiles)
+
+    cfg = Config(deepcopy(DEFAULTS), root=ROOT)
+    check(effective_vram_gb(cfg) is None or effective_vram_gb(cfg) > 0,
+          "effective_vram_gb vrací číslo nebo None (dle configu/detekce)")
+    # ruční přepínač v configu má přednost před detekcí
+    cfg.data["hardware"] = {"vram_gb": 24}
+    check(effective_vram_gb(cfg) == 24.0, "hardware.vram_gb přepisuje detekci")
+    check(fits(cfg, "q4", "q8_0_compact", 24.0), "kompaktní profil se vejde na 24 GB")
+    check(fits(cfg, "q4", "f16_compact", 24.0), "F16 kompaktní profil pro 24 GB existuje")
+    check(not fits(cfg, "q5", "q8_0", 24.0), "Q5 s 192k kontextem se na 24 GB nevejde")
+    choice = best_fit(cfg, 24.0)
+    check(choice == ("q5", "f16") or choice == ("q4", "q8_0_compact"),
+          f"auto-fit pro 24 GB vybírá proveditelnou kombinaci ({choice})")
+    check(set(fitting_profiles(cfg, "ornith_q5", 24.0)) == set(),
+          "Ornith na 24 GB nemá žádný profil")
+    check(set(download_keys(cfg, 24.0)) == {"q3", "q4", "q5"},
+          "setup pro 24 GB stahuje jen modely, které se vejdou")
+    check(set(download_keys(cfg, 16.0)) == {"q3"},
+          "setup pro 16 GB stahuje jen IQ3_S (hraniční provoz)")
+    check(best_fit(cfg, 16.0) == ("q3", "q8_0"),
+          "auto-fit pro 16 GB vybere IQ3_S")
+    check(set(download_keys(cfg, 32.0)) == {"q3", "q4", "q5", "ornith_q5"},
+          "setup pro 32 GB stahuje vše")
+    check(best_fit(cfg, 32.0) == ("q5", "q8_0"),
+          "na 32 GB zůstává výchozí Q5 s Q8 KV")
+    # kompaktní profil používá cache_type q8_0, ne svůj klíč
+    cfg.set_kv_cache_mode("q4", "q8_0_compact")
+    check(cfg.kv_cache_server_args("q4") == ["--cache-type-k", "q8_0",
+                                             "--cache-type-v", "q8_0"],
+          "kompaktní profil předává serveru cache typ q8_0")
+    check(cfg.context_size("q4") == 98304, "kompaktní profil má kontext 96k")
 
 
 def test_registry_modes() -> None:
@@ -1733,9 +1772,9 @@ def test_user_manuals() -> None:
 
     expected = {
         "QwenHarness-Manual-EN.pdf": (
-            15, ("1.3.2", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
+            15, ("1.3.3", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
         "QwenHarness-Manual-CS.pdf": (
-            10, ("1.3.2", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
+            10, ("1.3.3", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():
         # dev strom: output/pdf; instalovaná kopie: docs (tam je umísťuje instalátor)
@@ -1761,6 +1800,7 @@ if __name__ == "__main__":
     test_safety()
     test_session()
     test_tools_fs_shell()
+    test_gpu_autofit()
     test_registry_modes()
     test_parse_args()
     test_reasoning_effort_kwargs()

@@ -20,9 +20,34 @@ BUILTIN_MODELS: dict[str, dict[str, Any]] = {
         "kv_cache": "f16",
         "kv_cache_profiles": {
             "f16": {"label": "16-bit - more precise, context 128k",
-                    "label_cs": "16 bit - přesnější, kontext 128k", "ctx_size": 131072},
+                    "label_cs": "16 bit - přesnější, kontext 128k",
+                    "ctx_size": 131072, "min_vram_gb": 30},
             "q8_0": {"label": "8-bit - larger context 256k",
-                     "label_cs": "8 bit - větší kontext 256k", "ctx_size": 262144},
+                     "label_cs": "8 bit - větší kontext 256k",
+                     "ctx_size": 262144, "min_vram_gb": 30},
+            "q8_0_compact": {"cache_type": "q8_0",
+                             "label": "8-bit - compact for 24 GB, context 96k",
+                             "label_cs": "8 bit - kompaktní pro 24 GB, kontext 96k",
+                             "ctx_size": 98304, "min_vram_gb": 23},
+            "f16_compact": {"cache_type": "f16",
+                            "label": "16-bit - compact for 24 GB, context 64k",
+                            "label_cs": "16 bit - kompaktní pro 24 GB, kontext 64k",
+                            "ctx_size": 65536, "min_vram_gb": 24},
+        },
+        "server_args": ["-fa", "on"],
+    },
+    "q3": {
+        "alias": "Qwen3.8-27B IQ3_S (12.0 GB, borderline quality - for 16 GB GPUs)",
+        "status_label": "Qwen 3.8 27B · IQ3_S",
+        "repo": "unsloth/Qwen3.8-27B-GGUF",
+        "file": "Qwen3.8-27B-UD-IQ3_S.gguf",
+        "mmproj": "mmproj-F16.gguf",
+        "ctx_size": 49152,
+        "kv_cache": "q8_0",
+        "kv_cache_profiles": {
+            "q8_0": {"label": "8-bit - context 48k (borderline operation)",
+                     "label_cs": "8 bit - kontext 48k (hraniční provoz)",
+                     "ctx_size": 49152, "min_vram_gb": 15},
         },
         "server_args": ["-fa", "on"],
     },
@@ -36,9 +61,11 @@ BUILTIN_MODELS: dict[str, dict[str, Any]] = {
         "kv_cache": "q8_0",
         "kv_cache_profiles": {
             "f16": {"label": "16-bit - more precise, context 96k",
-                    "label_cs": "16 bit - přesnější, kontext 96k", "ctx_size": 98304},
+                    "label_cs": "16 bit - přesnější, kontext 96k",
+                    "ctx_size": 98304, "min_vram_gb": 24},
             "q8_0": {"label": "8-bit - larger context 192k",
-                     "label_cs": "8 bit - větší kontext 192k", "ctx_size": 196608},
+                     "label_cs": "8 bit - větší kontext 192k",
+                     "ctx_size": 196608, "min_vram_gb": 30},
         },
         "server_args": ["-fa", "on"],
     },
@@ -54,7 +81,8 @@ BUILTIN_MODELS: dict[str, dict[str, Any]] = {
         "kv_cache": "q8_0",
         "kv_cache_profiles": {
             "q8_0": {"label": "8-bit - solid, context 128k",
-                     "label_cs": "8 bit - pevné, kontext 128k", "ctx_size": 131072},
+                     "label_cs": "8 bit - pevné, kontext 128k",
+                     "ctx_size": 131072, "min_vram_gb": 30},
         },
         "server_args": ["-fa", "on"],
         "sampling": {
@@ -114,6 +142,7 @@ DEFAULTS: dict[str, Any] = {
         "project_filename": "QWEN_MEMORY.md",
     },
     "web": {"host": "127.0.0.1", "port": 7860},
+    "hardware": {"vram_gb": "auto"},
     "skills": {
         "directory": "skills",
         "user_directory": "user-skills",
@@ -251,7 +280,9 @@ class Config:
 
     def kv_cache_server_args(self, key: str | None = None) -> list[str]:
         mode = self.kv_cache_mode(key)
-        return ["--cache-type-k", mode, "--cache-type-v", mode]
+        # profil může mít vlastní cache_type (napr. kompaktni varianty q8_0_compact)
+        cache_type = str(self.kv_cache_profiles(key).get(mode, {}).get("cache_type") or mode)
+        return ["--cache-type-k", cache_type, "--cache-type-v", cache_type]
 
     # -- server ------------------------------------------------------------
     @property

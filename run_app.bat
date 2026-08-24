@@ -28,8 +28,8 @@ if not exist "runtime\llama\llama-server.exe" (
 )
 
 if not exist "runtime\models\mmproj-F16.gguf" (
-    echo [SETUP] Downloading Qwen3.8-27B Q4+Q5 models (~37 GB, may take long)...
-    .venv\Scripts\python.exe scripts\download_models.py --model all
+    echo [SETUP] Downloading models that fit the GPU (may take long)...
+    .venv\Scripts\python.exe scripts\download_models.py --model auto
     if errorlevel 1 ( echo [ERROR] Model download failed. & pause & exit /b 1 )
 )
 

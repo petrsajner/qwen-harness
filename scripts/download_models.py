@@ -1,8 +1,9 @@
 """Stažení nakonfigurovaných GGUF modelů a jejich vision projektorů.
 
 Použití:
-    python scripts/download_models.py              # vše (default_model + mmproj)
-    python scripts/download_models.py --model all       # všechny modely + projektory
+    python scripts/download_models.py                  # default_model + mmproj
+    python scripts/download_models.py --model auto     # modely pro detekovanou GPU
+    python scripts/download_models.py --model all      # všechny modely + projektory
     python scripts/download_models.py --model ornith_q5 # jen Ornith + projektor
 """
 from __future__ import annotations
@@ -31,7 +32,8 @@ def main() -> int:
     cfg = load_config()
     model_keys = list(cfg.data["models"])
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--model", choices=["default", "all", *model_keys], default="default")
+    ap.add_argument("--model", choices=["default", "auto", "all", *model_keys],
+                    default="default")
     args = ap.parse_args()
 
     models_dir = cfg.path("paths.models_dir")
@@ -40,6 +42,18 @@ def main() -> int:
     which: list[str]
     if args.model == "all":
         which = model_keys
+    elif args.model == "auto":
+        from harness.gpu import download_keys, effective_vram_gb
+        vram = effective_vram_gb(cfg)
+        which = download_keys(cfg, vram)
+        if vram is None:
+            print("[AUTO] GPU VRAM unknown - downloading all models")
+        elif set(which) == set(model_keys):
+            print(f"[AUTO] {vram} GB VRAM - all models fit, downloading all")
+        else:
+            skipped = [k for k in model_keys if k not in which]
+            print(f"[AUTO] {vram} GB VRAM - downloading only: {', '.join(which)}")
+            print(f"[AUTO] skipping (would not fit): {', '.join(skipped)}")
     elif args.model in model_keys:
         which = [args.model]
     else:

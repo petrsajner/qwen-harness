@@ -360,6 +360,18 @@ _CS = {
     "Language saved — restart the app to apply it fully.":
         "Jazyk uložen — plně se projeví po restartu aplikace.",
 
+    # ------------------------------------------------ GPU auto-fit
+    "⚡ Auto-fit for a {vram} GB GPU": "⚡ Auto-fit pro GPU {vram} GB",
+    "⚠ {model} needs ~{need} GB VRAM — the GPU has {vram} GB, "
+    "it will likely run out of memory":
+        "⚠ {model} potřebuje ~{need} GB VRAM — GPU má {vram} GB, "
+        "pravděpodobně dojde paměť",
+    "GPU (VRAM)": "GPU (VRAM)",
+    "Auto (detect)": "Automaticky (detekce)",
+    "⚡ GPU set to {vram} GB — switching to {model} ({profile})":
+        "⚡ GPU nastaveno na {vram} GB — přepínám na {model} ({profile})",
+    "✅ GPU setting saved ({vram})": "✅ Nastavení GPU uloženo ({vram})",
+
     # ------------------------------------------------ work modes
     "Discussion": "Diskuze",
     "Research": "Výzkum",
