@@ -370,8 +370,11 @@ def test_registry_modes() -> None:
     check(set(chat.names()) == {"read_memory", "save_memory", "web_search", "web_fetch",
                                 "context_status", "pin_context_file", "unpin_context_file",
                                 "list_project_documents", "read_project_document",
-                                "export_document", "list_skills", "read_skill"},
-          f"chat režim: memory + web + context nástroje ({chat.names()})")
+                                "export_document", "list_skills", "read_skill",
+                                "list_dir", "read_file", "write_file", "apply_patch",
+                                "list_task_changes", "undo_task_changes", "search_files",
+                                "view_image"},
+          f"chat režim: memory + web + context + disk nástroje ({len(chat.names())})")
     check({"list_dir", "run_command", "view_image"} <= set(agent.names()),
           f"agent režim: fs+patch+shell+vision ({len(agent.names())})")
     check({"screenshot", "click", "type_text", "press_key"} <= set(computer.names()),
@@ -385,8 +388,9 @@ def test_registry_modes() -> None:
     research = build_registry("chat", "research")
     writing = build_registry("agent", "writing")
     development = build_registry("agent", "development")
-    check("apply_patch" not in discussion.names() and "git_commit" not in discussion.names(),
-          "Diskuze nemá coding nástroje")
+    check({"read_file", "write_file", "search_files", "view_image"} <= set(discussion.names())
+          and not ({"git_commit", "run_command", "repo_overview"} & set(discussion.names())),
+          "Diskuze má disk bez coding nástrojů")
     check(set(research.names()) == set(discussion.names()),
           "Výzkum má web/context nástroje bez coding sady")
     check("export_document" in discussion.names() and "export_document" in research.names()
@@ -1729,7 +1733,9 @@ def test_user_manuals() -> None:
             10, ("1.3.1", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():
-        path = ROOT / "output" / "pdf" / filename
+        # dev strom: output/pdf; instalovaná kopie: docs (tam je umísťuje instalátor)
+        candidates = [ROOT / "output" / "pdf" / filename, ROOT / "docs" / filename]
+        path = next((p for p in candidates if p.is_file()), candidates[0])
         check(path.is_file() and path.stat().st_size > 50_000,
               f"{filename} existuje a není prázdný")
         if not path.is_file():

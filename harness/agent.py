@@ -668,7 +668,12 @@ class Agent:
 
 
 def build_registry(mode: str, work_mode: str | None = None) -> ToolRegistry:
-    """Postav registry podle jednotného pracovního režimu."""
+    """Postav registry podle jednotného pracovního režimu.
+
+    Disk (čtení i zápis souborů) a prohlížení obrázků mají VŠECHNY režimy -
+    výzkum/diskuze potřebují číst zdroje a ukládat výsledky na disk.
+    Coding navíc (repo přehled, Git, shell) jen Vývoj a Počítač.
+    """
     from harness.tools import computer, context, documents, fs, git, memory, shell, skills, vision, web
     selected = normalize_work_mode(work_mode, mode)
     reg = ToolRegistry()
@@ -677,11 +682,9 @@ def build_registry(mode: str, work_mode: str | None = None) -> ToolRegistry:
     context.register_context_tools(reg)
     skills.register_skill_tools(reg)
     documents.register_document_tools(reg)
-    if selected in ("discussion", "research"):
-        return reg
-    fs.register_fs_tools(reg)
-    vision.register_vision_tools(reg)
-    if selected == "writing":
+    fs.register_fs_tools(reg)          # disk: čtení/zápis souborů (všude)
+    vision.register_vision_tools(reg)  # view_image (všude)
+    if selected in ("discussion", "research", "writing"):
         return reg
     context.register_coding_context_tools(reg)
     git.register_git_tools(reg)
