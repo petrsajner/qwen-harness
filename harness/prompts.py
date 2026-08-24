@@ -97,11 +97,14 @@ def system_prompt(mode: str, work_mode: str | None = None) -> str:
 
 
 def build_system_prompt(mode: str, cfg, workspace, work_mode: str | None = None) -> str:
-    """Kompletní system prompt: základ režimu + workspace + trvalá paměť.
+    """Kompletní system prompt: základ režimu + workspace + trvalá paměť + skills katalog.
 
     Volá se při startu úlohy a po kompresi kontextu (paměť se vždy občerství).
+    Katalog skills (jen metadata) je vidět vždy - model pak přirozeně načte
+    obsah přes read_skill, když úloha spadá do oblasti nějakého skillu.
     """
     from harness.memory import MemoryStore
+    from harness.skills import SkillLibrary
     base = system_prompt(mode, work_mode)
     model = cfg.model()
     if (model.get("family") == "ornith" and cfg.data.get("thinking", True)):
@@ -124,4 +127,11 @@ complete solution over a fast scaffold."""
                  f"The user keeps project sources and documents there - read them with tools "
                  f"instead of asking the user to paste content.")
     base += "\n\n" + MemoryStore(cfg, workspace, work_mode).context_block()
+    skills = SkillLibrary(cfg, workspace).list()
+    if skills:
+        lines = "\n".join(f"- {item.name}: {item.description}" for item in skills)
+        base += ("\n\n## OPTIONAL SKILLS\n"
+                 "Situational helpers you can load with read_skill. When a task clearly "
+                 "falls into one of these areas, loading the skill is usually worth it;\n"
+                 "otherwise continue without it.\n" + lines)
     return base

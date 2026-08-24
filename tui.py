@@ -22,7 +22,7 @@ from rich.prompt import Prompt
 from harness.agent import Agent, Status, build_registry
 from harness.config import load_config
 from harness.llm import LLMClient
-from harness.prompts import system_prompt
+from harness.prompts import build_system_prompt
 from harness.safety import SafetyPolicy
 from harness.session import Session
 from harness.work_modes import WORK_MODES, normalize_work_mode
@@ -69,7 +69,9 @@ class TUIApp:
     # ------------------------------------------------------------------
     def _new_session(self) -> None:
         self.session = Session(
-            self.cfg, system_prompt=system_prompt(self.mode, self.work_mode),
+            self.cfg,
+            system_prompt=build_system_prompt(
+                self.mode, self.cfg, getattr(self.agent, "workspace", None), self.work_mode),
             work_mode=self.work_mode)
         self.abort = threading.Event()
         self.auto_approve = False
@@ -98,7 +100,8 @@ class TUIApp:
         self._rebuild_agent()
         # aktualizuj system prompt v session
         if self.session.messages and self.session.messages[0]["role"] == "system":
-            self.session.messages[0]["content"] = system_prompt(self.mode, self.work_mode)
+            self.session.messages[0]["content"] = build_system_prompt(
+                self.mode, self.cfg, getattr(self.agent, "workspace", None), self.work_mode)
         self.auto_approve = False
 
     # ------------------------------------------------------------------
@@ -296,12 +299,8 @@ class TUIApp:
                                 p = self.agent.set_workspace(arg)
                                 # aktualizuj system prompt v session
                                 if self.session.messages and self.session.messages[0]["role"] == "system":
-                                    from harness.prompts import system_prompt as _sp
-                                    self.session.messages[0]["content"] = (
-                                        _sp(self.mode, self.work_mode) +
-                                        f"\n\nCurrent project workspace: {p}. "
-                                        f"Relative paths in tools resolve against it. "
-                                        f"The user keeps project sources and documents there.")
+                                    self.session.messages[0]["content"] = build_system_prompt(
+                                        self.mode, self.cfg, p, self.work_mode)
                                 console.print(f"[green]{t('✓ Workspace set: {path}', path=p)}[/green]")
                             except ValueError as e:
                                 console.print(f"[red]{e}[/red]")
@@ -342,15 +341,17 @@ class TUIApp:
                     elif cmd == "/load":
                         try:
                             self.session = Session.load(
-                                self.cfg, arg, system_prompt(self.mode, self.work_mode))
+                                self.cfg, arg,
+                                build_system_prompt(self.mode, self.cfg, None, self.work_mode))
                             saved_mode = self.session.meta.get("work_mode")
                             if saved_mode in WORK_MODES:
                                 self.work_mode = saved_mode
                                 self.mode = WORK_MODES[saved_mode].agent_mode
                             self._rebuild_agent()
                             if self.session.messages and self.session.messages[0]["role"] == "system":
-                                self.session.messages[0]["content"] = system_prompt(
-                                    self.mode, self.work_mode)
+                                self.session.messages[0]["content"] = build_system_prompt(
+                                    self.mode, self.cfg, getattr(self.agent, "workspace", None),
+                                    self.work_mode)
                             console.print("[green]" + t("✓ Loaded: {id} ({count} messages)",
                                                          id=arg, count=len(self.session.messages)) + "[/green]")
                         except FileNotFoundError as e:

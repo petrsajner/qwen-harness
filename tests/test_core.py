@@ -108,13 +108,18 @@ def test_config() -> None:
     check("ORNITH DELIBERATE REASONING POLICY" in development_prompt
           and "Do not optimize for speed" in development_prompt,
           "Ornith xhigh dostává explicitní politiku hlubokého uvažování")
+    skills_prompt = build_system_prompt("chat", cfg, ROOT, "discussion")
+    check("## OPTIONAL SKILLS" in skills_prompt
+          and "research-synthesis" in skills_prompt
+          and "translation-craft" in skills_prompt,
+          "system prompt nabízí katalog skills (model je využije bez list_skills)")
     from harness.version import APP_VERSION, _version_candidates
     # v instalované kopii je version.txt v kořenu aplikace, ve stromu v installer/
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.1",
-          "viditelná verze aplikace odpovídá instalátoru 1.3.1")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.2",
+          "viditelná verze aplikace odpovídá instalátoru 1.3.2")
 
 
 def test_memory_layers() -> None:
@@ -1728,9 +1733,9 @@ def test_user_manuals() -> None:
 
     expected = {
         "QwenHarness-Manual-EN.pdf": (
-            15, ("1.3.1", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
+            15, ("1.3.2", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
         "QwenHarness-Manual-CS.pdf": (
-            10, ("1.3.1", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
+            10, ("1.3.2", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():
         # dev strom: output/pdf; instalovaná kopie: docs (tam je umísťuje instalátor)
