@@ -4,6 +4,7 @@ Použití:
     python scripts/download_models.py                  # default_model + mmproj
     python scripts/download_models.py --model auto     # modely pro detekovanou GPU
     python scripts/download_models.py --model all      # všechny modely + projektory
+    python scripts/download_models.py --models q4,q5   # konkrétní modely (install wizard)
     python scripts/download_models.py --model ornith_q5 # jen Ornith + projektor
 """
 from __future__ import annotations
@@ -34,13 +35,24 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--model", choices=["default", "auto", "all", *model_keys],
                     default="default")
+    ap.add_argument("--models", default=None,
+                    help="comma-separated model keys (overrides --model; "
+                         "used by the installer selection)")
     args = ap.parse_args()
 
     models_dir = cfg.path("paths.models_dir")
     models_dir.mkdir(parents=True, exist_ok=True)
 
     which: list[str]
-    if args.model == "all":
+    if args.models:
+        selected = [k.strip() for k in args.models.split(",") if k.strip()]
+        unknown = [k for k in selected if k not in model_keys]
+        if unknown:
+            print(f"[ERROR] Unknown model keys: {', '.join(unknown)} "
+                  f"(available: {', '.join(model_keys)})")
+            return 1
+        which = selected
+    elif args.model == "all":
         which = model_keys
     elif args.model == "auto":
         from harness.gpu import download_keys, effective_vram_gb

@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.3",
-          "viditelná verze aplikace odpovídá instalátoru 1.3.3")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.4",
+          "viditelná verze aplikace odpovídá instalátoru 1.3.4")
 
 
 def test_memory_layers() -> None:
@@ -1772,9 +1772,9 @@ def test_user_manuals() -> None:
 
     expected = {
         "QwenHarness-Manual-EN.pdf": (
-            15, ("1.3.3", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
+            15, ("1.3.4", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
         "QwenHarness-Manual-CS.pdf": (
-            10, ("1.3.3", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
+            10, ("1.3.4", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():
         # dev strom: output/pdf; instalovaná kopie: docs (tam je umísťuje instalátor)

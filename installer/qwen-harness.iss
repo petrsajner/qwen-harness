@@ -10,7 +10,7 @@
 ; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
 ; (používá installer\release.bat s verzí z installer\version.txt)
 #ifndef MyAppVersion
-#define MyAppVersion "1.3.3"
+#define MyAppVersion "1.3.4"
 #endif
 
 #define MyAppName "Qwen3.8-27B Harness"
@@ -96,13 +96,114 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 Filename: "{app}\run_setup.bat"; Description: "{cm:RunSetupDesc}"; Flags: postinstall shellexec runasoriginaluser; WorkingDir: "{app}"
 
 [Code]
-procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ModelPage: TWizardPage;
+  ModelList: TNewCheckListBox;
+  // naplni se v InitializeWizard (Pascal Script neumi typovane konstanty);
+  // zrcadli min_vram_gb z config.yaml (nejnizsi profil kazdeho modelu)
+  ModelKeys: array[0..3] of String;
+  ModelNames: array[0..3] of String;
+  ModelMinVram: array[0..3] of Double;
+
+procedure FillModelTable;
 begin
-  // uloz vybrany jazyk instalatoru -> aplikace se podle nej nastavi
-  // ("en" nebo "cze"; webapp mapuje cze->cs, vychozi je anglictina)
+  ModelKeys[0] := 'q3';
+  ModelKeys[1] := 'q4';
+  ModelKeys[2] := 'q5';
+  ModelKeys[3] := 'ornith_q5';
+  ModelNames[0] := 'Qwen3.8-27B IQ3_S  (12.0 GB download)  -  16 GB GPUs (borderline)';
+  ModelNames[1] := 'Qwen3.8-27B Q4_K_M  (16.5 GB download)  -  24 GB+ GPUs';
+  ModelNames[2] := 'Qwen3.8-27B Q5_K_M  (19.8 GB download)  -  24 GB+ GPUs';
+  ModelNames[3] := 'Ornith 1.5 35B-A3B Q5 Abliterated  (23.0 GB download)  -  32 GB GPUs';
+  ModelMinVram[0] := 15.0;
+  ModelMinVram[1] := 23.0;
+  ModelMinVram[2] := 24.0;
+  ModelMinVram[3] := 30.0;
+end;
+
+function DetectVRAM: Double;
+var
+  ResultCode: Integer;
+  TmpFile: String;
+  Lines: TArrayOfString;
+begin
+  Result := 0;
+  TmpFile := ExpandConstant('{tmp}\qwen-vram.txt');
+  Exec(ExpandConstant('{cmd}'),
+       Format('/c nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits > "%s"', [TmpFile]),
+       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if (ResultCode = 0) and LoadStringsFromFile(TmpFile, Lines) and (GetArrayLength(Lines) > 0) then
+    Result := StrToIntDef(Trim(Lines[0]), 0) / 1024.0;
+end;
+
+procedure InitializeWizard;
+var
+  I: Integer;
+  Vram: Double;
+  Fits, Checked: Boolean;
+  Subtitle: String;
+begin
+  FillModelTable;
+  Vram := DetectVRAM;
+  if Vram > 0 then
+    Subtitle := Format('Detected GPU: %.1f GB VRAM. Only models that fit are selectable; uncheck what you do not want to download.', [Vram])
+  else
+    Subtitle := 'GPU VRAM could not be detected - all models are offered. Uncheck what you do not want to download.';
+  ModelPage := CreateCustomPage(wpSelectDir, 'Models to download',
+    'Choose which models to download on first launch. ' + Subtitle);
+  ModelList := TNewCheckListBox.Create(ModelPage.Surface);
+  ModelList.SetBounds(ScaleX(0), ScaleY(0), ModelPage.SurfaceWidth, ScaleY(120));
+  ModelList.Parent := ModelPage.Surface;
+  ModelList.ShowLines := False;
+  for I := 0 to 3 do
+  begin
+    Fits := (Vram <= 0) or (ModelMinVram[I] <= Vram);
+    Checked := Fits;  // default: stahnout vse, co se vejde (auto chovani)
+    ModelList.AddCheckBox(ModelNames[I], '', 0, Checked, Fits, False, False, TObject(I));
+  end;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  I: Integer;
+  AnyChecked: Boolean;
+begin
+  Result := True;
+  if CurPageID = ModelPage.ID then
+  begin
+    AnyChecked := False;
+    for I := 0 to ModelList.Items.Count - 1 do
+      if ModelList.Checked[I] then AnyChecked := True;
+    if not AnyChecked then
+    begin
+      MsgBox('Keep at least one model checked - the app cannot run without any model.',
+             mbError, MB_OK);
+      Result := False;
+    end;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  I: Integer;
+  Selection: String;
+begin
   if CurStep = ssPostInstall then
   begin
     CreateDir(ExpandConstant('{app}\runtime'));
+    // uloz vybrany jazyk instalatoru -> aplikace se podle nej nastavi
+    // ("en" nebo "cze"; webapp mapuje cze->cs, vychozi je anglictina)
     SaveStringToFile(ExpandConstant('{app}\runtime\ui-language.txt'), ActiveLanguage, False);
+    // uloz vyber modelu z wizardu (comma list; run_setup.bat ho preda downloadu)
+    Selection := '';
+    if Assigned(ModelList) then
+      for I := 0 to ModelList.Items.Count - 1 do
+        if ModelList.Checked[I] and ModelList.ItemEnabled[I] then
+        begin
+          if Selection <> '' then Selection := Selection + ',';
+          Selection := Selection + ModelKeys[I];
+        end;
+    if Selection <> '' then
+      SaveStringToFile(ExpandConstant('{app}\runtime\model-selection.txt'), Selection, False);
   end;
 end;

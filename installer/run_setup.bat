@@ -36,11 +36,18 @@ echo ============================================================
 if errorlevel 1 ( echo [ERROR] llama.cpp download failed. & pause & exit /b 1 )
 
 echo ============================================================
-echo  [4/4] Qwen Q4 + Q5 + Ornith Q5 models + vision
-echo         (auto: only models that fit the detected GPU VRAM;
-echo          may take a long time depending on your connection)
+echo  [4/4] Qwen/Ornith models + vision projectors
+echo         (selection from the installer; re-running downloads
+echo          only missing files - may take a long time)
 echo ============================================================
-".venv\Scripts\python.exe" scripts\download_models.py --model auto
+set "MODELS="
+if exist "runtime\model-selection.txt" set /p MODELS=<"runtime\model-selection.txt"
+if "%MODELS%"=="" (
+    ".venv\Scripts\python.exe" scripts\download_models.py --model auto
+) else (
+    echo [SETUP] Selected models: %MODELS%
+    ".venv\Scripts\python.exe" scripts\download_models.py --models %MODELS%
+)
 if errorlevel 1 ( echo [ERROR] Model download failed - run again, only missing files are re-downloaded. & pause & exit /b 1 )
 
 echo.
