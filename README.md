@@ -16,6 +16,20 @@ The UI language is **English by default**; the installer offers a language choic
 Both manuals are also installed with the application and can be opened from
 **Help & manuals** in the left sidebar.
 
+## Permanent product boundaries
+
+The following are **explicit non-goals and will not be added**. Qwen Harness is a
+personal, single-user Windows tool with a web-first interface and one local model:
+
+- No language-server or LSP distribution layer. The built-in lightweight symbol
+  index is the intended solution.
+- No persistent interactive terminal as a primary workflow. Shell tools remain a backup.
+- No parallel model agents, subagents, or multi-model orchestration.
+- No one-million-token context profiles. Context stays within practical local GPU profiles.
+- No general plugin host, MCP ecosystem, or broad integration framework.
+
+These are product decisions, not postponed roadmap items.
+
 ## Features
 
 - 💬 **General chat** and a **coding agent** (file read/write, shell, search)

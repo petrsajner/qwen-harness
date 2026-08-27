@@ -118,8 +118,16 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.8",
-          "viditelná verze aplikace odpovídá instalátoru 1.3.8")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.9",
+          "viditelná verze aplikace odpovídá instalátoru 1.3.9")
+    invariants = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    check(all(item in invariants for item in (
+        "Language servers or an LSP runtime/distribution layer",
+        "persistent interactive terminal",
+        "Parallel model agents",
+        "One-million-token context",
+        "general plugin host, MCP ecosystem",
+    )), "trvalé non-goals jsou zapsané v kořenových produktových pravidlech")
 
 
 def test_memory_layers() -> None:
@@ -1968,9 +1976,9 @@ def test_user_manuals() -> None:
 
     expected = {
         "QwenHarness-Manual-EN.pdf": (
-            15, ("1.3.8", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
+            15, ("1.3.9", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
         "QwenHarness-Manual-CS.pdf": (
-            10, ("1.3.8", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
+            10, ("1.3.9", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():
         # dev strom: output/pdf; instalovaná kopie: docs (tam je umísťuje instalátor)

@@ -587,6 +587,21 @@ Export: Ulož existující odpověď jako PDF. Neprováděj nový výzkum.
 
 # 22. Provozní omezení
 
+## Trvalé hranice produktu
+
+Následující funkce jsou **výslovně mimo tento produkt a nikdy nebudou přidány**,
+pokud vlastník osobně nezmění toto produktové rozhodnutí:
+
+- Language servery nebo distribuční/runtime vrstva LSP. Určeným řešením je vestavěný
+  lehký symbolový index.
+- Persistentní interaktivní terminál jako hlavní workflow. Shell zůstává záložní nástroj.
+- Paralelní modeloví agenti, subagenti nebo multi-model orchestrace. GPU používá jeden
+  lokální model a pracuje sekvenčně.
+- Kontext s jedním milionem tokenů. Kontext zůstává v praktických profilech lokální GPU.
+- Obecný plugin host, MCP ekosystém nebo široký integrační framework.
+
+Tyto body do Qwen Harness nepatří. Nejsou odloženým roadmap backlogem.
+
 - Jeden velký model zabere téměř celou GPU, proto je inference jednoslotová.
 - Čtecí nástroje a procesy na pozadí mohou běžet souběžně.
 - Přepnutí modelu/KV restartuje server a dočasnou prompt cache, nikoli historii.

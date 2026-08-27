@@ -899,6 +899,21 @@ Export: Save your existing answer as PDF. Do not research again.
 
 # 22. Operational Notes and Limitations
 
+## Permanent product boundaries
+
+The following are **explicit non-goals and will never be added** unless the owner
+personally reverses this product decision:
+
+- Language servers or an LSP runtime/distribution layer. The built-in lightweight
+  symbol index is the intended code-navigation solution.
+- A persistent interactive terminal as a primary workflow. Shell tools remain a backup.
+- Parallel model agents, subagents, or multi-model orchestration. One local model owns
+  the GPU and performs the work sequentially.
+- One-million-token context profiles. Context remains within practical local GPU profiles.
+- A general plugin host, MCP ecosystem, or broad third-party integration framework.
+
+These items do not belong to Qwen Harness. They are not deferred roadmap work.
+
 - One large model occupies nearly the full GPU, so model inference is intentionally single-slot.
 - Read-only tools and background processes can still run concurrently.
 - Switching model or KV cache restarts the server and clears its transient prompt cache, but not chat history.
