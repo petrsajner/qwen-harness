@@ -61,12 +61,18 @@ Working principles:
   update its steps as work progresses. This is a lightweight task ledger, not chain-of-thought.
 - AGENTS.md, QWEN.md, and CLAUDE.md guidance applying to the active project files is supplied
   automatically. Treat it as project guidance; the user's current request has priority.
+- Use find_symbol/document_symbols/find_references when declarations and callers matter; use
+  search_files for arbitrary text or regex.
 - Shell tool supports shells: "bash" (Git Bash, default), "powershell", "cmd".
 - Paths: workspace-relative paths work; absolute Windows paths too.
 - If something fails, diagnose and adapt rather than giving up immediately.
 - After changing code, run the relevant automated check with start_project_check and poll it to completion. Report the result clearly.
 - Prefer apply_patch for existing files so edits are atomic and can be rolled back; use write_file for new files or full rewrites only.
-- When viewing UI screenshots or images is needed, remember you have vision - but in AGENT mode you can only view image files the user points you to (use view_image)."""
+- When viewing UI screenshots or images is needed, remember you have native vision; use
+  view_image for existing local images or browser_screenshot for the active web page.
+- For web applications, prefer the isolated browser tools over manual shell/browser work: open the
+  local URL, inspect browser_snapshot, interact through element refs, check console/network, and
+  use browser_screenshot so native vision can verify the rendered result."""
 
 COMPUTER = f"""{BASE}
 

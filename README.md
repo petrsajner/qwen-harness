@@ -47,6 +47,10 @@ Both manuals are also installed with the application and can be opened from
 - 🔎 **Fast repository search** — ripgrep-backed literal/regex search and file globs
 - ✅ **Project validation profiles** — auto-detected test/lint/typecheck/build commands,
   optionally customized in `.qwen/project.yaml`
+- 🌐 **Isolated browser session** — headless Edge with DOM refs, fill/click/keys,
+  console, network log and screenshots fed directly to Qwen vision
+- 🧭 **Multi-language code navigation** — declarations, document symbols and fast
+  whole-word references for Python, JS/TS, Rust, Go, C/C++, C#, Java and Kotlin
 - 🌿 **Chat management** — retry, edit last prompt, undo round, forks, search and
   export/import
 - 🧭 **Live steering** — a follow-up message redirects the in-progress answer once
@@ -264,6 +268,8 @@ TTFT ~1–2 s. Custom benchmark: `.venv/Scripts/python scripts/bench.py [--model
 .venv/Scripts/python tests/e2e_coding_workflow.py   # E2E: patch → test → rollback
 .venv/Scripts/python tests/e2e_research_workflow.py # E2E: contradictory sources → synthesis
 .venv/Scripts/python tests/e2e_document_export.py   # E2E: research result → PDF without new searching
+.venv/Scripts/python tests/e2e_browser_workflow.py  # E2E: Edge DOM + console + screenshot
+.venv/Scripts/python tests/e2e_browser_agent.py     # GPU E2E: Qwen autonomously tests a page
 ```
 
 ## Coding workflow
@@ -274,6 +280,11 @@ TTFT ~1–2 s. Custom benchmark: `.venv/Scripts/python scripts/bench.py [--model
   `CLAUDE.md` files relevant to the files being inspected or changed.
 - `search_files` uses ripgrep when available and supports literal/regex search;
   `find_files` provides project globs.
+- `find_symbol`, `document_symbols` and `find_references` provide structured
+  multi-language code navigation without loading whole files into context.
+- Web applications can be opened in a separate headless Edge session. The agent uses
+  semantic element refs, DOM text, console/network diagnostics and vision screenshots;
+  it never needs to control the user's normal browser window.
 - The agent edits existing files via `apply_patch`; a persistent checkpoint is taken
   before the first change.
 - The sidebar shows a human-friendly list of created/modified files and offers a

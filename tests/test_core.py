@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.6",
-          "viditelná verze aplikace odpovídá instalátoru 1.3.6")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.7",
+          "viditelná verze aplikace odpovídá instalátoru 1.3.7")
 
 
 def test_memory_layers() -> None:
@@ -471,6 +471,12 @@ def test_registry_modes() -> None:
           "Psaní má dokumentové editace bez Git a shellu")
     check({"apply_patch", "git_commit", "run_command", "start_project_check"}
           <= set(development.names()), "Vývoj má kompletní coding sadu")
+    check({"browser_open", "browser_snapshot", "browser_screenshot", "browser_console",
+           "browser_network"} <= set(development.names()),
+          "Vývoj má izolovanou browser session")
+    check({"find_symbol", "document_symbols", "find_references"}
+          <= set(development.names()),
+          "Vývoj má multijazykovou symbolovou navigaci")
 
 
 def test_parse_args() -> None:
@@ -1219,6 +1225,55 @@ def test_task_plan_and_project_instructions() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_code_index() -> None:
+    print("[code index]")
+    from harness.browser import BrowserSession
+    from harness.code_index import CodeIndex
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        (tmp / "module.py").write_text(
+            "class Alpha:\n"
+            "    def run(self):\n"
+            "        return make_widget()\n\n"
+            "def make_widget():\n"
+            "    return Alpha()\n",
+            encoding="utf-8")
+        (tmp / "ui.ts").write_text(
+            "export interface Widget { id: string }\n"
+            "export function makeWidget(): Widget { return { id: 'x' }; }\n"
+            "const renderWidget = (item: Widget) => item.id;\n",
+            encoding="utf-8")
+        (tmp / "lib.rs").write_text(
+            "pub struct WidgetStore {}\n"
+            "pub fn load_widget() -> WidgetStore { WidgetStore {} }\n",
+            encoding="utf-8")
+        index = CodeIndex(tmp)
+        alpha = index.find_symbol("Alpha")
+        widget = index.find_symbol("Widget")
+        check(any(item["kind"] == "class" and item["path"] == "module.py"
+                  for item in alpha), "Python AST indexuje třídy a funkce")
+        check(any(item["path"] == "ui.ts" for item in widget)
+              and any(item["path"] == "lib.rs" for item in widget),
+              "index hledá deklarace v TypeScriptu i Rustu")
+        document = index.document_symbols("module.py")
+        check(any(item["qualified"] == "Alpha.run" for item in document),
+              "document_symbols zachová kvalifikované Python metody")
+        refs = index.find_references("Widget")
+        check(len(refs) >= 2 and all("line" in item for item in refs),
+              "find_references vrací celo-slovní použití s řádky")
+        (tmp / "module.py").write_text("def refreshed_symbol():\n    return 1\n",
+                                        encoding="utf-8")
+        index.invalidate()
+        check(index.find_symbol("refreshed_symbol"),
+              "symbolový index lze po editaci invalidovat")
+        browser = BrowserSession()
+        check(browser.status()["running"] is False,
+              "browser session je lazy a bez použití nespouští proces")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_research_ledger_and_synthesis() -> None:
     print("[research ledger + synthesis]")
     from harness.llm import AssistantResult
@@ -1889,9 +1944,9 @@ def test_user_manuals() -> None:
 
     expected = {
         "QwenHarness-Manual-EN.pdf": (
-            15, ("1.3.6", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
+            15, ("1.3.7", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
         "QwenHarness-Manual-CS.pdf": (
-            10, ("1.3.6", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
+            10, ("1.3.7", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():
         # dev strom: output/pdf; instalovaná kopie: docs (tam je umísťuje instalátor)
@@ -1929,6 +1984,7 @@ if __name__ == "__main__":
     test_git_tools()
     test_automatic_project_check()
     test_task_plan_and_project_instructions()
+    test_code_index()
     test_research_ledger_and_synthesis()
     test_project_document_library()
     test_async_model_switch()

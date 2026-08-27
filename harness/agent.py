@@ -19,7 +19,7 @@ import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Generator
+from typing import Any, Callable, Generator
 
 from harness.config import Config
 from harness.changes import ChangeJournal
@@ -133,6 +133,7 @@ class Agent:
                  safety: SafetyPolicy, mode: str = "agent", on_event: EventCb | None = None,
                  abort_flag: threading.Event | None = None,
                  process_manager: ProcessManager | None = None,
+                 browser_manager: Any | None = None,
                  work_mode: str | None = None):
         self.cfg = cfg
         self.llm = llm
@@ -157,7 +158,15 @@ class Agent:
         self.ctx.changes = ChangeJournal(session, self.ctx.workspace)
         self.ctx.processes = process_manager or ProcessManager()
         self.ctx.processes.bind_session(session)
+        if browser_manager is None:
+            from harness.browser import BrowserSession
+            browser_manager = BrowserSession(session)
+        browser_manager.bind_session(session)
+        self.ctx.browser = browser_manager
         self.ctx.repo_index = RepoIndex(project_workspace) if project_workspace else None
+        if project_workspace:
+            from harness.code_index import CodeIndex
+            self.ctx.code_index = CodeIndex(project_workspace)
         self.ctx.research = ResearchLedger(session)
         self.ctx.task_plan = TaskPlanStore(session)
         restored_paths = self.ctx.task_plan.load().get("active_paths") or []
@@ -213,6 +222,11 @@ class Agent:
             self.ctx.repo_index = RepoIndex(p)
         else:
             self.ctx.repo_index.set_workspace(p)
+        if self.ctx.code_index is None:
+            from harness.code_index import CodeIndex
+            self.ctx.code_index = CodeIndex(p)
+        else:
+            self.ctx.code_index.set_workspace(p)
         return p
 
     @property
@@ -406,6 +420,9 @@ class Agent:
             if self.ctx.task_plan:
                 self.ctx.task_plan.observe_tool(
                     name, args, result, processes=self.ctx.processes)
+            if (self.ctx.code_index and name in
+                    {"write_file", "apply_patch", "move_file", "delete_file"}):
+                self.ctx.code_index.invalidate()
         # obrázky vytvořené nástroji (screenshot, view_image) přilož jako user zprávu
         if self.ctx.pending_images:
             imgs = list(self.ctx.pending_images)
@@ -735,7 +752,7 @@ def build_registry(mode: str, work_mode: str | None = None) -> ToolRegistry:
     výzkum/diskuze potřebují číst zdroje a ukládat výsledky na disk.
     Coding navíc (repo přehled, Git, shell) jen Vývoj a Počítač.
     """
-    from harness.tools import computer, context, documents, fs, git, memory, shell, skills, task, vision, web
+    from harness.tools import browser, code, computer, context, documents, fs, git, memory, shell, skills, task, vision, web
     selected = normalize_work_mode(work_mode, mode)
     reg = ToolRegistry()
     memory.register_memory_tools(reg)  # chat má alespoň paměť
@@ -751,6 +768,8 @@ def build_registry(mode: str, work_mode: str | None = None) -> ToolRegistry:
         return reg
     task.register_task_tools(reg)
     context.register_coding_context_tools(reg)
+    browser.register_browser_tools(reg)
+    code.register_code_tools(reg)
     git.register_git_tools(reg)
     shell.register_shell_tools(reg)
     if selected == "computer":

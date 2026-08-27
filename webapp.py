@@ -26,6 +26,7 @@ if sys.stdout is None or sys.stderr is None:
 import gradio as gr
 
 from harness.agent import Agent, Status, build_registry
+from harness.browser import BrowserSession
 from harness.config import load_config
 from harness.i18n import detect_language, get_language, language_choices, set_language, t
 from harness.llm import LLMClient
@@ -82,6 +83,7 @@ class AppState:
         self._run_claim_lock = threading.Lock()
         self.model_switch = ModelSwitchController(cfg)
         self.processes = ProcessManager()
+        self.browser = BrowserSession()
         # po smazani chatu: nahradni (transient) chat NABIDNOUT v seznamech az
         # s prvni zpravou - nesmi tam hned svitit jako "(bez titulku)"
         self.suppress_active_entry = False
@@ -225,6 +227,7 @@ class AppState:
                            build_registry(self.mode, self.work_mode),
                            safety, mode=self.mode, abort_flag=self.abort,
                            on_event=self.hub.on_event, process_manager=self.processes,
+                           browser_manager=self.browser,
                            work_mode=self.work_mode)
         if self.workspace:
             try:
@@ -352,12 +355,23 @@ def _tool_progress_text(name: str, arguments, *, preparing: bool) -> str:
     if name == "read_file":
         return t("Reading file{target}…", target=target)
     if name in ("search_files", "find_files", "list_dir", "repo_overview",
-                "project_instructions"):
+                "project_instructions", "find_symbol", "document_symbols",
+                "find_references"):
         return t("Scanning the project…")
     if name in ("set_task_plan", "update_task_step", "task_plan_status"):
         return t("Updating the task plan…")
     if name in ("project_validation_profile", "start_project_check"):
         return t("Preparing project validation…")
+    if name == "browser_open":
+        return t("Opening the isolated browser…")
+    if name == "browser_snapshot":
+        return t("Inspecting the rendered page…")
+    if name in ("browser_click", "browser_fill", "browser_press", "browser_wait"):
+        return t("Interacting with the rendered page…")
+    if name == "browser_screenshot":
+        return t("Capturing the rendered page for vision…")
+    if name in ("browser_console", "browser_network"):
+        return t("Inspecting browser diagnostics…")
     if name in ("web_search", "web_fetch"):
         return t("Browsing web sources…")
     verb = t("Preparing") if preparing else t("Running")
@@ -1050,10 +1064,10 @@ def change_mode(mode: str):
 def change_work_mode(work_mode: str):
     state.set_work_mode(work_mode)
     state.save_ui_state()
-    changes, task_progress, processes, research = work_mode_panel_updates()
+    changes, task_progress, processes, browser_session, research = work_mode_panel_updates()
     memory = _mem_infos()
     return (t("Work mode: **{mode}**", mode=t(WORK_MODES[state.work_mode].label)),
-            changes, task_progress, processes, research,
+            changes, task_progress, processes, browser_session, research,
             *(gr.update(value=value) for value in memory))
 
 
@@ -1061,6 +1075,7 @@ def work_mode_panel_updates():
     return (
         gr.update(visible=state.work_mode in ("writing", "development", "computer")),
         gr.update(visible=state.work_mode in ("writing", "development", "computer")),
+        gr.update(visible=state.work_mode in ("development", "computer")),
         gr.update(visible=state.work_mode in ("development", "computer")),
         gr.update(visible=state.work_mode == "research"),
     )
@@ -1883,6 +1898,27 @@ def stop_all_processes():
     return refresh_processes()
 
 
+def browser_status_text() -> str:
+    status = state.browser.status()
+    if not status.get("running"):
+        return t("<small>No isolated browser session is running.</small>")
+    title = str(status.get("title") or t("Untitled page"))[:120]
+    url = str(status.get("url") or "")[:300]
+    return f"**{title}**\n\n`{url}`"
+
+
+def refresh_browser_status():
+    running = bool(state.browser.status().get("running"))
+    return browser_status_text(), gr.update(interactive=running)
+
+
+def close_browser_session():
+    result = state.browser.close()
+    if result.get("closed"):
+        gr.Info(t("Isolated browser session closed."))
+    return refresh_browser_status()
+
+
 def context_inspector_text() -> str:
     info = state.session.context_breakdown()
     limit = cfg.context_size(state.model_key)
@@ -2273,6 +2309,16 @@ def build_ui() -> gr.Blocks:
                     )
 
                 with gr.Accordion(
+                        t("Browser session"), open=False,
+                        visible=state.work_mode in ("development", "computer"),
+                        elem_classes=["sidebar-section", "info-section"]) as browser_panel:
+                    browser_status = gr.Markdown(browser_status_text, elem_classes=["hdr"])
+                    btn_close_browser = gr.Button(
+                        t("Close browser"), size="sm", variant="stop",
+                        interactive=bool(state.browser.status().get("running")),
+                    )
+
+                with gr.Accordion(
                         t("What the model currently sees"), open=False,
                         elem_classes=["sidebar-section", "info-section"]):
                     context_info = gr.Markdown(context_inspector_text, elem_classes=["hdr"])
@@ -2595,6 +2641,8 @@ def build_ui() -> gr.Blocks:
                               concurrency_id="chat-run", concurrency_limit=1)
         btn_stop_processes.click(stop_all_processes, None,
                                  [process_status, btn_stop_processes], queue=False)
+        btn_close_browser.click(close_browser_session, None,
+                                [browser_status, btn_close_browser], queue=False)
         btn_clear_pins.click(clear_pinned_context, None,
                              [context_info, btn_clear_pins], queue=False)
         btn_pin_file.click(pin_context_file_dialog, None,
@@ -2617,7 +2665,8 @@ def build_ui() -> gr.Blocks:
                       [status_box, model_dd, kv_cache_dd])
         work_mode_dd.change(
             change_work_mode, work_mode_dd,
-            [settings_info, changes_panel, task_plan_panel, process_panel, research_panel,
+            [settings_info, changes_panel, task_plan_panel, process_panel, browser_panel,
+             research_panel,
              mem_g_info, mem_mode_info, mem_p_info],
             concurrency_id="chat-run", concurrency_limit=1)
         autonomy_dd.change(change_autonomy, autonomy_dd, settings_info)
@@ -2691,6 +2740,8 @@ def build_ui() -> gr.Blocks:
                 outputs=[resumable_status, btn_resume_task, resumable_panel], queue=False)
             gr.Timer(2.0).tick(
                 refresh_processes, outputs=[process_status, btn_stop_processes], queue=False)
+            gr.Timer(1.0).tick(
+                refresh_browser_status, outputs=[browser_status, btn_close_browser], queue=False)
             gr.Timer(5.0).tick(refresh_context_inspector,
                                outputs=[context_info, btn_clear_pins], queue=False)
             gr.Timer(10.0).tick(skills_info_text, outputs=skills_info, queue=False)

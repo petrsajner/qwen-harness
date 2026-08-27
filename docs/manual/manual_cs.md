@@ -110,6 +110,7 @@ Změna modelu nebo KV cache automaticky vyžádá restart. Načítání obvykle 
 - **Průběh úlohy** - persistentní cíl, aktuální a dokončené kroky, poslední kontrola a stav kontroly diffu.
 - **Rozpracovaná úloha** - obnovení práce po restartu.
 - **Dlouhé operace** - procesy na pozadí a jejich ukončení.
+- **Browser session** - aktuální izolovaná stránka Edge a přímé zavření procesu.
 - **Co model právě používá** - kontext a připnuté soubory.
 - **Dostupné skills** - katalog a osobní složka skillů.
 - **Průběh výzkumu** - zdroje, ledger a syntéza.
@@ -314,7 +315,7 @@ S projektem se výstup ukládá do `<projekt>\exports`. Bez projektu jde do `ses
 
 ## Poznání projektu
 
-Při každém requestu dostane model aktuální repo snapshot a platné hierarchické projektové instrukce. Může použít `repo_overview`, `project_instructions`, procházet/globovat soubory, hledat literal nebo regex a číst relevantní rozsahy.
+Při každém requestu dostane model aktuální repo snapshot a platné hierarchické projektové instrukce. Může použít `repo_overview`, `project_instructions`, procházet/globovat soubory, hledat literal nebo regex, navigovat deklarace přes `find_symbol`/`document_symbols`, hledat použití přes `find_references` a číst relevantní rozsahy.
 
 ## Souborové operace
 
@@ -325,6 +326,20 @@ Při každém requestu dostane model aktuální repo snapshot a platné hierarch
 - `apply_patch` provádí přesné atomické náhrady.
 - `make_directory`, `move_file`, `delete_file` jsou strukturované operace zahrnuté do rollbacku.
 - `view_image` vloží obrázek do vision kontextu.
+
+## Izolovaný browser workflow
+
+Vývoj a Počítač obsahují persistentní headless Microsoft Edge session oddělenou od běžného browser okna uživatele:
+
+1. `browser_open` načte lokální nebo veřejnou URL.
+2. `browser_snapshot` vrátí viditelný text a interaktivní prvky s refs jako `e1`.
+3. `browser_fill`, `browser_click`, `browser_press` pracují přes tyto refs.
+4. Nový snapshot ověří DOM výsledek; zastaralé refs jsou odmítnuty.
+5. `browser_console` a `browser_network` vracejí konzoli, HTTP responses a selhané requesty.
+6. `browser_screenshot` vloží vykreslenou stránku do dalšího requestu pro Qwen vision.
+7. `browser_close` nebo **Browser session > Zavřít browser** uvolní Edge proces.
+
+Browser přežije jednotlivé agentní kroky. Režim Počítač použijte pro nativní desktopové aplikace nebo celou obrazovku Windows.
 
 ## Plán úlohy
 
@@ -472,6 +487,12 @@ Zkontrolujte kontext, použijte Q5/Q8 192k nebo Q4/Q8 256k, ručně komprimujte,
 
 Sledujte živou aktivitu: model může přemýšlet, generovat tool call, zapisovat soubor nebo čekat na proces. Stop ukončí model; proces na pozadí ukončete v **Dlouhé operace**.
 
+## Izolovaný browser nestartuje
+
+- Microsoft Edge musí být nainstalován ve standardním umístění Windows.
+- Po upgradu spusťte opravu/aktualizaci prostředí, aby se nainstaloval Python Playwright.
+- Session je headless a nepoužívá běžné Edge/Chrome okno uživatele.
+
 ## Obnovení po restartu
 
 V **Rozpracovaná úloha** zvolte **Pokračovat v úloze**. Podle možnosti se obnoví pending potvrzení, částečný text, journal a procesní metadata.
@@ -520,6 +541,11 @@ Nástroje běžně požadujete přirozeným jazykem.
 |---|---|
 | `repo_overview`, `project_instructions` | Mapa repozitáře a hierarchické instrukce. |
 | `project_validation_profile`, `start_project_check` | Nabídka a spuštění projektových kontrol. |
+| `find_symbol`, `document_symbols`, `find_references` | Deklarace, symboly dokumentu a rychlá použití. |
+| `browser_open`, `browser_snapshot` | Otevřít a sémanticky prohlédnout izolovaný Edge. |
+| `browser_fill`, `browser_click`, `browser_press`, `browser_wait` | Práce s refs a čekání na změny UI. |
+| `browser_console`, `browser_network` | Konzole a síťová diagnostika. |
+| `browser_screenshot`, `browser_close` | Vision screenshot a zavření browseru. |
 | `git_status`, `git_diff`, `git_commit` | Lokální Git operace bez automatického push. |
 | `run_command` | Krátký Bash, PowerShell nebo cmd příkaz. |
 | `start_command`, `poll_command`, `send_stdin`, `terminate_command` | Persistentní procesy na pozadí. |

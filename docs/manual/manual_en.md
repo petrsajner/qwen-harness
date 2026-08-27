@@ -32,7 +32,7 @@ Selecting a project gives the model access to that directory through tools. It d
 | System RAM | Enough for Windows, model mapping, projects, and tools; 64 GB or more is comfortable |
 | Free disk space | At least 65 GiB for all models, runtime, and working data |
 | Python | Python 3.12 when using the source or first-run setup |
-| WebView | Microsoft Edge WebView2, normally present on Windows 11 |
+| WebView / browser | Microsoft Edge WebView2 and Microsoft Edge, normally present on Windows 11 |
 
 Other NVIDIA GPUs may work, but the supplied contexts and quantizations were tuned and tested for a 32 GB RTX 5090. Lower-VRAM cards require smaller contexts, lower quantization, fewer GPU layers, or CPU offload.
 
@@ -128,6 +128,7 @@ Most secondary controls are collapsed to keep the sidebar readable:
 - **Task progress** - the persistent goal, current step, completed steps, latest validation, and diff-review state.
 - **Unfinished task** - resume work saved before an application restart.
 - **Long-running operations** - running background commands and their termination control.
+- **Browser session** - current isolated Edge page and a direct close control.
 - **What the model currently sees** - context statistics and pinned files.
 - **Available skills** - skill catalog and personal skill folder.
 - **Research progress** - source counts, ledger export, and synthesis export.
@@ -552,7 +553,7 @@ Development mode is intended for complete repository work while keeping the main
 
 ## Project discovery
 
-At each request, the model receives a current repository snapshot plus applicable hierarchical project instructions. It can call `repo_overview`, `project_instructions`, list or glob files, search literal text or regex, and read relevant ranges before editing.
+At each request, the model receives a current repository snapshot plus applicable hierarchical project instructions. It can call `repo_overview`, `project_instructions`, list or glob files, search literal text or regex, navigate declarations with `find_symbol`/`document_symbols`, find whole-word uses with `find_references`, and read relevant ranges before editing.
 
 ## File operations
 
@@ -563,6 +564,20 @@ At each request, the model receives a current repository snapshot plus applicabl
 - `apply_patch` performs exact atomic text replacements.
 - `make_directory`, `move_file`, and `delete_file` provide structured filesystem operations. Their changes participate in task rollback.
 - `view_image` brings an image file into vision context.
+
+## Isolated browser workflow
+
+Development and Computer modes include a persistent headless Microsoft Edge session. This is separate from the user's normal browser window and is intended for testing web applications:
+
+1. `browser_open` loads a local or public URL.
+2. `browser_snapshot` returns visible text and interactive elements with refs such as `e1`.
+3. `browser_fill`, `browser_click`, and `browser_press` interact through those refs.
+4. A new snapshot verifies DOM-visible results; stale refs are rejected.
+5. `browser_console` and `browser_network` expose console messages, HTTP responses, and failed requests.
+6. `browser_screenshot` attaches the rendered page to the next Qwen request for native vision inspection.
+7. `browser_close` or **Browser session > Close browser** releases the Edge process.
+
+The browser remains available across individual agent steps. Use Computer mode instead when the task concerns a native desktop application or the entire Windows screen rather than a web page.
 
 ## Task plan
 
@@ -753,6 +768,12 @@ The agent automatically compresses and retries once. If it overflows again, manu
 
 Read the live activity line. The model may be thinking, generating a large tool call, writing a file, running a test, or waiting for a long process. If there is no server activity for an extended period, the harness detects a stale stream and reports it. Use Stop when appropriate.
 
+## Isolated browser does not start
+
+- Microsoft Edge must be installed in its standard Windows location.
+- Run the environment repair/update step after upgrading so Python Playwright is installed.
+- The isolated session is headless; it does not open or reuse the user's normal Edge/Chrome window.
+
 ## Stop did not end an operating-system process
 
 Stop ends model generation. Open **Long-running operations** and terminate the process separately.
@@ -819,6 +840,13 @@ You normally request these operations in natural language; the names below expla
 | `project_instructions` | Read hierarchical project guidance for a path. |
 | `project_validation_profile` | List detected/configured checks. |
 | `start_project_check` | Start the primary or selected validation command. |
+| `find_symbol` | Find declarations across supported programming languages. |
+| `document_symbols` | List declarations and line ranges in one source file. |
+| `find_references` | Find fast whole-word symbol uses across the project. |
+| `browser_open`, `browser_snapshot` | Open and semantically inspect an isolated Edge page. |
+| `browser_fill`, `browser_click`, `browser_press`, `browser_wait` | Interact with fresh element refs and wait for UI changes. |
+| `browser_console`, `browser_network` | Inspect browser diagnostics incrementally. |
+| `browser_screenshot`, `browser_close` | Attach the page for Qwen vision or close the session. |
 | `git_status` | Show branch and file status. |
 | `git_diff` | Show working or staged diff. |
 | `git_commit` | Create a local commit from selected/current-task files. |
