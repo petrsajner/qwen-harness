@@ -5,11 +5,13 @@ import re
 import shutil
 import subprocess
 import sys
+import time
+import uuid
 from functools import lru_cache
 from pathlib import Path
 
 from harness.safety import Risk
-from harness.tools.base import AgentContext, Tool, truncate
+from harness.tools.base import AgentContext, Tool
 
 # Minimální pojistka proti catastrofickým příkazem (potvrzování řeší safety vrstva,
 # tohle je jen záchranná síť pro auto režim).
@@ -22,6 +24,48 @@ BLOCKED_PATTERNS = [
     r"shutdown\s+/s",
     r"Remove-Item\s+-Recurse\s+-Force\s+[A-Z]:\\\s*$",
 ]
+
+
+def _head_tail(text: str, limit: int, label: str) -> str:
+    """Keep the useful beginning and failure-heavy tail of long command output."""
+    if len(text) <= limit:
+        return text
+    head = max(1, int(limit * 0.55))
+    tail = max(1, limit - head)
+    omitted = len(text) - head - tail
+    return (text[:head] + f"\n... [{label}: {omitted:,} chars omitted; full log saved] ...\n"
+            + text[-tail:])
+
+
+def _terminate_tree(proc: subprocess.Popen) -> None:
+    try:
+        if sys.platform == "win32":
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                capture_output=True, timeout=10, creationflags=0x08000000)
+        else:
+            proc.terminate()
+    except (OSError, subprocess.TimeoutExpired):
+        try:
+            proc.kill()
+        except OSError:
+            pass
+
+
+def _write_command_log(ctx: AgentContext, command: str, stdout: str, stderr: str,
+                       exit_code: int | None, state: str) -> Path | None:
+    try:
+        directory = ctx.session.dir / "command-logs"
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / (
+            f"run-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}.log")
+        path.write_text(
+            f"COMMAND\n{command}\n\nSTATE\n{state}\n\nEXIT CODE\n{exit_code}\n\n"
+            f"STDOUT\n{stdout}\n\nSTDERR\n{stderr}\n",
+            encoding="utf-8", errors="replace")
+        return path
+    except OSError:
+        return None
 
 
 def _is_windows_bash_shim(path: Path) -> bool:
@@ -147,28 +191,50 @@ class RunCommandTool(Tool):
                 return "ERROR: bash not found - use shell='powershell' instead"
             argv = [bash, "-lc", command]
 
+        flags = 0x08000000 if sys.platform == "win32" else 0
+        if sys.platform == "win32":
+            flags |= subprocess.CREATE_NEW_PROCESS_GROUP
         try:
-            import sys as _sys
-            proc = subprocess.run(
-                argv, cwd=workdir, capture_output=True, text=True,
-                encoding="utf-8", errors="replace", timeout=timeout,
-                # bez konzole - pythonw rodic by jinak blikal černým CMD oknem
-                creationflags=0x08000000 if _sys.platform == "win32" else 0,
+            proc = subprocess.Popen(
+                argv, cwd=workdir, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                encoding="utf-8", errors="replace", creationflags=flags,
             )
-        except subprocess.TimeoutExpired:
-            return f"ERROR: Command timed out after {timeout}s: {command}"
         except FileNotFoundError as e:
             return f"ERROR: {e}"
 
-        out = (proc.stdout or "").strip()
-        err = (proc.stderr or "").strip()
-        parts = [f"$ {command}", f"[exit code: {proc.returncode}]"]
+        deadline = time.monotonic() + max(1, int(timeout))
+        state = "finished"
+        while True:
+            try:
+                out, err = proc.communicate(timeout=0.2)
+                break
+            except subprocess.TimeoutExpired:
+                if ctx.abort_flag is not None and ctx.abort_flag.is_set():
+                    state = "aborted by user"
+                    _terminate_tree(proc)
+                    out, err = proc.communicate()
+                    break
+                if time.monotonic() >= deadline:
+                    state = f"timed out after {timeout}s"
+                    _terminate_tree(proc)
+                    out, err = proc.communicate()
+                    break
+
+        out = (out or "").strip()
+        err = (err or "").strip()
+        log_path = _write_command_log(ctx, command, out, err, proc.returncode, state)
+        parts = [f"$ {command}", f"[state: {state}]", f"[exit code: {proc.returncode}]"]
+        if log_path:
+            parts.append(f"[full log: {log_path}]")
         if out:
-            parts.append(truncate(out, 15_000, "stdout"))
+            parts.append(_head_tail(out, 20_000, "stdout truncated"))
         if err:
-            parts.append("STDERR:\n" + truncate(err, 5_000, "stderr"))
+            parts.append("STDERR:\n" + _head_tail(err, 10_000, "stderr truncated"))
         if not out and not err:
             parts.append("(no output)")
+        if state != "finished":
+            parts.append(f"ERROR: Command {state}")
         return "\n".join(parts)
 
 

@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.7",
-          "viditelná verze aplikace odpovídá instalátoru 1.3.7")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.8",
+          "viditelná verze aplikace odpovídá instalátoru 1.3.8")
 
 
 def test_memory_layers() -> None:
@@ -342,6 +342,29 @@ def test_tools_fs_shell() -> None:
         r = reg.execute("run_command", {"command": "Write-Output 'ps-works'"}, ctx)
         check("ps-works" in r, f"run_command powershell funguje")
 
+        r = reg.execute("run_command", {
+            "command": "Write-Output HEAD-MARK; Write-Output ('x' * 25000); Write-Output TAIL-MARK",
+            "shell": "powershell", "timeout": 10,
+        }, ctx)
+        log_match = __import__("re").search(r"\[full log: ([^\]]+)\]", r)
+        check("HEAD-MARK" in r and "TAIL-MARK" in r and "full log saved" in r
+              and log_match is not None and Path(log_match.group(1)).is_file(),
+              "run_command zachová head+tail a úplný log")
+
+        import threading
+        abort = threading.Event()
+        ctx.abort_flag = abort
+        timer = threading.Timer(0.35, abort.set)
+        timer.start()
+        started_abort = time.monotonic()
+        r = reg.execute("run_command", {
+            "command": "Start-Sleep -Seconds 20", "shell": "powershell", "timeout": 30,
+        }, ctx)
+        timer.cancel()
+        check("aborted by user" in r and time.monotonic() - started_abort < 5,
+              "Stop přeruší synchronní command téměř okamžitě")
+        abort.clear()
+
         started = time.monotonic()
         launched = json.loads(reg.execute("start_command", {
             "command": "Write-Output one; Start-Sleep -Milliseconds 200; Write-Output two",
@@ -472,7 +495,8 @@ def test_registry_modes() -> None:
     check({"apply_patch", "git_commit", "run_command", "start_project_check"}
           <= set(development.names()), "Vývoj má kompletní coding sadu")
     check({"browser_open", "browser_snapshot", "browser_screenshot", "browser_console",
-           "browser_network"} <= set(development.names()),
+           "browser_network", "browser_select", "browser_upload", "browser_download",
+           "browser_viewport"} <= set(development.names()),
           "Vývoj má izolovanou browser session")
     check({"find_symbol", "document_symbols", "find_references"}
           <= set(development.names()),
@@ -1944,9 +1968,9 @@ def test_user_manuals() -> None:
 
     expected = {
         "QwenHarness-Manual-EN.pdf": (
-            15, ("1.3.7", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
+            15, ("1.3.8", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
         "QwenHarness-Manual-CS.pdf": (
-            10, ("1.3.7", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
+            10, ("1.3.8", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():
         # dev strom: output/pdf; instalovaná kopie: docs (tam je umísťuje instalátor)

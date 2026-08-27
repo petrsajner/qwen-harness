@@ -245,7 +245,7 @@ Use steering for corrections such as "keep the existing camera behavior", "do no
 
 ## Stop
 
-**Stop** bypasses the normal Gradio queue. It requests a graceful stop and normally allows the nearest sentence to finish. The finished partial text is retained. A new prompt starts cleanly afterward.
+**Stop** bypasses the normal Gradio queue. It requests a graceful generation stop and normally allows the nearest sentence to finish. It also cancels the currently awaited browser operation or synchronous `run_command`, terminating that command's process tree. Finished partial text and captured command output are retained. A new prompt starts cleanly afterward.
 
 Long-running operating-system processes have their own termination control in **Long-running operations**. Stopping generation does not necessarily stop a background process that was already launched; use the process panel when required.
 
@@ -572,10 +572,13 @@ Development and Computer modes include a persistent headless Microsoft Edge sess
 1. `browser_open` loads a local or public URL.
 2. `browser_snapshot` returns visible text and interactive elements with refs such as `e1`.
 3. `browser_fill`, `browser_click`, and `browser_press` interact through those refs.
-4. A new snapshot verifies DOM-visible results; stale refs are rejected.
-5. `browser_console` and `browser_network` expose console messages, HTTP responses, and failed requests.
-6. `browser_screenshot` attaches the rendered page to the next Qwen request for native vision inspection.
-7. `browser_close` or **Browser session > Close browser** releases the Edge process.
+4. `browser_select`, `browser_hover`, and `browser_scroll` cover dropdowns, hover states, and long pages.
+5. `browser_upload` sets a local file input; `browser_download` stores a downloaded file under the active chat.
+6. `browser_viewport` switches between desktop, tablet, and mobile layouts.
+7. A new snapshot verifies DOM-visible results; stale refs are rejected.
+8. `browser_console` and `browser_network` expose console messages, HTTP responses, and failed requests.
+9. `browser_screenshot` attaches the rendered page to the next Qwen request for native vision inspection.
+10. `browser_close` or **Browser session > Close browser** releases the Edge process.
 
 The browser remains available across individual agent steps. Use Computer mode instead when the task concerns a native desktop application or the entire Windows screen rather than a web page.
 
@@ -595,7 +598,7 @@ The model can inspect status and diff and create a local Git commit. `git_commit
 
 ## Commands and tests
 
-Short commands run synchronously with a timeout. Long commands run in the background and return a process ID. The model can poll output, send stdin, or terminate the full process tree.
+Short commands run synchronously with a timeout. Their complete stdout/stderr is stored in `sessions\<chat-id>\command-logs`; the model receives a head+tail preview so errors at the end are preserved. Stop cancels the active synchronous command and terminates its process tree. Long commands run in the background and return a process ID. The model can poll output, send stdin, or terminate the full process tree.
 
 `project_validation_profile` lists detected test, lint, typecheck, and build commands. `start_project_check` starts the primary command or a named check:
 
@@ -845,6 +848,9 @@ You normally request these operations in natural language; the names below expla
 | `find_references` | Find fast whole-word symbol uses across the project. |
 | `browser_open`, `browser_snapshot` | Open and semantically inspect an isolated Edge page. |
 | `browser_fill`, `browser_click`, `browser_press`, `browser_wait` | Interact with fresh element refs and wait for UI changes. |
+| `browser_select`, `browser_hover`, `browser_scroll` | Dropdowns, hover states, and scrolling. |
+| `browser_upload`, `browser_download` | Transfer a local file through the page or save a download. |
+| `browser_viewport` | Set a desktop, tablet, or mobile viewport. |
 | `browser_console`, `browser_network` | Inspect browser diagnostics incrementally. |
 | `browser_screenshot`, `browser_close` | Attach the page for Qwen vision or close the session. |
 | `git_status` | Show branch and file status. |

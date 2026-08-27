@@ -170,7 +170,7 @@ Další zpráva během práce modelu přesměruje aktivní úlohu: přijme se ok
 
 ## Stop
 
-**Stop** obchází běžnou frontu a měkce ukončí generování po nejbližší větě. Proces operačního systému spuštěný na pozadí zastavte zvlášť v **Dlouhé operace**.
+**Stop** obchází běžnou frontu a měkce ukončí generování po nejbližší větě. Současně zruší právě čekající browser operaci nebo synchronní `run_command` a ukončí jeho procesní strom. Samostatný proces spuštěný na pozadí zastavte zvlášť v **Dlouhé operace**.
 
 ## Živý průběh
 
@@ -334,10 +334,13 @@ Vývoj a Počítač obsahují persistentní headless Microsoft Edge session odd�
 1. `browser_open` načte lokální nebo veřejnou URL.
 2. `browser_snapshot` vrátí viditelný text a interaktivní prvky s refs jako `e1`.
 3. `browser_fill`, `browser_click`, `browser_press` pracují přes tyto refs.
-4. Nový snapshot ověří DOM výsledek; zastaralé refs jsou odmítnuty.
-5. `browser_console` a `browser_network` vracejí konzoli, HTTP responses a selhané requesty.
-6. `browser_screenshot` vloží vykreslenou stránku do dalšího requestu pro Qwen vision.
-7. `browser_close` nebo **Browser session > Zavřít browser** uvolní Edge proces.
+4. `browser_select`, `browser_hover`, `browser_scroll` obslouží dropdowny, hover a dlouhé stránky.
+5. `browser_upload` nastaví lokální file input; `browser_download` uloží download k aktivnímu chatu.
+6. `browser_viewport` přepne desktop, tablet nebo mobilní rozměr.
+7. Nový snapshot ověří DOM výsledek; zastaralé refs jsou odmítnuty.
+8. `browser_console` a `browser_network` vracejí konzoli, HTTP responses a selhané requesty.
+9. `browser_screenshot` vloží vykreslenou stránku do dalšího requestu pro Qwen vision.
+10. `browser_close` nebo **Browser session > Zavřít browser** uvolní Edge proces.
 
 Browser přežije jednotlivé agentní kroky. Režim Počítač použijte pro nativní desktopové aplikace nebo celou obrazovku Windows.
 
@@ -357,7 +360,7 @@ Model umí číst status a diff a vytvořit lokální commit. `git_commit` stagu
 
 ## Příkazy a testy
 
-Krátké příkazy běží synchronně s timeoutem. Dlouhé se spouštějí na pozadí, vrátí process ID a lze je pollovat, posílat jim stdin nebo ukončit celý strom procesů.
+Krátké příkazy běží synchronně s timeoutem. Úplný stdout/stderr se ukládá do `sessions\<id-chatu>\command-logs`; model dostane začátek i konec, takže neztratí závěrečnou chybu. Stop aktivní synchronní příkaz ihned ukončí. Dlouhé příkazy na pozadí vrátí process ID a lze je pollovat, posílat jim stdin nebo ukončit celý strom procesů.
 
 `project_validation_profile` vypíše detekované test/lint/typecheck/build příkazy. `start_project_check` spustí primární nebo pojmenovanou kontrolu. Detekce pokrývá tento harness, pytest, Node scripts, Rust, Go a .NET.
 
@@ -544,6 +547,9 @@ Nástroje běžně požadujete přirozeným jazykem.
 | `find_symbol`, `document_symbols`, `find_references` | Deklarace, symboly dokumentu a rychlá použití. |
 | `browser_open`, `browser_snapshot` | Otevřít a sémanticky prohlédnout izolovaný Edge. |
 | `browser_fill`, `browser_click`, `browser_press`, `browser_wait` | Práce s refs a čekání na změny UI. |
+| `browser_select`, `browser_hover`, `browser_scroll` | Dropdowny, hover a scrolling. |
+| `browser_upload`, `browser_download` | Lokální upload a uložení downloadu. |
+| `browser_viewport` | Desktopový, tabletový nebo mobilní viewport. |
 | `browser_console`, `browser_network` | Konzole a síťová diagnostika. |
 | `browser_screenshot`, `browser_close` | Vision screenshot a zavření browseru. |
 | `git_status`, `git_diff`, `git_commit` | Lokální Git operace bez automatického push. |

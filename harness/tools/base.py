@@ -26,6 +26,7 @@ class AgentContext:
     task_plan: Any = None          # harness.task_plan.TaskPlanStore
     browser: Any = None            # harness.browser.BrowserSession
     code_index: Any = None         # harness.code_index.CodeIndex
+    abort_flag: Any = None         # threading.Event shared with the active agent run
 
     def resolve(self, path: str) -> Path:
         """Relativní cesty řeší od workspace, absolutní ponechá."""

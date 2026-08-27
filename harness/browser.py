@@ -32,6 +32,7 @@ class BrowserSession:
         self._console: list[dict[str, Any]] = []
         self._network: list[dict[str, Any]] = []
         self._status = {"running": False, "url": "", "title": ""}
+        self._active_future = None
         self._registered_atexit = False
 
     def bind_session(self, session) -> None:
@@ -53,6 +54,24 @@ class BrowserSession:
 
     def fill(self, ref: str, text: str) -> dict[str, Any]:
         return self._call(self._fill(ref, text), timeout=30)
+
+    def hover(self, ref: str) -> dict[str, Any]:
+        return self._call(self._hover(ref), timeout=30)
+
+    def select(self, ref: str, value: str) -> dict[str, Any]:
+        return self._call(self._select(ref, value), timeout=30)
+
+    def scroll(self, delta_y: int, ref: str | None = None) -> dict[str, Any]:
+        return self._call(self._scroll(delta_y, ref), timeout=30)
+
+    def upload(self, ref: str, path: str) -> dict[str, Any]:
+        return self._call(self._upload(ref, path), timeout=45)
+
+    def download(self, ref: str) -> dict[str, Any]:
+        return self._call(self._download(ref), timeout=60)
+
+    def viewport(self, width: int, height: int) -> dict[str, Any]:
+        return self._call(self._viewport(width, height), timeout=30)
 
     def press(self, key: str) -> dict[str, Any]:
         return self._call(self._press(key), timeout=30)
@@ -79,6 +98,14 @@ class BrowserSession:
         if self._loop is None:
             return {"closed": True, "already_closed": True}
         return self._call(self._close(), timeout=30)
+
+    def cancel_active(self) -> bool:
+        """Cancel the currently awaited Playwright operation from the UI thread."""
+        with self._state_lock:
+            future = self._active_future
+        if future is None or future.done():
+            return False
+        return bool(future.cancel())
 
     def shutdown(self) -> None:
         loop = self._loop
@@ -119,7 +146,14 @@ class BrowserSession:
     def _call(self, coroutine: Coroutine, timeout: int):
         loop = self._ensure_loop()
         future = asyncio.run_coroutine_threadsafe(coroutine, loop)
-        return future.result(timeout=timeout)
+        with self._state_lock:
+            self._active_future = future
+        try:
+            return future.result(timeout=timeout)
+        finally:
+            with self._state_lock:
+                if self._active_future is future:
+                    self._active_future = None
 
     async def _ensure_browser(self):
         if self._browser and self._page:
@@ -246,6 +280,62 @@ class BrowserSession:
         await locator.fill(str(text), timeout=20_000)
         return await self._refresh_status()
 
+    async def _hover(self, ref: str) -> dict[str, Any]:
+        locator = await self._locator_for_ref(ref)
+        await locator.hover(timeout=20_000)
+        await asyncio.sleep(0.15)
+        return await self._refresh_status()
+
+    async def _select(self, ref: str, value: str) -> dict[str, Any]:
+        locator = await self._locator_for_ref(ref)
+        try:
+            selected = await locator.select_option(value=str(value), timeout=20_000)
+        except Exception:
+            selected = await locator.select_option(label=str(value), timeout=20_000)
+        return {"selected": selected, **(await self._refresh_status())}
+
+    async def _scroll(self, delta_y: int, ref: str | None) -> dict[str, Any]:
+        page = await self._ensure_browser()
+        amount = max(-100_000, min(int(delta_y), 100_000))
+        if ref:
+            locator = await self._locator_for_ref(ref)
+            await locator.evaluate("(element, y) => element.scrollBy(0, y)", amount)
+        else:
+            await page.mouse.wheel(0, amount)
+        await asyncio.sleep(0.15)
+        return {"scrolled_y": amount, "ref": ref, **(await self._refresh_status())}
+
+    async def _upload(self, ref: str, path: str) -> dict[str, Any]:
+        target = Path(path).resolve()
+        if not target.is_file():
+            raise FileNotFoundError(f"Upload file not found: {target}")
+        locator = await self._locator_for_ref(ref)
+        await locator.set_input_files(str(target), timeout=30_000)
+        return {"uploaded": str(target), **(await self._refresh_status())}
+
+    async def _download(self, ref: str) -> dict[str, Any]:
+        if self._session is None:
+            raise RuntimeError("Browser download has no active chat session")
+        locator = await self._locator_for_ref(ref)
+        page = await self._ensure_browser()
+        async with page.expect_download(timeout=45_000) as pending:
+            await locator.click(timeout=20_000)
+        download = await pending.value
+        directory = self._session.dir / "browser" / "downloads"
+        directory.mkdir(parents=True, exist_ok=True)
+        safe_name = Path(download.suggested_filename).name or "download.bin"
+        target = directory / f"{uuid.uuid4().hex[:6]}-{safe_name}"
+        await download.save_as(str(target))
+        return {"path": str(target), "filename": safe_name,
+                **(await self._refresh_status())}
+
+    async def _viewport(self, width: int, height: int) -> dict[str, Any]:
+        page = await self._ensure_browser()
+        size = {"width": max(320, min(int(width), 3840)),
+                "height": max(320, min(int(height), 2160))}
+        await page.set_viewport_size(size)
+        return {"viewport": size, **(await self._refresh_status())}
+
     async def _press(self, key: str) -> dict[str, Any]:
         page = await self._ensure_browser()
         await page.keyboard.press(str(key))
@@ -268,7 +358,8 @@ class BrowserSession:
         directory.mkdir(parents=True, exist_ok=True)
         target = directory / f"browser-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}.png"
         await page.screenshot(path=str(target), full_page=bool(full_page))
-        return {"path": str(target), "width": 1440, "height": 900,
+        viewport = page.viewport_size or {"width": 1440, "height": 900}
+        return {"path": str(target), "width": viewport["width"], "height": viewport["height"],
                 "full_page": bool(full_page), **(await self._refresh_status())}
 
     async def _close(self) -> dict[str, Any]:

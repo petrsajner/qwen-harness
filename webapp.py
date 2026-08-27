@@ -366,7 +366,9 @@ def _tool_progress_text(name: str, arguments, *, preparing: bool) -> str:
         return t("Opening the isolated browser…")
     if name == "browser_snapshot":
         return t("Inspecting the rendered page…")
-    if name in ("browser_click", "browser_fill", "browser_press", "browser_wait"):
+    if name in ("browser_click", "browser_fill", "browser_hover", "browser_select",
+                "browser_scroll", "browser_upload", "browser_download",
+                "browser_viewport", "browser_press", "browser_wait"):
         return t("Interacting with the rendered page…")
     if name == "browser_screenshot":
         return t("Capturing the rendered page for vision…")
@@ -669,6 +671,7 @@ def confirm_no(history: list[dict]):
 
 def stop_run(_history: list[dict]):
     state.abort.set()
+    state.browser.cancel_active()
     gr.Info(t("Stop received — finishing the current sentence."))
     return gr.update(), gr.update(visible=False), refresh_status()
 

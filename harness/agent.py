@@ -154,6 +154,7 @@ class Agent:
             workspace=project_workspace or Path.cwd().resolve(),
             project_workspace=project_workspace,
             work_mode=self.work_mode,
+            abort_flag=self.abort_flag,
         )
         self.ctx.changes = ChangeJournal(session, self.ctx.workspace)
         self.ctx.processes = process_manager or ProcessManager()

@@ -48,7 +48,8 @@ Both manuals are also installed with the application and can be opened from
 - ✅ **Project validation profiles** — auto-detected test/lint/typecheck/build commands,
   optionally customized in `.qwen/project.yaml`
 - 🌐 **Isolated browser session** — headless Edge with DOM refs, fill/click/keys,
-  console, network log and screenshots fed directly to Qwen vision
+  select/hover/scroll, upload/download, responsive viewports, console/network log
+  and screenshots fed directly to Qwen vision
 - 🧭 **Multi-language code navigation** — declarations, document symbols and fast
   whole-word references for Python, JS/TS, Rust, Go, C/C++, C#, Java and Kotlin
 - 🌿 **Chat management** — retry, edit last prompt, undo round, forks, search and
@@ -228,8 +229,10 @@ project layers too.
 - History search uses an SQLite FTS5 index instead of repeatedly scanning all JSONL.
 - Generation has no application-level output-token limit; it ends naturally or at the
   model's physical context boundary.
-- Stop bypasses the queue, terminates generation at the nearest sentence and keeps
-  the finished part of the answer.
+- Stop bypasses the queue, terminates generation at the nearest sentence, cancels an
+  active browser operation or synchronous command, and keeps finished answer text.
+- Synchronous commands save complete stdout/stderr under the chat's `command-logs`;
+  the model receives a useful head+tail preview instead of losing errors at the end.
 - Messages and context changes share one queue, so a new prompt or a chat switch
   never overwrites a running task.
 

@@ -64,6 +64,71 @@ class BrowserFillTool(Tool):
         return json.dumps(_browser(ctx).fill(ref, text), ensure_ascii=False, indent=2)
 
 
+class BrowserHoverTool(Tool):
+    name = "browser_hover"
+    description = "Hover one element ref to reveal hover states, menus, or tooltips."
+    parameters = {"ref": {"type": "string"}}
+    required = ["ref"]
+
+    def run(self, ctx: AgentContext, ref: str) -> str:
+        return json.dumps(_browser(ctx).hover(ref), ensure_ascii=False, indent=2)
+
+
+class BrowserSelectTool(Tool):
+    name = "browser_select"
+    description = "Select a native dropdown option by value or visible label."
+    parameters = {"ref": {"type": "string"}, "value": {"type": "string"}}
+    required = ["ref", "value"]
+    risk = Risk.WRITE
+
+    def run(self, ctx: AgentContext, ref: str, value: str) -> str:
+        return json.dumps(_browser(ctx).select(ref, value), ensure_ascii=False, indent=2)
+
+
+class BrowserScrollTool(Tool):
+    name = "browser_scroll"
+    description = "Scroll the page or one scrollable element vertically by a pixel delta."
+    parameters = {"delta_y": {"type": "integer"},
+                  "ref": {"type": "string", "description": "Optional scrollable element ref"}}
+    required = ["delta_y"]
+
+    def run(self, ctx: AgentContext, delta_y: int, ref: str | None = None) -> str:
+        return json.dumps(_browser(ctx).scroll(delta_y, ref), ensure_ascii=False, indent=2)
+
+
+class BrowserUploadTool(Tool):
+    name = "browser_upload"
+    description = "Set a local file on an <input type=file> ref. Relative paths use the project."
+    parameters = {"ref": {"type": "string"}, "path": {"type": "string"}}
+    required = ["ref", "path"]
+    risk = Risk.WRITE
+
+    def run(self, ctx: AgentContext, ref: str, path: str) -> str:
+        target = ctx.resolve(path)
+        return json.dumps(_browser(ctx).upload(ref, str(target)), ensure_ascii=False, indent=2)
+
+
+class BrowserDownloadTool(Tool):
+    name = "browser_download"
+    description = "Click a ref that starts a download and save it in the active chat browser folder."
+    parameters = {"ref": {"type": "string"}}
+    required = ["ref"]
+    risk = Risk.WRITE
+
+    def run(self, ctx: AgentContext, ref: str) -> str:
+        return json.dumps(_browser(ctx).download(ref), ensure_ascii=False, indent=2)
+
+
+class BrowserViewportTool(Tool):
+    name = "browser_viewport"
+    description = "Set the isolated browser viewport for desktop, tablet, or mobile layout checks."
+    parameters = {"width": {"type": "integer"}, "height": {"type": "integer"}}
+    required = ["width", "height"]
+
+    def run(self, ctx: AgentContext, width: int, height: int) -> str:
+        return json.dumps(_browser(ctx).viewport(width, height), ensure_ascii=False, indent=2)
+
+
 class BrowserPressTool(Tool):
     name = "browser_press"
     description = "Press a browser key/combo such as Enter, Escape, Control+L, or Control+Enter."
@@ -132,6 +197,12 @@ def register_browser_tools(registry) -> None:
     registry.register(BrowserSnapshotTool())
     registry.register(BrowserClickTool())
     registry.register(BrowserFillTool())
+    registry.register(BrowserHoverTool())
+    registry.register(BrowserSelectTool())
+    registry.register(BrowserScrollTool())
+    registry.register(BrowserUploadTool())
+    registry.register(BrowserDownloadTool())
+    registry.register(BrowserViewportTool())
     registry.register(BrowserPressTool())
     registry.register(BrowserWaitTool())
     registry.register(BrowserScreenshotTool())
