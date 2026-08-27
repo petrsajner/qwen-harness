@@ -83,6 +83,8 @@ _CS = {
     "Checking a long-running operation…": "Kontroluji průběh dlouhé operace…",
     "Reading file{target}…": "Čtu soubor{target}…",
     "Scanning the project…": "Procházím projekt…",
+    "Updating the task plan…": "Aktualizuji plán úlohy…",
+    "Preparing project validation…": "Připravuji kontrolu projektu…",
     "Browsing web sources…": "Procházím internetové zdroje…",
     "Preparing": "Připravuji",
     "Running": "Provádím",
@@ -236,6 +238,15 @@ _CS = {
     "**Changes in this task: {count}**": "**Změny této úlohy: {count}**",
     "Created": "Vytvořeno",
     "Modified": "Upraveno",
+    "Deleted": "Smazáno",
+    "Directory": "Složka",
+    "<small>The task plan appears after a substantial task starts.</small>":
+        "<small>Plán se objeví po zahájení větší úlohy.</small>",
+    "<small>The model is inspecting the task before creating steps.</small>":
+        "<small>Model úlohu nejprve prohlíží a připravuje kroky.</small>",
+    "Current task": "Aktuální úloha",
+    "**Last validation:** {mark} {label}": "**Poslední kontrola:** {mark} {label}",
+    "✓ Final diff reviewed": "✓ Výsledný diff zkontrolován",
     "**Running operations: {count}**": "**Probíhající operace: {count}**",
     "**Context: ~{used}k / {limit}k tokens ({pct}%)**":
         "**Kontext: ~{used}k / {limit}k tokenů ({pct}%)**",
@@ -243,6 +254,11 @@ _CS = {
     "- Images in the active context: {count}": "- Obrázky v aktivním kontextu: {count}",
     "- Older history: compressed": "- Starší historie: komprimovaná",
     "- Older history: full": "- Starší historie: plná",
+    "- Conversation and attachments: ~{count}k tokens":
+        "- Konverzace a přílohy: ~{count}k tokenů",
+    "- Current project context: ~{count}k tokens":
+        "- Aktuální kontext projektu: ~{count}k tokenů",
+    "- Tool definitions: ~{count}k tokens": "- Definice nástrojů: ~{count}k tokenů",
     "- Pinned files: {count}": "- Připnuté soubory: {count}",
     "- Pinned files: none": "- Připnuté soubory: žádné",
     "The research ledger activates in Research mode.": "Research ledger se aktivuje v režimu Výzkum.",
@@ -280,6 +296,7 @@ _CS = {
     "Compress": "Komprimovat",
     "Hand off": "Předat chatu",
     "Changes in this task": "Změny této úlohy",
+    "Task progress": "Průběh úlohy",
     "Revert task changes": "Vrátit změny této úlohy",
     "Continue task": "Pokračovat v úloze",
     "Long-running operations": "Dlouhé operace",

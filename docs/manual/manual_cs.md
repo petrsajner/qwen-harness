@@ -107,6 +107,7 @@ Změna modelu nebo KV cache automaticky vyžádá restart. Načítání obvykle 
 
 - **Kontext a předání** - ruční komprese a předání do nového chatu.
 - **Změny této úlohy** - změněné soubory a rollback.
+- **Průběh úlohy** - persistentní cíl, aktuální a dokončené kroky, poslední kontrola a stav kontroly diffu.
 - **Rozpracovaná úloha** - obnovení práce po restartu.
 - **Dlouhé operace** - procesy na pozadí a jejich ukončení.
 - **Co model právě používá** - kontext a připnuté soubory.
@@ -218,7 +219,11 @@ Klikněte **Smazat projekt i složku**, ověřte zobrazenou cestu a potvrďte dr
 
 # 9. Kontext, komprese a pins
 
-Panel **Co model právě používá** ukazuje odhad tokenů, viditelné/celkové zprávy, obrázky, stav komprese a pins. Ve Vývoji model dostává kompaktní repo snapshot; ostatní režimy katalog dokumentů.
+Panel **Co model právě používá** ukazuje odhad tokenů, viditelné/celkové zprávy, obrázky, stav komprese a pins. Rozpad zvlášť uvádí konverzaci/přílohy, aktuální projektový kontext a definice nástrojů. Celkový údaj proto zahrnuje i režii tool schemas.
+
+Ve Vývoji model dostává kompaktní repo snapshot; ostatní režimy katalog dokumentů. Snapshot, pins a aktivní projektové instrukce se skládají jen pro aktuální request a neukládají se jako stále nové kopie do historie.
+
+Harness automaticky hledá `AGENTS.md`, `QWEN.md` a `CLAUDE.md` od kořene projektu po adresář právě čteného nebo měněného souboru. Hlubší dokument je konkrétnější. Jde o guidance; aktuální zadání uživatele má přednost.
 
 **Připnout soubor** vloží text vybraného souboru do následujících úloh tohoto chatu. Vhodné jsou architektura, specifikace, handoff a projektová pravidla. Limit je 10 souborů a asi 40 000 znaků. Větev pins kopíruje, nový chat ne.
 
@@ -309,15 +314,21 @@ S projektem se výstup ukládá do `<projekt>\exports`. Bez projektu jde do `ses
 
 ## Poznání projektu
 
-Na začátku úlohy dostane model aktuální repo snapshot a může použít `repo_overview`, procházet adresáře, hledat text a číst soubory. Snapshot je přidán na hranici úlohy, takže starší prompt cache zůstává použitelná.
+Při každém requestu dostane model aktuální repo snapshot a platné hierarchické projektové instrukce. Může použít `repo_overview`, `project_instructions`, procházet/globovat soubory, hledat literal nebo regex a číst relevantní rozsahy.
 
 ## Souborové operace
 
 - `read_file` čte text s čísly řádků.
-- `search_files` hledá text a podporuje glob názvu.
+- `search_files` používá ripgrep, podporuje literal/regex, case sensitivity a glob názvu.
+- `find_files` vrací soubory odpovídající globu.
 - `write_file` vytvoří nebo přepíše celý soubor.
 - `apply_patch` provádí přesné atomické náhrady.
+- `make_directory`, `move_file`, `delete_file` jsou strukturované operace zahrnuté do rollbacku.
 - `view_image` vloží obrázek do vision kontextu.
+
+## Plán úlohy
+
+U větší práce model vytvoří operační plán pomocí `set_task_plan` a aktualizuje kroky přes `update_task_step`. Panel **Průběh úlohy** ukazuje cíl, pending/in-progress/completed kroky, poslední validaci a kontrolu diffu. Ledger je v `task-plan.json`, přežije restart i kompresi a neobsahuje soukromý chain-of-thought.
 
 ## Checkpoint a rollback
 
@@ -333,7 +344,22 @@ Model umí číst status a diff a vytvořit lokální commit. `git_commit` stagu
 
 Krátké příkazy běží synchronně s timeoutem. Dlouhé se spouštějí na pozadí, vrátí process ID a lze je pollovat, posílat jim stdin nebo ukončit celý strom procesů.
 
-`start_project_check` pozná testy tohoto harnessu, pytest/pyproject, Node `npm test`/`npm run check`, Rust `cargo test` a Go `go test ./...`.
+`project_validation_profile` vypíše detekované test/lint/typecheck/build příkazy. `start_project_check` spustí primární nebo pojmenovanou kontrolu. Detekce pokrývá tento harness, pytest, Node scripts, Rust, Go a .NET.
+
+Projekt může detekci nahradit souborem `.qwen/project.yaml`:
+
+```yaml
+checks:
+  - id: tests
+    label: Kompletní testy
+    command: npm test
+    shell: powershell
+    kind: test
+    timeout: 900
+    primary: true
+```
+
+Dokončená kontrola se zapíše do panelu. Pokud změněná úloha končí bez validace, dokončeného plánu nebo kontroly diffu, harness model jednou upozorní. Model užitečnou kontrolu provede, nebo vysvětlí, proč pro danou úlohu nemá smysl.
 
 Finální kontrola je doporučení, ne omezení. Explicitní zadání uživatele na architekturu, formu, rozsah nebo single-file výsledek má přednost.
 
@@ -473,21 +499,27 @@ Nástroje běžně požadujete přirozeným jazykem.
 | `list_project_documents`, `read_project_document` | Katalog a čtení dokumentů. |
 | `list_skills`, `read_skill` | Katalog a načtení skillů. |
 | `export_document` | Export Markdown, DOCX nebo PDF. |
+| `list_dir`, `read_file` | Procházet adresáře a číst rozsahy textu. |
+| `search_files`, `find_files` | Rychlé literal/regex hledání a glob souborů. |
+| `write_file`, `apply_patch` | Vytvářet a atomicky upravovat text. |
+| `make_directory`, `move_file`, `delete_file` | Strukturované změny s rollbackem. |
+| `list_task_changes`, `undo_task_changes` | Task journal a rollback. |
+| `view_image` | Vizuální analýza lokálního obrázku. |
 
 ## Psaní, Vývoj a Počítač
 
 | Nástroj | Schopnost |
 |---|---|
-| `list_dir`, `read_file`, `search_files` | Procházet a hledat v souborech. |
-| `write_file`, `apply_patch` | Vytvářet/přesně upravovat soubory. |
-| `list_task_changes`, `undo_task_changes` | Task journal a rollback. |
-| `view_image` | Vizuální analýza lokálního obrázku. |
+| `task_plan_status`, `set_task_plan` | Číst nebo vytvořit operační plán. |
+| `update_task_step` | Aktualizovat stav kroků. |
+| `record_task_validation` | Zapsat ručně provedenou kontrolu. |
 
 ## Vývoj a Počítač
 
 | Nástroj | Schopnost |
 |---|---|
-| `repo_overview`, `start_project_check` | Mapa repozitáře a hlavní test. |
+| `repo_overview`, `project_instructions` | Mapa repozitáře a hierarchické instrukce. |
+| `project_validation_profile`, `start_project_check` | Nabídka a spuštění projektových kontrol. |
 | `git_status`, `git_diff`, `git_commit` | Lokální Git operace bez automatického push. |
 | `run_command` | Krátký Bash, PowerShell nebo cmd příkaz. |
 | `start_command`, `poll_command`, `send_stdin`, `terminate_command` | Persistentní procesy na pozadí. |

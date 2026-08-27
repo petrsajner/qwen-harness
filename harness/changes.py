@@ -88,6 +88,33 @@ class ChangeJournal:
             record["after_sha256"] = file_sha256(path)
             self._write_manifest()
 
+    def record_directory_before(self, path: Path) -> None:
+        path = path.resolve()
+        key = str(path)
+        with self._lock:
+            if key in self._records:
+                return
+            existed = path.is_dir()
+            self._records[key] = {
+                "path": key,
+                "display_path": self._display_path(path),
+                "kind": "directory",
+                "existed": existed,
+                "backup": None,
+                "before_sha256": "directory" if existed else None,
+                "after_sha256": None,
+            }
+            self._write_manifest()
+
+    def record_directory_after(self, path: Path) -> None:
+        path = path.resolve()
+        with self._lock:
+            record = self._records.get(str(path))
+            if record is None:
+                return
+            record["after_sha256"] = "directory" if path.is_dir() else None
+            self._write_manifest()
+
     def summary(self, task_id: str | None = None) -> dict:
         manifest = self._load_manifest(task_id)
         records = manifest.get("files", []) if manifest else []
@@ -99,7 +126,9 @@ class ChangeJournal:
             "files": [
                 {
                     "path": record["display_path"],
-                    "change": "modified" if record["existed"] else "created",
+                    "change": ("directory" if record.get("kind") == "directory"
+                               else "deleted" if record["existed"] and record.get("after_sha256") is None
+                               else "modified" if record["existed"] else "created"),
                     "changed": not undone and record.get("before_sha256") != record.get("after_sha256"),
                 }
                 for record in records
@@ -117,7 +146,10 @@ class ChangeJournal:
             for record in reversed(manifest.get("files", [])):
                 path = Path(record["path"])
                 try:
-                    if record["existed"]:
+                    if record.get("kind") == "directory":
+                        if not record["existed"] and path.is_dir():
+                            path.rmdir()
+                    elif record["existed"]:
                         backup = task_dir / record["backup"]
                         path.parent.mkdir(parents=True, exist_ok=True)
                         temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.restore")

@@ -23,6 +23,7 @@ class AgentContext:
     processes: Any = None          # harness.processes.ProcessManager
     repo_index: Any = None         # harness.repo_index.RepoIndex
     research: Any = None           # harness.research.ResearchLedger
+    task_plan: Any = None          # harness.task_plan.TaskPlanStore
 
     def resolve(self, path: str) -> Path:
         """Relativní cesty řeší od workspace, absolutní ponechá."""

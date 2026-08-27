@@ -351,8 +351,13 @@ def _tool_progress_text(name: str, arguments, *, preparing: bool) -> str:
         return t("Checking a long-running operation…")
     if name == "read_file":
         return t("Reading file{target}…", target=target)
-    if name in ("search_files", "list_dir", "repo_overview"):
+    if name in ("search_files", "find_files", "list_dir", "repo_overview",
+                "project_instructions"):
         return t("Scanning the project…")
+    if name in ("set_task_plan", "update_task_step", "task_plan_status"):
+        return t("Updating the task plan…")
+    if name in ("project_validation_profile", "start_project_check"):
+        return t("Preparing project validation…")
     if name in ("web_search", "web_fetch"):
         return t("Browsing web sources…")
     verb = t("Preparing") if preparing else t("Running")
@@ -1045,15 +1050,16 @@ def change_mode(mode: str):
 def change_work_mode(work_mode: str):
     state.set_work_mode(work_mode)
     state.save_ui_state()
-    changes, processes, research = work_mode_panel_updates()
+    changes, task_progress, processes, research = work_mode_panel_updates()
     memory = _mem_infos()
     return (t("Work mode: **{mode}**", mode=t(WORK_MODES[state.work_mode].label)),
-            changes, processes, research,
+            changes, task_progress, processes, research,
             *(gr.update(value=value) for value in memory))
 
 
 def work_mode_panel_updates():
     return (
+        gr.update(visible=state.work_mode in ("writing", "development", "computer")),
         gr.update(visible=state.work_mode in ("writing", "development", "computer")),
         gr.update(visible=state.work_mode in ("development", "computer")),
         gr.update(visible=state.work_mode == "research"),
@@ -1791,7 +1797,9 @@ def task_changes_text() -> str:
         return t("<small>No files changed in the current task yet.</small>")
     lines = [t("**Changes in this task: {count}**", count=len(changed))]
     for item in changed:
-        action = t("Created") if item["change"] == "created" else t("Modified")
+        action = (t("Directory") if item["change"] == "directory" else
+                  t("Created") if item["change"] == "created" else
+                  t("Deleted") if item["change"] == "deleted" else t("Modified"))
         lines.append(f"- {action}: `{item['path']}`")
     return "\n".join(lines)
 
@@ -1801,6 +1809,34 @@ def refresh_task_changes():
     summary = journal.summary() if journal else {"files": []}
     has_changes = any(item.get("changed") for item in summary.get("files", []))
     return task_changes_text(), gr.update(interactive=has_changes)
+
+
+def task_plan_text() -> str:
+    store = getattr(state.agent.ctx, "task_plan", None)
+    data = store.load() if store else {}
+    if not data:
+        return t("<small>The task plan appears after a substantial task starts.</small>")
+    goal = str(data.get("goal") or t("Current task"))[:220]
+    lines = [f"**{goal}**"]
+    icons = {"pending": "○", "in_progress": "◉", "completed": "✓", "skipped": "−"}
+    steps = data.get("steps") or []
+    if not steps:
+        lines.append(t("<small>The model is inspecting the task before creating steps.</small>"))
+    for step in steps:
+        status = str(step.get("status") or "pending")
+        text = str(step.get("text") or "")[:180]
+        lines.append(f"{icons.get(status, '○')} {text}")
+        if step.get("note"):
+            lines.append(f"  <small>{str(step['note'])[:180]}</small>")
+    validations = data.get("validations") or []
+    if validations:
+        last = validations[-1]
+        mark = "✓" if last.get("status") == "passed" else "✗"
+        lines.append(t("**Last validation:** {mark} {label}",
+                       mark=mark, label=str(last.get("label") or "")[:160]))
+    if data.get("diff_reviewed"):
+        lines.append(t("✓ Final diff reviewed"))
+    return "\n\n".join(lines)
 
 
 def undo_current_task():
@@ -1850,7 +1886,8 @@ def stop_all_processes():
 def context_inspector_text() -> str:
     info = state.session.context_breakdown()
     limit = cfg.context_size(state.model_key)
-    tokens = state.agent.estimate_context_tokens()
+    usage = state.agent.context_usage_breakdown()
+    tokens = sum(usage.values())
     pct = min(100, tokens * 100 // max(1, limit))
     lines = [
         t("**Context: ~{used}k / {limit}k tokens ({pct}%)**",
@@ -1859,6 +1896,12 @@ def context_inspector_text() -> str:
           visible=info["visible_messages"], total=info["total_messages"]),
         t("- Images in the active context: {count}", count=info["images"]),
         t("- Older history: compressed") if info["compressed"] else t("- Older history: full"),
+        t("- Conversation and attachments: ~{count}k tokens",
+          count=f"{usage['messages'] / 1000:.1f}"),
+        t("- Current project context: ~{count}k tokens",
+          count=f"{usage['dynamic'] / 1000:.1f}"),
+        t("- Tool definitions: ~{count}k tokens",
+          count=f"{usage['tool_schemas'] / 1000:.1f}"),
     ]
     pins = info.get("pinned_files") or []
     if pins:
@@ -2202,6 +2245,12 @@ def build_ui() -> gr.Blocks:
                         t("Revert task changes"), size="sm", variant="stop",
                         interactive=False,
                     )
+
+                with gr.Accordion(
+                        t("Task progress"), open=True,
+                        visible=state.work_mode in ("writing", "development", "computer"),
+                        elem_classes=["sidebar-section", "info-section"]) as task_plan_panel:
+                    task_plan_info = gr.Markdown(task_plan_text, elem_classes=["hdr"])
 
                 with gr.Accordion(
                         t("Unfinished task"), open=True,
@@ -2568,7 +2617,7 @@ def build_ui() -> gr.Blocks:
                       [status_box, model_dd, kv_cache_dd])
         work_mode_dd.change(
             change_work_mode, work_mode_dd,
-            [settings_info, changes_panel, process_panel, research_panel,
+            [settings_info, changes_panel, task_plan_panel, process_panel, research_panel,
              mem_g_info, mem_mode_info, mem_p_info],
             concurrency_id="chat-run", concurrency_limit=1)
         autonomy_dd.change(change_autonomy, autonomy_dd, settings_info)
@@ -2632,16 +2681,20 @@ def build_ui() -> gr.Blocks:
         # živý status (⏳ načítám model → 🟢) každých 5 s
         if hasattr(gr, "Timer"):
             gr.Timer(5.0).tick(
-                refresh_runtime_controls, outputs=[status_box, model_dd, kv_cache_dd])
-            gr.Timer(2.0).tick(refresh_task_changes, outputs=[task_changes, btn_undo_task])
+                refresh_runtime_controls, outputs=[status_box, model_dd, kv_cache_dd],
+                queue=False)
+            gr.Timer(2.0).tick(
+                refresh_task_changes, outputs=[task_changes, btn_undo_task], queue=False)
+            gr.Timer(1.0).tick(task_plan_text, outputs=task_plan_info, queue=False)
             gr.Timer(2.0).tick(
                 refresh_resumable_task,
-                outputs=[resumable_status, btn_resume_task, resumable_panel])
-            gr.Timer(2.0).tick(refresh_processes, outputs=[process_status, btn_stop_processes])
+                outputs=[resumable_status, btn_resume_task, resumable_panel], queue=False)
+            gr.Timer(2.0).tick(
+                refresh_processes, outputs=[process_status, btn_stop_processes], queue=False)
             gr.Timer(5.0).tick(refresh_context_inspector,
-                               outputs=[context_info, btn_clear_pins])
-            gr.Timer(10.0).tick(skills_info_text, outputs=skills_info)
-            gr.Timer(2.0).tick(research_status_text, outputs=research_status)
+                               outputs=[context_info, btn_clear_pins], queue=False)
+            gr.Timer(10.0).tick(skills_info_text, outputs=skills_info, queue=False)
+            gr.Timer(2.0).tick(research_status_text, outputs=research_status, queue=False)
     return ui
 
 

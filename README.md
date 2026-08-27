@@ -40,6 +40,13 @@ Both manuals are also installed with the application and can be opened from
   process-tree termination
 - 🧭 **Automatic project & context overview** — repo snapshot, pinned files and live
   context usage
+- 📋 **Visible persistent task plan** — goal, steps, validation results and diff-review
+  state survive restart and context compression
+- 🧩 **Hierarchical project guidance** — `AGENTS.md`, `QWEN.md` and `CLAUDE.md`
+  are applied automatically from project root to the active file
+- 🔎 **Fast repository search** — ripgrep-backed literal/regex search and file globs
+- ✅ **Project validation profiles** — auto-detected test/lint/typecheck/build commands,
+  optionally customized in `.qwen/project.yaml`
 - 🌿 **Chat management** — retry, edit last prompt, undo round, forks, search and
   export/import
 - 🧭 **Live steering** — a follow-up message redirects the in-progress answer once
@@ -209,6 +216,8 @@ project layers too.
 ### Resume and performance
 
 - An in-progress agent step and pending confirmation are stored in `task-state.json`.
+- The operational goal, step states, validations and active project paths are stored in
+  `task-plan.json` and shown live in **Task progress**.
 - Background processes write to persistent logs and re-attach by PID after a restart.
 - Independent read-only tool calls run with bounded parallelism; every set containing
   a write stays sequential.
@@ -259,12 +268,30 @@ TTFT ~1–2 s. Custom benchmark: `.venv/Scripts/python scripts/bench.py [--model
 
 ## Coding workflow
 
+- Dynamic project context is assembled only for the current request; stale repo maps,
+  pins and helper catalogs do not accumulate in chat history.
+- Project guidance is discovered hierarchically from `AGENTS.md`, `QWEN.md` and
+  `CLAUDE.md` files relevant to the files being inspected or changed.
+- `search_files` uses ripgrep when available and supports literal/regex search;
+  `find_files` provides project globs.
 - The agent edits existing files via `apply_patch`; a persistent checkpoint is taken
   before the first change.
 - The sidebar shows a human-friendly list of created/modified files and offers a
   one-click revert of the whole task.
 - `start_project_check` automatically finds the project's main test command and runs
   it as a long operation.
+- A project can define named checks in `.qwen/project.yaml`:
+
+```yaml
+checks:
+  - id: tests
+    label: Full test suite
+    command: npm test
+    shell: powershell
+    kind: test
+    timeout: 900
+    primary: true
+```
 - Structured Git tools operate only on the current task's files unless paths are
   given explicitly.
 - Technical diff, process output and a repo map are available to the agent; the main

@@ -125,6 +125,7 @@ Most secondary controls are collapsed to keep the sidebar readable:
 
 - **Context & handoff** - manual compression and a summarized handoff to a new chat.
 - **Changes in this task** - files changed since the current task began and one-click rollback.
+- **Task progress** - the persistent goal, current step, completed steps, latest validation, and diff-review state.
 - **Unfinished task** - resume work saved before an application restart.
 - **Long-running operations** - running background commands and their termination control.
 - **What the model currently sees** - context statistics and pinned files.
@@ -377,13 +378,15 @@ Use **Context & handoff > Hand off** for a long conversation that should continu
 
 ## Context indicator
 
-The status and **What the model currently sees** panel show estimated tokens, visible versus total messages, images, compression state, and pinned files. The estimate includes the current dynamic project/skill snapshot.
+The status and **What the model currently sees** panel show estimated tokens, visible versus total messages, images, compression state, and pinned files. The detailed breakdown separates conversation/attachments, current project context, and tool definitions, so the displayed total includes tool-schema overhead.
 
 ## Automatic project snapshot
 
-In Development, the model receives a compact map of the current workspace, file types, key entry points, directories, and top-level Python symbols. The snapshot is added at the current task boundary so changes do not invalidate the reusable prefix of the earlier conversation.
+In Development, the model receives a compact map of the current workspace, file types, key entry points, directories, and top-level Python symbols. It is assembled as a temporary tail for the current request and is not stored in chat history, so stale snapshots do not accumulate and the earlier reusable prefix remains unchanged.
 
 Discussion, Research, and Writing use a project document catalog instead of a coding repository map.
+
+The harness also discovers `AGENTS.md`, `QWEN.md`, and `CLAUDE.md` from the project root down to directories containing files currently being inspected or changed. Root guidance applies broadly; deeper files are more specific. These documents guide the model but do not override the current user request.
 
 ## Pinning a file
 
@@ -549,15 +552,21 @@ Development mode is intended for complete repository work while keeping the main
 
 ## Project discovery
 
-At each new task, the model receives a current repository snapshot and can call `repo_overview`, list directories, search text, and read relevant files. It should inspect the actual project before editing.
+At each request, the model receives a current repository snapshot plus applicable hierarchical project instructions. It can call `repo_overview`, `project_instructions`, list or glob files, search literal text or regex, and read relevant ranges before editing.
 
 ## File operations
 
 - `read_file` reads text with line numbers.
-- `search_files` finds case-insensitive text matches with optional filename glob.
+- `search_files` uses ripgrep when available and supports literal/regex, case sensitivity, and filename glob.
+- `find_files` lists matching project files through a glob.
 - `write_file` creates or fully rewrites a file.
 - `apply_patch` performs exact atomic text replacements.
+- `make_directory`, `move_file`, and `delete_file` provide structured filesystem operations. Their changes participate in task rollback.
 - `view_image` brings an image file into vision context.
+
+## Task plan
+
+For substantial work the model creates an operational plan with `set_task_plan` and updates steps with `update_task_step`. **Task progress** shows the goal, pending/in-progress/completed steps, validation result, and whether the final diff was reviewed. This task ledger is stored in `task-plan.json`, survives restart and compression, and contains operational state rather than private chain-of-thought.
 
 ## Task checkpoint and rollback
 
@@ -573,13 +582,29 @@ The model can inspect status and diff and create a local Git commit. `git_commit
 
 Short commands run synchronously with a timeout. Long commands run in the background and return a process ID. The model can poll output, send stdin, or terminate the full process tree.
 
-`start_project_check` detects common project checks:
+`project_validation_profile` lists detected test, lint, typecheck, and build commands. `start_project_check` starts the primary command or a named check:
 
 - This harness: `tests/test_core.py`.
 - Python: pytest/pyproject.
 - Node: `npm test` or `npm run check`.
 - Rust: `cargo test`.
 - Go: `go test ./...`.
+- .NET: `dotnet test`.
+
+Projects can replace auto-detection with `.qwen/project.yaml`:
+
+```yaml
+checks:
+  - id: tests
+    label: Full test suite
+    command: npm test
+    shell: powershell
+    kind: test
+    timeout: 900
+    primary: true
+```
+
+Completed checks are recorded automatically in **Task progress**. Before a changed task finishes, the harness gives the model one non-blocking reminder when validation, plan steps, or final diff review are still missing. The model can perform the useful checks or explain why one is not relevant.
 
 The final verification phase is guidance, not a restriction. Explicit user requirements about architecture, format, scope, or a single-file result take priority.
 
@@ -770,26 +795,30 @@ You normally request these operations in natural language; the names below expla
 | `list_skills` | List optional skill metadata. |
 | `read_skill` | Load one selected `SKILL.md`. |
 | `export_document` | Export Markdown, DOCX, or PDF. |
+| `list_dir`, `read_file` | Browse directories and read text with line ranges. |
+| `search_files`, `find_files` | Fast literal/regex search and file globs. |
+| `write_file`, `apply_patch` | Create or atomically edit text files. |
+| `make_directory`, `move_file`, `delete_file` | Structured filesystem changes with task rollback. |
+| `list_task_changes`, `undo_task_changes` | Inspect or revert the current task journal. |
+| `view_image` | Attach a local image for visual analysis. |
 
 ## Added in Writing, Development, and Computer
 
 | Tool | Capability |
 |---|---|
-| `list_dir` | List folders/files and sizes. |
-| `read_file` | Read text with line numbers and optional range. |
-| `write_file` | Create or overwrite a complete file. |
-| `apply_patch` | Apply exact atomic replacements. |
-| `list_task_changes` | List journaled files for the task. |
-| `undo_task_changes` | Restore every journaled task change. |
-| `search_files` | Search text recursively with an optional glob. |
-| `view_image` | Attach a local image for visual analysis. |
+| `task_plan_status` | Read the persistent operational plan. |
+| `set_task_plan` | Define ordered task steps. |
+| `update_task_step` | Update progress and step results. |
+| `record_task_validation` | Record a validation performed outside automatic checks. |
 
 ## Added in Development and Computer
 
 | Tool | Capability |
 |---|---|
 | `repo_overview` | Return the automatic repository map. |
-| `start_project_check` | Detect and start the primary test/check command. |
+| `project_instructions` | Read hierarchical project guidance for a path. |
+| `project_validation_profile` | List detected/configured checks. |
+| `start_project_check` | Start the primary or selected validation command. |
 | `git_status` | Show branch and file status. |
 | `git_diff` | Show working or staged diff. |
 | `git_commit` | Create a local commit from selected/current-task files. |

@@ -57,6 +57,23 @@ class RepoOverviewTool(Tool):
         return ctx.repo_index.summary()
 
 
+class ProjectInstructionsTool(Tool):
+    name = "project_instructions"
+    parallel_safe = True
+    description = ("Show the automatically discovered AGENTS.md, QWEN.md, and CLAUDE.md "
+                   "guidance applying to a project path, from project root to the nearest file.")
+    parameters = {
+        "path": {"type": "string", "description": "Optional project-relative file or directory"},
+    }
+
+    def run(self, ctx: AgentContext, path: str = ".") -> str:
+        if not ctx.repo_index:
+            return "ERROR: repo index unavailable"
+        target = ctx.resolve(path)
+        text = ctx.repo_index.instruction_context([target])
+        return text or "No AGENTS.md, QWEN.md, or CLAUDE.md instructions found."
+
+
 class ListProjectDocumentsTool(Tool):
     name = "list_project_documents"
     parallel_safe = True
@@ -97,45 +114,57 @@ def detect_project_check(workspace: Path) -> tuple[str, str] | None:
     workspace = workspace.resolve()
     venv_python = workspace / ".venv" / "Scripts" / "python.exe"
     python = venv_python if venv_python.exists() else Path(sys.executable)
-    if (workspace / "tests" / "test_core.py").is_file():
-        return "powershell", f"& '{python}' 'tests/test_core.py'"
-    if (workspace / "pyproject.toml").is_file() or (workspace / "pytest.ini").is_file():
-        return "powershell", f"& '{python}' -m pytest"
-    if (workspace / "package.json").is_file():
-        try:
-            package = json.loads((workspace / "package.json").read_text(encoding="utf-8"))
-            scripts = package.get("scripts") or {}
-            if "test" in scripts:
-                return "powershell", "npm test -- --run"
-            if "check" in scripts:
-                return "powershell", "npm run check"
-        except (OSError, ValueError):
-            pass
-    if (workspace / "Cargo.toml").is_file():
-        return "powershell", "cargo test"
-    if (workspace / "go.mod").is_file():
-        return "powershell", "go test ./..."
-    return None
+    from harness.project_profile import ProjectProfile
+    selected = ProjectProfile(workspace, python).select()
+    return (selected.shell, selected.command) if selected else None
+
+
+class ProjectValidationProfileTool(Tool):
+    name = "project_validation_profile"
+    parallel_safe = True
+    description = ("List detected or project-configured test, lint, typecheck, and build commands. "
+                   "Use the returned id with start_project_check.")
+    parameters = {}
+
+    def run(self, ctx: AgentContext) -> str:
+        if ctx.project_workspace is None:
+            return "ERROR: no project selected"
+        venv_python = ctx.workspace / ".venv" / "Scripts" / "python.exe"
+        python = venv_python if venv_python.exists() else Path(sys.executable)
+        from harness.project_profile import ProjectProfile
+        return ProjectProfile(ctx.workspace, python).describe()
 
 
 class StartProjectCheckTool(Tool):
     name = "start_project_check"
     description = ("Detect and start the project's primary automated test/check command in the "
                    "background. Poll the returned process_id until it finishes.")
-    parameters = {"timeout": {"type": "integer", "description": "Timeout seconds (default 900)"}}
     risk = Risk.WRITE
 
-    def run(self, ctx: AgentContext, timeout: int = 900) -> str:
+    parameters = {
+        "check": {"type": "string", "description": "Check id/kind, or 'primary' (default)"},
+        "timeout": {"type": "integer", "description": "Optional timeout override"},
+    }
+
+    def run(self, ctx: AgentContext, timeout: int | None = None,
+            check: str = "primary") -> str:
         if ctx.project_workspace is None:
             return "ERROR: no project selected"
-        detected = detect_project_check(ctx.workspace)
-        if detected is None:
+        venv_python = ctx.workspace / ".venv" / "Scripts" / "python.exe"
+        python = venv_python if venv_python.exists() else Path(sys.executable)
+        from harness.project_profile import ProjectProfile
+        selected = ProjectProfile(ctx.workspace, python).select(check)
+        if selected is None:
             return "ERROR: no supported project test command detected"
-        shell, command = detected
+        shell, command = selected.shell, selected.command
+        effective_timeout = max(1, int(timeout if timeout is not None else selected.timeout))
         try:
-            item = ctx.processes.start(command, shell, ctx.workspace, max(1, int(timeout)))
+            item = ctx.processes.start(command, shell, ctx.workspace, effective_timeout)
+            if ctx.task_plan:
+                ctx.task_plan.track_validation_process(
+                    item.id, f"{selected.label}: {command}")
             return json.dumps({"process_id": item.id, "status": "running",
-                               "command": command}, ensure_ascii=False)
+                               "check": selected.id, "command": command}, ensure_ascii=False)
         except OSError as exc:
             return f"ERROR: cannot start project check: {exc}"
 
@@ -150,4 +179,6 @@ def register_context_tools(registry) -> None:
 
 def register_coding_context_tools(registry) -> None:
     registry.register(RepoOverviewTool())
+    registry.register(ProjectInstructionsTool())
+    registry.register(ProjectValidationProfileTool())
     registry.register(StartProjectCheckTool())

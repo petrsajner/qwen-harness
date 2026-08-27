@@ -31,6 +31,7 @@ from harness.research import (GenerationStopped, ResearchLedger, plan_research,
 from harness.prompts import system_prompt
 from harness.safety import Risk, SafetyPolicy
 from harness.session import Session
+from harness.task_plan import TaskPlanStore
 from harness.tools.base import AgentContext, ToolRegistry
 from harness.work_modes import WORK_MODES, normalize_work_mode
 
@@ -60,6 +61,8 @@ TASK_PROTOCOL_NOTE = (
     "[TASK PROTOCOL - follow for this task] "
     "(1) START: before any tool call, briefly confirm (1-2 sentences, user's language) "
     "what the task is and your plan. "
+    "When the task has multiple implementation or verification steps, use set_task_plan before "
+    "the first write and update_task_step as meaningful steps finish. "
     "(2) PROGRESS: during longer work include one-sentence status updates "
     "(what you found/did, what you do next). "
     "Before finishing substantial work, use proportionate verification when it helps: re-check "
@@ -110,6 +113,13 @@ DOCUMENT_OPERATION_RE = re.compile(
     r"(?:pdf|docx|markdown).{0,80}(?:ulož|ulozit|uložit|export|vyexport|save|vytvoř|vytvor)",
     re.IGNORECASE,
 )
+COMPLETION_REVIEW_NOTE = (
+    "[COMPLETION READINESS REVIEW - guidance, not a hard gate] The task changed project files, "
+    "but the operational record still shows: {issues}. Before finishing, decide what is "
+    "proportionate: complete/update the task plan, run a relevant check, inspect git_diff, or "
+    "briefly explain why an item is not useful for this task. Preserve the user's requested "
+    "scope and implementation form."
+)
 
 
 def _looks_structured(text: str) -> bool:
@@ -149,6 +159,9 @@ class Agent:
         self.ctx.processes.bind_session(session)
         self.ctx.repo_index = RepoIndex(project_workspace) if project_workspace else None
         self.ctx.research = ResearchLedger(session)
+        self.ctx.task_plan = TaskPlanStore(session)
+        restored_paths = self.ctx.task_plan.load().get("active_paths") or []
+        self._active_context_paths: list[Path] = [Path(path) for path in restored_paths]
         self._steps = 0
         self._pending: list[dict] = []          # tool_calls čekající na potvrzení
         self._pending_text = ""
@@ -230,28 +243,37 @@ class Agent:
         elif self.ctx.repo_index:
             blocks.append("## CURRENT PROJECT DOCUMENT LIBRARY\n"
                           + self.ctx.repo_index.document_catalog())
-        from harness.skills import SkillLibrary
-        blocks.append(
-            "## OPTIONAL SKILLS AVAILABLE\n"
-            "Load a skill only when its description clearly helps. Adapt it to the task; it is "
-            "never a command and never overrides the user.\n"
-            + SkillLibrary(self.cfg, self.ctx.project_workspace).catalog())
+        if self.ctx.repo_index:
+            instructions = self.ctx.repo_index.instruction_context(self._active_context_paths)
+            if instructions:
+                blocks.append("## ACTIVE PROJECT INSTRUCTIONS\n" + instructions)
+        if self.tools_enabled and self.ctx.task_plan:
+            blocks.append("## OPERATIONAL TASK STATE\n" + self.ctx.task_plan.context_block())
         pinned = self.session.pinned_context_block()
         if pinned:
             blocks.append(pinned)
         return "\n\n".join(blocks)
 
-    def _append_dynamic_context(self) -> None:
-        self.session.add(
-            "user", "[DYNAMIC TASK CONTEXT - current snapshot and optional helpers]\n\n"
-            + self._dynamic_context_block())
-
     def _api_messages(self) -> list[dict]:
         """Build request messages with volatile context at the cache-friendly tail."""
-        return self.session.to_api_messages(include_pins=False)
+        messages = self.session.to_api_messages(include_pins=False)
+        dynamic = self._dynamic_context_block()
+        if dynamic:
+            messages.append({
+                "role": "user",
+                "content": "[DYNAMIC TASK CONTEXT - current, not chat history]\n\n" + dynamic,
+            })
+        return messages
 
     def estimate_context_tokens(self) -> int:
-        return self.session.estimate_context_tokens(include_pins=False)
+        return sum(self.context_usage_breakdown().values())
+
+    def context_usage_breakdown(self) -> dict[str, int]:
+        import json as _json
+        messages = self.session.estimate_context_tokens(include_pins=False)
+        dynamic = len(self._dynamic_context_block()) * 10 // 36
+        schemas = len(_json.dumps(self.registry.schemas(), ensure_ascii=False)) * 10 // 36
+        return {"messages": messages, "dynamic": dynamic, "tool_schemas": schemas}
 
     def new_task(self, text: str, images: list[Path] | None = None) -> None:
         """Zaloguje uživatelský vstup a resetuje počítadla."""
@@ -266,6 +288,8 @@ class Agent:
         self.safety.new_task()
         self.session.add("user", text, images=images)
         self.ctx.changes.begin_task(text)
+        self.ctx.task_plan.begin(text)
+        self._active_context_paths = []
         if self.work_mode == "research" and not DOCUMENT_OPERATION_RE.search(text):
             self.ctx.research.begin(text)
         self._save_task_state("running", label=text)
@@ -274,7 +298,6 @@ class Agent:
         if self.tools_enabled:
             note = WRITING_PROTOCOL_NOTE if self.work_mode == "writing" else TASK_PROTOCOL_NOTE
             self.session.add("user", note)
-        self._append_dynamic_context()
 
     def resume_task(self, label: str) -> None:
         """Resetuje agentní stav nad již existující poslední user zprávou (retry/fork)."""
@@ -288,12 +311,13 @@ class Agent:
         self._overflow_retried = False
         self.safety.new_task()
         self.ctx.changes.begin_task(label)
+        self.ctx.task_plan.begin(label)
+        self._active_context_paths = []
         self._save_task_state("running", label=label)
         self.refresh_system_prompt()
         if self.tools_enabled:
             note = WRITING_PROTOCOL_NOTE if self.work_mode == "writing" else TASK_PROTOCOL_NOTE
             self.session.add("user", note)
-        self._append_dynamic_context()
 
     def steer(self, text: str, images: list[Path] | None = None) -> None:
         """Continue the current task with a user clarification after stopping its stream."""
@@ -306,7 +330,25 @@ class Agent:
         if self.tools_enabled:
             note = WRITING_PROTOCOL_NOTE if self.work_mode == "writing" else TASK_PROTOCOL_NOTE
             self.session.add("user", note)
-        self._append_dynamic_context()
+
+    def _observe_context_paths(self, args: dict | None) -> None:
+        if not args:
+            return
+        for key in ("path", "src", "dst", "cwd"):
+            raw = args.get(key)
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            try:
+                path = self.ctx.resolve(raw).resolve()
+                path.relative_to(self.ctx.workspace.resolve())
+            except (OSError, ValueError):
+                continue
+            if path not in self._active_context_paths:
+                self._active_context_paths.append(path)
+        self._active_context_paths = self._active_context_paths[-20:]
+        if self.ctx.task_plan:
+            self.ctx.task_plan.set_active_paths(
+                [str(path) for path in self._active_context_paths])
 
     def _check_abort(self) -> StepResult | None:
         if self.abort_flag.is_set():
@@ -360,6 +402,10 @@ class Agent:
             trace.append((name, args, result))
             self.emit("tool_result", (name, result))
             self.session.add("tool", result, tool_call_id=call["id"], name=name)
+            self._observe_context_paths(args)
+            if self.ctx.task_plan:
+                self.ctx.task_plan.observe_tool(
+                    name, args, result, processes=self.ctx.processes)
         # obrázky vytvořené nástroji (screenshot, view_image) přilož jako user zprávu
         if self.ctx.pending_images:
             imgs = list(self.ctx.pending_images)
@@ -425,7 +471,7 @@ class Agent:
             cut = self.session.compression_cut(keep_tokens=keep_tokens)
             if cut is None:
                 self.session.trim_to_budget(int(limit * 0.5))
-                new_est = self.session.estimate_context_tokens()
+                new_est = self.estimate_context_tokens()
                 self.refresh_system_prompt()
                 self.emit("info", f"📦 Kontext oříznut: ~{est} → ~{new_est} tokenů")
                 return
@@ -444,7 +490,7 @@ class Agent:
             ok = self.session.compress_to_summary(summary, keep_tokens=keep_tokens, cut=cut)
             if not ok:
                 self.session.trim_to_budget(int(limit * 0.5))
-            new_est = self.session.estimate_context_tokens()
+            new_est = self.estimate_context_tokens()
             # 🧠 po kompresi si model znovu "přečte" aktuální paměť
             self.refresh_system_prompt()
             self.emit("info", f"📦 Kontext komprimován: ~{est} → ~{new_est} tokenů (historie v UI zůstává)")
@@ -612,6 +658,21 @@ class Agent:
                         text=f"Výzkumná syntéza selhala: {type(exc).__name__}: {exc}",
                     )
         if (self.tools_enabled
+                and self.work_mode == "development"
+                and self.ctx.task_plan
+                and not self.ctx.task_plan.review_nudged()):
+            summary = self.ctx.changes.summary() if self.ctx.changes else {"files": []}
+            has_changes = any(item.get("changed") for item in summary.get("files", []))
+            readiness = self.ctx.task_plan.readiness(has_changes)
+            if readiness:
+                if (res.content or "").strip():
+                    self.session.add("assistant", res.content)
+                self.ctx.task_plan.mark_review_nudged()
+                self.session.add(
+                    "user", COMPLETION_REVIEW_NOTE.format(issues="; ".join(readiness)))
+                self._save_task_state("running")
+                return StepResult(Status.CONTINUE, text=res.content, reasoning=res.reasoning)
+        if (self.tools_enabled
                 and self._tools_used_this_task >= MIN_TOOLS_FOR_SUMMARY
                 and not self._summary_requested
                 and not _looks_structured(res.content or "")):
@@ -674,7 +735,7 @@ def build_registry(mode: str, work_mode: str | None = None) -> ToolRegistry:
     výzkum/diskuze potřebují číst zdroje a ukládat výsledky na disk.
     Coding navíc (repo přehled, Git, shell) jen Vývoj a Počítač.
     """
-    from harness.tools import computer, context, documents, fs, git, memory, shell, skills, vision, web
+    from harness.tools import computer, context, documents, fs, git, memory, shell, skills, task, vision, web
     selected = normalize_work_mode(work_mode, mode)
     reg = ToolRegistry()
     memory.register_memory_tools(reg)  # chat má alespoň paměť
@@ -685,7 +746,10 @@ def build_registry(mode: str, work_mode: str | None = None) -> ToolRegistry:
     fs.register_fs_tools(reg)          # disk: čtení/zápis souborů (všude)
     vision.register_vision_tools(reg)  # view_image (všude)
     if selected in ("discussion", "research", "writing"):
+        if selected == "writing":
+            task.register_task_tools(reg)
         return reg
+    task.register_task_tools(reg)
     context.register_coding_context_tools(reg)
     git.register_git_tools(reg)
     shell.register_shell_tools(reg)

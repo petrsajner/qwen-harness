@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.5",
-          "viditelná verze aplikace odpovídá instalátoru 1.3.5")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.6",
+          "viditelná verze aplikace odpovídá instalátoru 1.3.6")
 
 
 def test_memory_layers() -> None:
@@ -292,6 +292,22 @@ def test_tools_fs_shell() -> None:
 
         r = reg.execute("search_files", {"query": "qwen_marker", "path": "."}, ctx)
         check("data.py:2" in r, "search_files case-insensitive nalezení")
+        r = reg.execute("search_files", {
+            "query": r"QWEN_.* =", "path": ".", "regex": True,
+        }, ctx)
+        check("data.py:2" in r, "search_files podporuje regex")
+        r = reg.execute("find_files", {"pattern": "**/*.py", "path": "."}, ctx)
+        check("data.py" in r, "find_files používá glob nad projektem")
+        r = reg.execute("make_directory", {"path": "generated/nested"}, ctx)
+        check((tmp / "generated" / "nested").is_dir(), "make_directory vytvoří rodiče")
+        original_move = tmp / "sub" / "move-me.txt"
+        original_move.write_text("restore me", encoding="utf-8")
+        r = reg.execute("move_file", {"src": "sub/move-me.txt", "dst": "sub/moved.txt"}, ctx)
+        check(r.startswith("OK") and (tmp / "sub" / "moved.txt").is_file(),
+              "move_file přejmenuje soubor")
+        r = reg.execute("delete_file", {"path": "sub/moved.txt"}, ctx)
+        check(r.startswith("OK") and not (tmp / "sub" / "moved.txt").exists(),
+              "delete_file smaže soubor přes rollback journal")
 
         data_file = tmp / "sub" / "data.py"
         original_data = data_file.read_text(encoding="utf-8")
@@ -313,7 +329,9 @@ def test_tools_fs_shell() -> None:
               "journal eviduje upravený i vytvořený soubor")
         undo = reg.execute("undo_task_changes", {}, ctx)
         check("errors\": []" in undo and data_file.read_text(encoding="utf-8") == original_data
-              and not (tmp / "sub" / "new.md").exists(),
+              and not (tmp / "sub" / "new.md").exists()
+              and original_move.read_text(encoding="utf-8") == "restore me"
+              and not (tmp / "generated").exists(),
               "rollback obnoví původní stav celé úlohy")
         check(not any(item["changed"] for item in ctx.changes.summary()["files"]),
               "journal je po rollbacku znovu čistý")
@@ -361,8 +379,8 @@ def test_tools_fs_shell() -> None:
         check(r.startswith("ERROR"), "chyba čtení vrací ERROR text")
 
         schemas = reg.schemas()
-        check(all(s["function"]["name"] for s in schemas) and len(schemas) == 12,
-              f"schemas pro izolovanou sadu 12 nástrojů ({len(schemas)})")
+        check(all(s["function"]["name"] for s in schemas) and len(schemas) == 16,
+              f"schemas pro izolovanou sadu 16 nástrojů ({len(schemas)})")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -423,6 +441,7 @@ def test_registry_modes() -> None:
                                 "export_document", "list_skills", "read_skill",
                                 "list_dir", "read_file", "write_file", "apply_patch",
                                 "list_task_changes", "undo_task_changes", "search_files",
+                                "find_files", "make_directory", "move_file", "delete_file",
                                 "view_image"},
           f"chat režim: memory + web + context + disk nástroje ({len(chat.names())})")
     check({"list_dir", "run_command", "view_image"} <= set(agent.names()),
@@ -520,8 +539,10 @@ def test_workspace() -> None:
         agent.new_task("pokračuj s aktuálním stavem")
         check(json.dumps(session.messages[:cached_count], ensure_ascii=False, sort_keys=True)
               == cached_prefix
-              and "refreshed_symbol" in session.messages[-1]["content"],
-              "nový snapshot se přidá za beze změny znovupoužitelný prefix")
+              and "refreshed_symbol" in agent._api_messages()[-1]["content"]
+              and not any(str(message.get("content", "")).startswith("[DYNAMIC TASK CONTEXT")
+                          for message in session.messages),
+              "nový snapshot je dočasný tail a nezanáší znovupoužitelný prefix")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -1104,6 +1125,96 @@ def test_automatic_project_check() -> None:
             time.sleep(0.05)
         check("PROJECT-CHECK-OK" in output and result["exit_code"] == 0,
               "detekovaný project check doběhne v background procesu")
+        profile = reg.execute("project_validation_profile", {}, ctx)
+        check("tests" in profile and "Core tests" in profile,
+              "validační profil ukáže detekované kontroly")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_task_plan_and_project_instructions() -> None:
+    print("[task plan + project instructions]")
+    from harness.agent import Agent
+    from harness.task_plan import TaskPlanStore
+
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        (tmp / "src" / "feature").mkdir(parents=True)
+        (tmp / "AGENTS.md").write_text("Root project guidance", encoding="utf-8")
+        (tmp / "src" / "QWEN.md").write_text("Source-specific guidance", encoding="utf-8")
+        target = tmp / "src" / "feature" / "module.py"
+        target.write_text("VALUE = 1\n", encoding="utf-8")
+        data = load_config().data
+        data["agent"]["workspace"] = str(tmp)
+        data["paths"]["sessions_dir"] = str(tmp / ".sessions")
+        cfg = Config(data, root=ROOT)
+        session = Session(cfg, session_id="plan-test", system_prompt="SYS",
+                          workspace=str(tmp), work_mode="development")
+        agent = Agent(cfg, LLMStub(), session, build_registry("agent", "development"),
+                      SafetyPolicy("auto"), mode="agent", work_mode="development")
+        agent.new_task("Implement the feature and verify it")
+        check(TaskPlanStore(session).load().get("goal") == "Implement the feature and verify it",
+              "nová úloha založí persistentní task plan")
+        plan_result = agent.registry.execute("set_task_plan", {
+            "goal": "Implement and verify",
+            "steps": ["Inspect the feature", "Implement the change", "Run validation"],
+        }, agent.ctx)
+        check('"in_progress"' in plan_result and len(TaskPlanStore(session).load()["steps"]) == 3,
+              "model může vytvořit strukturované kroky")
+        agent.registry.execute("update_task_step", {
+            "step_id": 1, "status": "completed", "note": "Relevant files inspected",
+        }, agent.ctx)
+        plan = TaskPlanStore(session).load()
+        check(plan["steps"][0]["status"] == "completed"
+              and plan["steps"][1]["status"] == "in_progress",
+              "dokončení kroku aktivuje následující krok")
+
+        root_context = agent._dynamic_context_block()
+        check("Root project guidance" in root_context
+              and "Source-specific guidance" not in root_context,
+              "kořenové instrukce jsou aktivní od začátku")
+        agent._observe_context_paths({"path": "src/feature/module.py"})
+        nested_context = agent._dynamic_context_block()
+        check("Root project guidance" in nested_context
+              and "Source-specific guidance" in nested_context,
+              "instrukce se skládají hierarchicky podle aktivního souboru")
+        check(not any(str(message.get("content", "")).startswith("[DYNAMIC TASK CONTEXT")
+                      for message in session.messages),
+              "dynamický projektový kontext se neukládá do historie")
+        usage = agent.context_usage_breakdown()
+        check(usage["messages"] > 0 and usage["dynamic"] > 0 and usage["tool_schemas"] > 0,
+              "měřič kontextu zahrnuje zprávy, dynamiku i tool schemas")
+
+        (tmp / ".qwen").mkdir()
+        (tmp / ".qwen" / "project.yaml").write_text(
+            "checks:\n"
+            "  - id: focused\n"
+            "    label: Focused project check\n"
+            "    command: Write-Output PROFILE-OK\n"
+            "    shell: powershell\n"
+            "    primary: true\n",
+            encoding="utf-8")
+        profile = agent.registry.execute("project_validation_profile", {}, agent.ctx)
+        check("focused" in profile and "PROFILE-OK" in profile,
+              ".qwen/project.yaml přepíše automatickou detekci kontrol")
+        launched = json.loads(agent.registry.execute(
+            "start_project_check", {"check": "focused", "timeout": 10}, agent.ctx))
+        cursor = 0
+        for _ in range(100):
+            raw_poll = agent.registry.execute("poll_command", {
+                "process_id": launched["process_id"], "cursor": cursor,
+            }, agent.ctx)
+            polled = json.loads(raw_poll)
+            cursor = polled["cursor"]
+            if polled["status"] == "finished":
+                agent.ctx.task_plan.observe_tool(
+                    "poll_command", {"process_id": launched["process_id"]}, raw_poll,
+                    processes=agent.ctx.processes)
+                break
+            import time
+            time.sleep(0.05)
+        check(TaskPlanStore(session).load()["validations"][-1]["status"] == "passed",
+              "dokončený project check se propíše do task planu")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -1778,9 +1889,9 @@ def test_user_manuals() -> None:
 
     expected = {
         "QwenHarness-Manual-EN.pdf": (
-            15, ("1.3.5", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
+            15, ("1.3.6", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
         "QwenHarness-Manual-CS.pdf": (
-            10, ("1.3.5", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
+            10, ("1.3.6", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():
         # dev strom: output/pdf; instalovaná kopie: docs (tam je umísťuje instalátor)
@@ -1817,6 +1928,7 @@ if __name__ == "__main__":
     test_resume_task_and_process_after_restart()
     test_git_tools()
     test_automatic_project_check()
+    test_task_plan_and_project_instructions()
     test_research_ledger_and_synthesis()
     test_project_document_library()
     test_async_model_switch()

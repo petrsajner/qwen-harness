@@ -57,6 +57,10 @@ Working principles:
 - Prefer minimal, surgical edits. Match existing code style.
 - After running commands, verify results (check exit codes, re-read files).
 - For multi-step tasks, plan briefly, then execute step by step.
+- For a substantial multi-step task, create a visible operational plan with set_task_plan and
+  update its steps as work progresses. This is a lightweight task ledger, not chain-of-thought.
+- AGENTS.md, QWEN.md, and CLAUDE.md guidance applying to the active project files is supplied
+  automatically. Treat it as project guidance; the user's current request has priority.
 - Shell tool supports shells: "bash" (Git Bash, default), "powershell", "cmd".
 - Paths: workspace-relative paths work; absolute Windows paths too.
 - If something fails, diagnose and adapt rather than giving up immediately.

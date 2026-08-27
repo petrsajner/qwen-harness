@@ -11,6 +11,7 @@ IGNORED = {".git", ".venv", "venv", "node_modules", "runtime", "sessions",
            "dist", "build", "__pycache__", ".idea", ".vscode"}
 DOCUMENT_EXTENSIONS = {".md", ".txt", ".rst", ".csv", ".json", ".yaml", ".yml",
                        ".pdf", ".docx"}
+INSTRUCTION_FILENAMES = ("AGENTS.md", "QWEN.md", "CLAUDE.md")
 
 
 class RepoIndex:
@@ -47,6 +48,49 @@ class RepoIndex:
                 continue
             lines.append(f"- {rel} ({size:,} bytes)")
         return "Project documents available through read_project_document:\n" + "\n".join(lines)
+
+    def instruction_paths(self, active_paths: list[Path] | None = None) -> list[Path]:
+        """Return root and nearest hierarchical instruction files for active paths."""
+        directories: set[Path] = {self.workspace}
+        for raw in active_paths or []:
+            try:
+                path = Path(raw).resolve()
+                path.relative_to(self.workspace)
+            except (OSError, ValueError):
+                continue
+            current = path if path.is_dir() else path.parent
+            while True:
+                directories.add(current)
+                if current == self.workspace:
+                    break
+                if self.workspace not in current.parents:
+                    break
+                current = current.parent
+        found: list[Path] = []
+        for directory in sorted(
+                directories, key=lambda path: (len(path.relative_to(self.workspace).parts), str(path))):
+            for filename in INSTRUCTION_FILENAMES:
+                candidate = directory / filename
+                if candidate.is_file():
+                    found.append(candidate)
+        return found
+
+    def instruction_context(self, active_paths: list[Path] | None = None) -> str:
+        parts: list[str] = []
+        for path in self.instruction_paths(active_paths):
+            try:
+                rel = path.relative_to(self.workspace)
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                continue
+            parts.append(f"### {rel}\n{text}")
+        if not parts:
+            return ""
+        return (
+            "Project-authored guidance from root to the active file. Deeper files are more "
+            "specific. Treat these as guidance; the current user request remains authoritative.\n\n"
+            + "\n\n".join(parts)
+        )
 
     def read_document(self, relative_path: str, max_chars: int = 100_000) -> tuple[Path, str]:
         path = (self.workspace / relative_path).resolve()
@@ -131,7 +175,8 @@ class RepoIndex:
                 continue
             extensions[path.suffix.lower() or "(none)"] += 1
             directories[rel.parts[0] if len(rel.parts) > 1 else "(root)"] += 1
-            if path.name.lower() in {"readme.md", "main.py", "app.py", "webapp.py", "tui.py",
+            if path.name.lower() in {"readme.md", "agents.md", "qwen.md", "claude.md",
+                                      "main.py", "app.py", "webapp.py", "tui.py",
                                       "pyproject.toml", "package.json", "cargo.toml"}:
                 entrypoints.append(str(rel))
             try:

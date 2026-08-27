@@ -1,6 +1,10 @@
 """Nástroje pro práci se soubory: list_dir, read_file, write_file, search_files."""
 from __future__ import annotations
 
+import os
+import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -184,23 +188,59 @@ class UndoTaskChangesTool(Tool):
 class SearchFilesTool(Tool):
     name = "search_files"
     parallel_safe = True
-    description = ("Search for a text string (substring, case-insensitive) in files under a directory. "
-                   "Returns file:line: match. Skips binary files and junk dirs. "
-                   "glob filters filenames, e.g. '*.py'.")
+    description = ("Fast project text search powered by ripgrep when available. Returns "
+                   "file:line:match, skips ignored/binary files, and supports literal or regex "
+                   "queries plus a filename glob such as '*.py'.")
     parameters = {
         "query": {"type": "string", "description": "Text to search for (case-insensitive substring)"},
         "path": {"type": "string", "description": "Directory to search (default: workspace)"},
         "glob": {"type": "string", "description": "Filename filter glob (optional, e.g. '*.py')"},
         "max_results": {"type": "integer", "description": "Max matches (default 50)"},
+        "regex": {"type": "boolean", "description": "Interpret query as regex (default false)"},
+        "case_sensitive": {"type": "boolean", "description": "Case-sensitive search (default false)"},
     }
     required = ["query"]
 
-    def run(self, ctx: AgentContext, query: str, path: str = ".", glob: str | None = None, max_results: int = 50) -> str:
+    def run(self, ctx: AgentContext, query: str, path: str = ".", glob: str | None = None,
+            max_results: int = 50, regex: bool = False,
+            case_sensitive: bool = False) -> str:
         from harness.tools.fs import IGNORED_DIRS
         root = ctx.resolve(path)
         if not root.exists():
             return f"ERROR: Path does not exist: {root}"
-        needle = query.lower()
+        if not query:
+            return "ERROR: query must not be empty"
+        limit = max(1, min(int(max_results), 1000))
+        rg = shutil.which("rg")
+        if rg and root.is_dir():
+            argv = [rg, "--line-number", "--no-heading", "--color", "never"]
+            if not regex:
+                argv.append("--fixed-strings")
+            if not case_sensitive:
+                argv.append("--ignore-case")
+            if glob:
+                argv.extend(["--glob", glob])
+            argv.extend(["--", query, "."])
+            try:
+                proc = subprocess.run(
+                    argv, cwd=root, capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", timeout=30,
+                    creationflags=0x08000000 if os.name == "nt" else 0,
+                )
+                lines = (proc.stdout or "").splitlines()
+                if proc.returncode not in (0, 1):
+                    return f"ERROR: ripgrep failed ({proc.returncode}): {(proc.stderr or '').strip()}"
+                if not lines:
+                    return f"No matches for {query!r} in {root}"
+                suffix = f"\n... (limit {limit} reached)" if len(lines) > limit else ""
+                return "\n".join(lines[:limit]) + suffix
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        flags = 0 if case_sensitive else re.IGNORECASE
+        try:
+            pattern = re.compile(query if regex else re.escape(query), flags)
+        except re.error as exc:
+            return f"ERROR: invalid regex: {exc}"
         results: list[str] = []
         files_scanned = 0
         for f in root.rglob(glob or "*"):
@@ -218,13 +258,125 @@ class SearchFilesTool(Tool):
                 continue
             files_scanned += 1
             for i, line in enumerate(text.splitlines(), 1):
-                if needle in line.lower():
+                if pattern.search(line):
                     results.append(f"{f}:{i}: {line.strip()[:200]}")
-                    if len(results) >= max_results:
-                        return "\n".join(results) + f"\n... (limit {max_results} reached, {files_scanned} files scanned)"
+                    if len(results) >= limit:
+                        return "\n".join(results) + f"\n... (limit {limit} reached, {files_scanned} files scanned)"
         if not results:
             return f"No matches for '{query}' ({files_scanned} files scanned in {root})"
         return "\n".join(results) + f"\n({files_scanned} files scanned)"
+
+
+class FindFilesTool(Tool):
+    name = "find_files"
+    parallel_safe = True
+    description = ("List project files matching a glob, preferably through ripgrep's fast file "
+                   "index. Example patterns: '**/*.py', 'src/**/*.ts', 'AGENTS.md'.")
+    parameters = {
+        "pattern": {"type": "string"},
+        "path": {"type": "string", "description": "Search root (default workspace)"},
+        "max_results": {"type": "integer", "description": "Maximum paths (default 200)"},
+    }
+    required = ["pattern"]
+
+    def run(self, ctx: AgentContext, pattern: str, path: str = ".",
+            max_results: int = 200) -> str:
+        root = ctx.resolve(path)
+        if not root.is_dir():
+            return f"ERROR: Not a directory: {root}"
+        limit = max(1, min(int(max_results), 2000))
+        rg = shutil.which("rg")
+        lines: list[str] = []
+        if rg:
+            try:
+                proc = subprocess.run(
+                    [rg, "--files", "--glob", pattern], cwd=root,
+                    capture_output=True, text=True, encoding="utf-8", errors="replace",
+                    timeout=30, creationflags=0x08000000 if os.name == "nt" else 0,
+                )
+                if proc.returncode not in (0, 1):
+                    return f"ERROR: ripgrep failed ({proc.returncode}): {(proc.stderr or '').strip()}"
+                lines = (proc.stdout or "").splitlines()
+            except (OSError, subprocess.TimeoutExpired):
+                lines = []
+        if not rg:
+            lines = [str(item.relative_to(root)) for item in root.glob(pattern)
+                     if item.is_file() and not any(part in IGNORED_DIRS for part in item.parts)]
+        if not lines:
+            return f"No files match {pattern!r} in {root}"
+        suffix = f"\n... (limit {limit} reached)" if len(lines) > limit else ""
+        return "\n".join(lines[:limit]) + suffix
+
+
+class MakeDirectoryTool(Tool):
+    name = "make_directory"
+    description = "Create a directory and any missing parent directories."
+    parameters = {"path": {"type": "string"}}
+    required = ["path"]
+    risk = Risk.WRITE
+
+    def run(self, ctx: AgentContext, path: str) -> str:
+        target = ctx.resolve(path)
+        missing: list[Path] = []
+        current = target
+        while not current.exists():
+            missing.append(current)
+            if current.parent == current:
+                break
+            current = current.parent
+        missing.reverse()
+        if ctx.changes:
+            for directory in missing:
+                ctx.changes.record_directory_before(directory)
+        target.mkdir(parents=True, exist_ok=True)
+        if ctx.changes:
+            for directory in missing:
+                ctx.changes.record_directory_after(directory)
+        return f"OK: directory ready {target}"
+
+
+class MoveFileTool(Tool):
+    name = "move_file"
+    description = "Move or rename one file. The operation is included in the task rollback journal."
+    parameters = {"src": {"type": "string"}, "dst": {"type": "string"}}
+    required = ["src", "dst"]
+    risk = Risk.WRITE
+
+    def run(self, ctx: AgentContext, src: str, dst: str) -> str:
+        source = ctx.resolve(src)
+        target = ctx.resolve(dst)
+        if not source.is_file():
+            return f"ERROR: Source file not found: {source}"
+        if target.exists() and target.is_dir():
+            target = target / source.name
+        if ctx.changes:
+            ctx.changes.record_before(source)
+            ctx.changes.record_before(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source), str(target))
+        if ctx.changes:
+            ctx.changes.record_after(source)
+            ctx.changes.record_after(target)
+        return f"OK: moved {source} -> {target}"
+
+
+class DeleteFileTool(Tool):
+    name = "delete_file"
+    description = "Delete one file. The file can be restored through the current task rollback."
+    parameters = {"path": {"type": "string"}}
+    required = ["path"]
+    risk = Risk.WRITE
+
+    def run(self, ctx: AgentContext, path: str) -> str:
+        target = ctx.resolve(path)
+        if not target.is_file():
+            return f"ERROR: File not found: {target}"
+        if ctx.changes:
+            ctx.changes.record_before(target)
+        target.unlink()
+        if ctx.changes:
+            ctx.changes.record_after(target)
+        return f"OK: deleted {target}"
 
 
 def register_fs_tools(registry) -> None:
@@ -235,3 +387,7 @@ def register_fs_tools(registry) -> None:
     registry.register(ListTaskChangesTool())
     registry.register(UndoTaskChangesTool())
     registry.register(SearchFilesTool())
+    registry.register(FindFilesTool())
+    registry.register(MakeDirectoryTool())
+    registry.register(MoveFileTool())
+    registry.register(DeleteFileTool())
