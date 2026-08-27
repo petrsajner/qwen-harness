@@ -31,19 +31,22 @@ Výběr projektu dá modelu přístup k danému adresáři prostřednictvím ná
 | Ovladač | Aktuální NVIDIA ovladač kompatibilní s přibaleným CUDA buildem |
 | Systémová RAM | Dost pro Windows, mapování modelu, projekty a nástroje; komfortní je 64 GB a více |
 | Volné místo | Nejméně 65 GiB pro všechny modely, runtime a pracovní data |
-| Python | Python 3.12 při práci ze zdrojů nebo prvotním setupu |
+| Python | 64bitový Python 3.12 nainstalovaný samostatně; zapněte **Add Python to PATH** |
 | WebView | Microsoft Edge WebView2, běžně součást Windows 11 |
 
 Jiné NVIDIA karty mohou fungovat, ale dodané kontexty a kvantizace byly nastaveny a ověřeny pro RTX 5090 s 32 GB. Karty s menší VRAM potřebují menší kontext, nižší kvantizaci, méně GPU vrstev nebo CPU offload.
 
+> POZNÁMKA: Python 3.12 je povinný externí předpoklad každé instalace. Setup.exe vytvoří oddělené virtuální prostředí, ale samotný Python neobsahuje ani neinstaluje. Před instalací Qwen Harness nainstalujte 64bitovou verzi Pythonu 3.12 z [python.org](https://www.python.org/downloads/) a zvolte **Add Python to PATH**.
+
 ## Instalace pomocí Setup.exe
 
-1. Spusťte `QwenHarness-Setup-<verze>.exe`.
-2. Zvolte angličtinu nebo češtinu. Výchozí je angličtina.
-3. Zvolte, zda chcete ikonu na ploše.
-4. Při první instalaci ponechte zvolený setup prostředí a modelů po dokončení instalátoru.
-5. Nechte konzolovou instalaci doběhnout. Vytvoří Python prostředí, nainstaluje závislosti, stáhne `llama.cpp` a nakonfigurované modely.
-6. Spusťte **Qwen3.8-27B Harness** z nabídky Start nebo z plochy.
+1. Nainstalujte 64bitový Python 3.12 a v jeho instalátoru zapněte **Add Python to PATH**.
+2. Spusťte `QwenHarness-Setup-<verze>.exe`.
+3. Zvolte angličtinu nebo češtinu. Výchozí je angličtina.
+4. Zvolte, zda chcete ikonu na ploše.
+5. Při první instalaci ponechte zvolený setup prostředí a modelů po dokončení instalátoru.
+6. Nechte konzolovou instalaci doběhnout. Vytvoří Python virtuální prostředí, nainstaluje závislosti, stáhne `llama.cpp` a nakonfigurované modely.
+7. Spusťte **Qwen3.8-27B Harness** z nabídky Start nebo z plochy.
 
 Výchozí instalační adresář je:
 
@@ -459,7 +462,35 @@ Při potvrzení `y` povolí, `n` zamítne a `a` povolí zbývající WRITE akce 
 | `<projekt>\QWEN_MEMORY.md` | Projektová paměť |
 | `skills`, `user-skills`, `<projekt>\.qwen-skills` | Tři vrstvy skillů |
 
-Zálohujte projektové adresáře, `sessions`, `memory`, `user-skills` a `projects.json`. Modely lze znovu stáhnout.
+Zálohujte projektové adresáře, `sessions`, `memory`, `user-skills` a `projects.json`.
+
+## Kompletní offline záloha instalace
+
+Aplikace umí vytvořit přenosnou instalační zálohu přímo ze souborů, které už jsou na tomto počítači. Otevřete **Nastavení a nápověda > Offline záloha**, zvolte **Vytvořit zálohu** a vyberte nadřazený adresář, ideálně na jiném disku. Vznikne časově označená složka `QwenHarness-Offline-Backup-*`, která obsahuje:
+
+- Všechny kompletní modely a vision projektory z `runtime\models`.
+- Nainstalované `llama.cpp` a CUDA runtime z `runtime\llama`.
+- Aktuální výběr modelů a `requirements.txt`.
+- Kopii Python balíčků, které už jsou nainstalované v `.venv`.
+- Odpovídající Setup.exe, pokud je dostupný v aktuálním build adresáři.
+- `manifest.json` s velikostí a SHA-256 hashem každého zálohovaného souboru.
+
+Modely, runtime i Python závislosti se kopírují přímo z aktuálního adresáře Qwen Harness. Při tvorbě zálohy se nic z toho znovu nestahuje. Je potřeba přibližně tolik volného místa, kolik zabírá nainstalovaný runtime; operace může trvat, protože se každý soubor kontrolně hashujete.
+
+## Instalace z offline zálohy
+
+1. Na cílovém počítači nainstalujte 64bitový Python 3.12 a zapněte **Add Python to PATH**. Samotný Python v záloze není.
+2. Spusťte Setup.exe Qwen Harness, který je součástí zálohy. Pokud při tvorbě zálohy nebyl instalátor k dispozici, použijte odpovídající nebo novější kompatibilní Setup.exe.
+3. Použijte jednu z možností:
+   - Pokud je Setup.exe uvnitř zálohy vedle `manifest.json`, spusťte ho přímo tam; zálohu rozpozná automaticky.
+   - Položte zálohu vedle Setup.exe a přejmenujte ji přesně na `QwenHarness-Offline-Backup`; instalátor ji rozpozná automaticky.
+   - Nainstalujte Qwen Harness, v nabídce Start spusťte **Instalace z offline zálohy** a vyberte složku zálohy.
+4. Běžný setup nejprve použije standardní internetové zdroje. Pokud vybraný model, `llama.cpp` nebo Python závislosti nelze získat online, obnoví ze zvolené lokální zálohy pouze tuto neúspěšnou součást.
+5. Explicitní příkaz **Instalace z offline zálohy** v nabídce Start pořadí obrátí: nejdřív obnoví zálohu a teprve potom získá případné chybějící části.
+
+Tlačítkem **Použít jako zálohu** zaregistrujete složku pro případ budoucího selhání downloadu, **Ověřit SHA-256** zkontroluje každý soubor podle manifestu a **Zapomenout výběr** tuto pojistku vypne. Výběr zálohy nezakazuje přístup k internetu. Setup.exe, `manifest.json`, `README-OFFLINE.txt`, `requirements.txt`, `python-dependencies` a `payload` musí zůstat společně v jedné záložní složce.
+
+Offline instalační záloha neobsahuje chaty, projekty, paměť ani osobní skills. Tato nenahraditelná uživatelská data zálohujte samostatně podle seznamu výše.
 
 | Log | Použití |
 |---|---|

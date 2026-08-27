@@ -10,7 +10,7 @@
 ; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
 ; (používá installer\release.bat s verzí z installer\version.txt)
 #ifndef MyAppVersion
-#define MyAppVersion "1.4.0"
+#define MyAppVersion "1.4.1"
 #endif
 
 #define MyAppName "Qwen3.8-27B Harness"
@@ -47,12 +47,14 @@ Name: "cze"; MessagesFile: "compiler:Languages\Czech.isl"
 [CustomMessages]
 en.SetupEnvMenu=Set up environment and models (up to ~59 GiB)
 cze.SetupEnvMenu=Instalace prostředí a modelů (až 59 GiB)
-en.RunSetupDesc=Set up the environment and download models (up to ~59 GiB, only what fits your GPU, required to run)
-cze.RunSetupDesc=Nainstalovat prostředí a stáhnout modely (až 59 GiB, jen co se vejde na GPU, nutné pro provoz)
+en.BackupSetupMenu=Set up from offline backup
+cze.BackupSetupMenu=Instalace z offline zálohy
+en.RunSetupDesc=Set up the environment and download models (requires separately installed 64-bit Python 3.12)
+cze.RunSetupDesc=Nainstalovat prostředí a modely (vyžaduje samostatně nainstalovaný 64bitový Python 3.12)
 
 [Messages]
-en.WelcomeLabel2=This wizard will install [name/ver], a local AI harness for Qwen and Ornith.%n%nAfter installation, the environment and models (up to ~59 GiB, only what fits your GPU) will download automatically on first launch.%n%nContinue?
-cze.WelcomeLabel2=Tento pruvodce nainstaluje [name/ver] - lokalni AI harness pro Qwen a Ornith.%n%nPo instalaci se pri prvnim spusteni automaticky stahne prostredi a modely (až 59 GiB, jen co se vejde na GPU).%n%nPOKRACOVAT?
+en.WelcomeLabel2=This wizard will install [name/ver], a local AI harness for Qwen and Ornith.%n%nREQUIRED: Install 64-bit Python 3.12 separately and enable "Add Python to PATH" before continuing. Python is not bundled.%n%nAfter installation, the environment and selected models will be prepared from an offline backup or downloaded automatically (up to ~59 GiB).%n%nContinue?
+cze.WelcomeLabel2=Tento pruvodce nainstaluje [name/ver] - lokalni AI harness pro Qwen a Ornith.%n%nVYZADOVANO: Pred pokracovanim samostatne nainstalujte 64bitovy Python 3.12 a zapnete "Add Python to PATH". Python neni soucasti instalatoru.%n%nPo instalaci se prostredi a vybrane modely pripravi z offline zalohy nebo automaticky stahnou (az ~59 GiB).%n%nPOKRACOVAT?
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -82,11 +84,13 @@ Source: "..\memory\*.md"; DestDir: "{app}\memory"; Flags: ignoreversion onlyifdo
 Source: "..\skills\*.md"; DestDir: "{app}\skills"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; setup skript (venv + modely) - spouští se po instalaci
 Source: "run_setup.bat"; DestDir: "{app}"; Flags: ignoreversion
+Source: "run_setup_from_backup.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{group}\{#MyAppName} (CLI)"; Filename: "{app}\run_cli.bat"; WorkingDir: "{app}"; IconFilename: "{app}\app_icon.ico"
 Name: "{group}\{cm:SetupEnvMenu}"; Filename: "{app}\run_setup.bat"; WorkingDir: "{app}"
+Name: "{group}\{cm:BackupSetupMenu}"; Filename: "{app}\run_setup_from_backup.bat"; WorkingDir: "{app}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
@@ -205,5 +209,12 @@ begin
         end;
     if Selection <> '' then
       SaveStringToFile(ExpandConstant('{app}\runtime\model-selection.txt'), Selection, False);
+    // Self-contained backup folder (Setup.exe beside manifest), or sidecar backup.
+    if FileExists(ExpandConstant('{src}\manifest.json')) then
+      SaveStringToFile(ExpandConstant('{app}\runtime\offline-backup-path.txt'),
+        ExpandConstant('{src}'), False)
+    else if FileExists(ExpandConstant('{src}\QwenHarness-Offline-Backup\manifest.json')) then
+      SaveStringToFile(ExpandConstant('{app}\runtime\offline-backup-path.txt'),
+        ExpandConstant('{src}\QwenHarness-Offline-Backup'), False);
   end;
 end;

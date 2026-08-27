@@ -10,6 +10,7 @@ logs/
 *.log
 .tui_history
 dist/
+QwenHarness-Offline-Backup*/
 
 # Python
 __pycache__/

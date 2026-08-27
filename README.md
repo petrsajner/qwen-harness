@@ -113,6 +113,11 @@ runtime/  (gitignored)                harness/  (Python)
 
 ## Installation (one time)
 
+**Required prerequisite:** install 64-bit **Python 3.12** from
+[python.org](https://www.python.org/downloads/release/python-31210/) and enable
+**Add Python to PATH** in its installer. Qwen Harness creates its own virtual
+environment, but it does not bundle the Python interpreter itself.
+
 ```bash
 py -3.12 -m venv .venv
 .venv/Scripts/python scripts/setup_env.py --model all
@@ -166,7 +171,18 @@ installer/build_installer.bat     # builds dist/QwenHarness-Setup-<version>.exe
   starts in it. You can switch later in the web UI (Settings → Language).
 - **First launch** (via the `run_app.bat` shortcut) automatically: creates the venv,
   downloads dependencies, llama.cpp (~540 MB) and models (~59 GiB) — afterwards it
-  just opens the app
+  just opens the app. Python 3.12 must already be installed; Setup.exe does not
+  contain Python.
+- **Offline backup** in Settings & help copies the already downloaded files from
+  `runtime\models` and `runtime\llama` plus the installed packages from `.venv`,
+  without downloading them again, and writes a SHA-256 manifest. On another
+  computer, install Python 3.12 and run the Setup.exe stored inside the backup.
+  The installer detects `manifest.json` beside itself and keeps it as a local
+  fallback. You can also place
+  the backup beside Setup.exe as `QwenHarness-Offline-Backup` or run **Set up from
+  offline backup** from the Start Menu. Normal setup uses the standard internet
+  sources first and restores only a component that cannot be obtained online.
+  The explicit offline command restores the backup immediately.
 - On updates, a changed `requirements.txt` is detected automatically and only the
   needed Python packages are installed; models and other runtime data are not
   re-downloaded.

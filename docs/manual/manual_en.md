@@ -31,19 +31,22 @@ Selecting a project gives the model access to that directory through tools. It d
 | Driver | Current NVIDIA driver compatible with the bundled CUDA build |
 | System RAM | Enough for Windows, model mapping, projects, and tools; 64 GB or more is comfortable |
 | Free disk space | At least 65 GiB for all models, runtime, and working data |
-| Python | Python 3.12 when using the source or first-run setup |
+| Python | 64-bit Python 3.12, installed separately; enable **Add Python to PATH** |
 | WebView / browser | Microsoft Edge WebView2 and Microsoft Edge, normally present on Windows 11 |
 
 Other NVIDIA GPUs may work, but the supplied contexts and quantizations were tuned and tested for a 32 GB RTX 5090. Lower-VRAM cards require smaller contexts, lower quantization, fewer GPU layers, or CPU offload.
 
+> NOTE: Python 3.12 is a required external prerequisite for every installation. Setup.exe creates an isolated virtual environment, but it does not contain or install Python itself. Install the 64-bit Python 3.12 release from [python.org](https://www.python.org/downloads/) and select **Add Python to PATH** before installing Qwen Harness.
+
 ## Installing with Setup.exe
 
-1. Run `QwenHarness-Setup-<version>.exe`.
-2. Choose English or Czech in the installer. English is the default.
-3. Choose whether to create a desktop shortcut.
-4. Keep the post-install environment/model setup selected on the first installation.
-5. Allow the console setup to complete. It creates the Python environment, installs dependencies, downloads `llama.cpp`, and downloads the configured models.
-6. Start **Qwen3.8-27B Harness** from the Start Menu or desktop.
+1. Install 64-bit Python 3.12 and enable **Add Python to PATH** in the Python installer.
+2. Run `QwenHarness-Setup-<version>.exe`.
+3. Choose English or Czech in the installer. English is the default.
+4. Choose whether to create a desktop shortcut.
+5. Keep the post-install environment/model setup selected on the first installation.
+6. Allow the console setup to complete. It creates the Python virtual environment, installs dependencies, downloads `llama.cpp`, and downloads the configured models.
+7. Start **Qwen3.8-27B Harness** from the Start Menu or desktop.
 
 The default installation directory is:
 
@@ -724,7 +727,31 @@ Back up at least:
 - `user-skills`.
 - `projects.json`.
 
-Model files can be downloaded again and usually do not need backup.
+The application can also create a complete reusable installation backup from files that are already present on this computer. Open **Settings & help > Offline backup** and select **Create backup**. Choose a parent directory on another disk when possible. The application creates a timestamped `QwenHarness-Offline-Backup-*` folder containing:
+
+- Every complete model and vision-projector file currently in `runtime\models`.
+- The installed `llama.cpp` and CUDA runtime from `runtime\llama`.
+- The current model selection and `requirements.txt`.
+- A snapshot of the Python packages already installed in `.venv`.
+- The matching Setup.exe when it is available in the current build directory.
+- `manifest.json` with the size and SHA-256 hash of every backed-up file.
+
+Backup creation copies model, runtime, and Python dependency files directly from the current Qwen Harness directory. It does not download any of them again. It needs free space approximately equal to the installed runtime and may take time because every copied file is hashed.
+
+## Installing from the offline backup
+
+1. Install 64-bit Python 3.12 on the destination computer and enable **Add Python to PATH**. Python itself is not stored in the backup.
+2. Run the Qwen Harness Setup.exe included in the backup. If an installer was not available when the backup was created, use a matching or newer compatible Setup.exe.
+3. Use either of these methods:
+   - When Setup.exe is inside the backup folder beside `manifest.json`, run it there; it detects the backup automatically.
+   - Put the backup beside Setup.exe and rename it exactly to `QwenHarness-Offline-Backup`; the installer detects it automatically.
+   - Install Qwen Harness, open the Start Menu, run **Set up from offline backup**, and select the backup folder.
+4. Normal setup first uses the standard internet sources. If a selected model, `llama.cpp`, or the Python dependencies cannot be obtained online, setup restores only that failed component from the selected local backup.
+5. The explicit Start Menu command **Set up from offline backup** reverses the order: it restores the backup immediately and then only obtains anything that is still missing.
+
+Use **Use as fallback** to register a backup for future download failures, **Verify SHA-256** to check every file against its manifest, and **Clear selection** to stop using that fallback. Selecting a backup does not disable internet access. Keep Setup.exe, `manifest.json`, `README-OFFLINE.txt`, `requirements.txt`, `python-dependencies`, and `payload` together in the same backup folder.
+
+The offline installation backup does not include chats, projects, memory, or personal skills. Back up those irreplaceable user files separately as listed above.
 
 ## Logs
 

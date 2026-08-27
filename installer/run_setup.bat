@@ -23,17 +23,45 @@ if not exist ".venv\Scripts\python.exe" (
     )
 )
 
+set "BACKUP="
+if defined QWEN_HARNESS_BACKUP set "BACKUP=%QWEN_HARNESS_BACKUP%"
+if exist "runtime\offline-backup-path.txt" set /p BACKUP=<"runtime\offline-backup-path.txt"
+set "BACKUP_OK="
+if defined BACKUP (
+    if exist "%BACKUP%\manifest.json" (
+        set "BACKUP_OK=1"
+        echo [BACKUP] Local fallback is available: %BACKUP%
+    ) else (
+        echo [WARNING] Configured offline backup has no manifest.json: %BACKUP%
+    )
+)
+if defined QWEN_HARNESS_BACKUP_PREFER if defined BACKUP_OK (
+    echo [BACKUP] Explicit offline setup selected - restoring local components first.
+    ".venv\Scripts\python.exe" scripts\offline_backup.py restore --backup "%BACKUP%" --root "%CD%"
+    if errorlevel 1 ( echo [ERROR] Offline backup restore failed. & pause & exit /b 1 )
+)
+
 echo ============================================================
 echo  [2/4] Python dependencies
 echo ============================================================
 ".venv\Scripts\python.exe" scripts\sync_deps.py
-if errorlevel 1 ( echo [ERROR] Dependency installation failed - check your internet connection. & pause & exit /b 1 )
+if errorlevel 1 if defined BACKUP_OK (
+    echo [BACKUP] Online dependency installation failed - restoring local Python packages.
+    ".venv\Scripts\python.exe" scripts\offline_backup.py restore --backup "%BACKUP%" --root "%CD%" --components python-dependencies
+    if not errorlevel 1 ".venv\Scripts\python.exe" scripts\sync_deps.py
+)
+if errorlevel 1 ( echo [ERROR] Dependency installation failed online and from backup. & pause & exit /b 1 )
 
 echo ============================================================
 echo  [3/4] llama.cpp CUDA binaries (~540 MB)
 echo ============================================================
 ".venv\Scripts\python.exe" scripts\download_llama.py
-if errorlevel 1 ( echo [ERROR] llama.cpp download failed. & pause & exit /b 1 )
+if errorlevel 1 if defined BACKUP_OK (
+    echo [BACKUP] Online llama.cpp download failed - restoring the local runtime.
+    ".venv\Scripts\python.exe" scripts\offline_backup.py restore --backup "%BACKUP%" --root "%CD%" --components llama
+    if not errorlevel 1 ".venv\Scripts\python.exe" scripts\download_llama.py
+)
+if errorlevel 1 ( echo [ERROR] llama.cpp is unavailable online and in the backup. & pause & exit /b 1 )
 
 echo ============================================================
 echo  [4/4] Qwen/Ornith models + vision projectors
@@ -43,12 +71,18 @@ echo ============================================================
 set "MODELS="
 if exist "runtime\model-selection.txt" set /p MODELS=<"runtime\model-selection.txt"
 if "%MODELS%"=="" (
-    ".venv\Scripts\python.exe" scripts\download_models.py --model auto
+    set "MODEL_ARGS=--model auto"
 ) else (
     echo [SETUP] Selected models: %MODELS%
-    ".venv\Scripts\python.exe" scripts\download_models.py --models %MODELS%
+    set "MODEL_ARGS=--models %MODELS%"
 )
-if errorlevel 1 ( echo [ERROR] Model download failed - run again, only missing files are re-downloaded. & pause & exit /b 1 )
+".venv\Scripts\python.exe" scripts\download_models.py %MODEL_ARGS%
+if errorlevel 1 if defined BACKUP_OK (
+    echo [BACKUP] A selected model is unavailable online - restoring local model files.
+    ".venv\Scripts\python.exe" scripts\offline_backup.py restore --backup "%BACKUP%" --root "%CD%" --components models
+    if not errorlevel 1 ".venv\Scripts\python.exe" scripts\download_models.py %MODEL_ARGS%
+)
+if errorlevel 1 ( echo [ERROR] A selected model is unavailable online and in the backup. & pause & exit /b 1 )
 
 echo.
 echo ============================================================

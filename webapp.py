@@ -1424,6 +1424,123 @@ def skills_info_text() -> str:
     return t("**{count} skills available**", count=len(items)) + "\n\n" + names
 
 
+_backup_ui_state: dict = {"process_id": None, "target": None, "operation": None}
+
+
+def _offline_backup_marker() -> Path:
+    return cfg.path("paths.runtime_dir") / "offline-backup-path.txt"
+
+
+def _selected_offline_backup() -> Path | None:
+    try:
+        raw = _offline_backup_marker().read_text(encoding="utf-8-sig").strip()
+        path = Path(raw)
+        return path if path.is_dir() and (path / "manifest.json").is_file() else None
+    except OSError:
+        return None
+
+
+def _write_offline_backup_marker(path: Path | None) -> None:
+    marker = _offline_backup_marker()
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    if path is None:
+        marker.unlink(missing_ok=True)
+    else:
+        marker.write_text(str(path.resolve()), encoding="utf-8")
+
+
+def offline_backup_status_text() -> str:
+    process_id = _backup_ui_state.get("process_id")
+    target = _backup_ui_state.get("target")
+    if process_id:
+        item = next((entry for entry in state.processes.list()
+                     if entry["process_id"] == process_id), None)
+        if item and item["status"] == "running":
+            action = t("Creating backup") if _backup_ui_state.get("operation") == "create" \
+                else t("Verifying backup")
+            return f"**{action}…**\n\n`{target}`\n\n{item['elapsed_seconds']:.0f} s"
+        if item and item.get("exit_code") == 0 and _backup_ui_state.get("operation") == "create" \
+                and target and (Path(target) / "manifest.json").is_file():
+            _write_offline_backup_marker(Path(target))
+        _backup_ui_state.update(process_id=None, operation=None)
+    selected = _selected_offline_backup()
+    if selected is None:
+        return t("<small>No offline backup selected. Python 3.12 remains the only external prerequisite.</small>")
+    try:
+        from scripts.offline_backup import backup_info
+        info = backup_info(selected)
+        size = info["bytes"] / 2**30
+        dependencies = t("included") if info.get("dependencies") else t("missing")
+        return (f"**{t('Local fallback ready')}**\n\n`{selected}`\n\n"
+                f"{t('Version')}: {info.get('app_version')} · {size:.1f} GiB · "
+                f"{len(info.get('models') or [])} GGUF · "
+                f"{t('Python dependencies')}: {dependencies}")
+    except Exception as exc:
+        return t("⚠️ Backup manifest cannot be read: {error}", error=exc)
+
+
+def _resolve_backup_folder(path: Path) -> Path | None:
+    if (path / "manifest.json").is_file():
+        return path
+    candidates = sorted(child for child in path.glob("QwenHarness-Offline-Backup*")
+                        if child.is_dir() and (child / "manifest.json").is_file())
+    return candidates[-1] if candidates else None
+
+
+def create_offline_backup_handler():
+    parent = pick_directory_dialog(t("Select a parent folder for the offline backup"))
+    if not parent:
+        return offline_backup_status_text()
+    target = Path(parent) / f"QwenHarness-Offline-Backup-{time.strftime('%Y%m%d-%H%M%S')}"
+    python = ROOT / ".venv" / "Scripts" / "python.exe"
+    escaped_script = str(ROOT / "scripts" / "offline_backup.py").replace("'", "''")
+    escaped_target = str(target).replace("'", "''")
+    command = f"& '{python}' '{escaped_script}' create --output '{escaped_target}'"
+    item = state.processes.start(command, "powershell", ROOT, 0)
+    _backup_ui_state.update(process_id=item.id, target=str(target), operation="create")
+    gr.Info(t("Offline backup creation started. Progress is visible in Runtime."))
+    return offline_backup_status_text()
+
+
+def select_offline_backup_handler():
+    selected = pick_directory_dialog(t("Select a Qwen Harness offline backup"))
+    if not selected:
+        return offline_backup_status_text()
+    backup = _resolve_backup_folder(Path(selected))
+    if backup is None:
+        gr.Warning(t("The selected folder does not contain a valid backup manifest."))
+        return offline_backup_status_text()
+    try:
+        from scripts.offline_backup import backup_info
+        backup_info(backup)
+        _write_offline_backup_marker(backup)
+        gr.Info(t("Offline backup selected: {path}", path=backup))
+    except Exception as exc:
+        gr.Warning(t("Backup manifest cannot be read: {error}", error=exc))
+    return offline_backup_status_text()
+
+
+def verify_offline_backup_handler():
+    backup = _selected_offline_backup()
+    if backup is None:
+        gr.Warning(t("Select an offline backup first."))
+        return offline_backup_status_text()
+    python = ROOT / ".venv" / "Scripts" / "python.exe"
+    escaped_script = str(ROOT / "scripts" / "offline_backup.py").replace("'", "''")
+    escaped_backup = str(backup).replace("'", "''")
+    command = f"& '{python}' '{escaped_script}' verify --backup '{escaped_backup}'"
+    item = state.processes.start(command, "powershell", ROOT, 0)
+    _backup_ui_state.update(process_id=item.id, target=str(backup), operation="verify")
+    gr.Info(t("Full SHA-256 verification started. Progress is visible in Runtime."))
+    return offline_backup_status_text()
+
+
+def clear_offline_backup_handler():
+    _write_offline_backup_marker(None)
+    gr.Info(t("Offline backup selection cleared."))
+    return offline_backup_status_text()
+
+
 def open_skills_folder() -> None:
     import os as _os
     folder = cfg.root / cfg.data.get("skills", {}).get("user_directory", "user-skills")
@@ -1676,7 +1793,7 @@ if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
 """
 
 
-def pick_directory_dialog() -> str | None:
+def pick_directory_dialog(title: str | None = None) -> str | None:
     """Nativní Windows dialog pro výběr složky (na stroji, kde běží webapp = localhost).
 
     1) tkinter askdirectory (nativní, rychlé)
@@ -1691,7 +1808,8 @@ def pick_directory_dialog() -> str | None:
         root.withdraw()
         root.attributes("-topmost", True)  # dialog nad oknem prohlížeče
         try:
-            path = filedialog.askdirectory(title=t("Select a project folder (workspace)"))
+            path = filedialog.askdirectory(
+                title=title or t("Select a project folder (workspace)"))
         finally:
             root.destroy()
         if path:
@@ -1701,7 +1819,8 @@ def pick_directory_dialog() -> str | None:
     # 2) PowerShell fallback
     try:
         import subprocess
-        script = _PS_FOLDER_DIALOG.format(desc=t("Select a project folder (workspace)"))
+        script = _PS_FOLDER_DIALOG.format(
+            desc=title or t("Select a project folder (workspace)"))
         out = subprocess.run(
             ["powershell", "-NoProfile", "-STA", "-Command", script],
             capture_output=True, text=True, timeout=600,
@@ -2434,6 +2553,24 @@ def build_ui() -> gr.Blocks:
                                 "OK", variant="primary", size="sm", scale=1,
                                 elem_classes=["compact-btn"])
 
+                        gr.Markdown(f"<small class='stack-subhead'>{t('OFFLINE BACKUP')}</small>", elem_classes=["hdr"])
+                        backup_status = gr.Markdown(
+                            offline_backup_status_text, elem_classes=["hdr", "stack-copy"])
+                        with gr.Row(elem_classes=["gap"]):
+                            btn_backup_create = gr.Button(
+                                t("Create backup"), size="sm", scale=1,
+                                elem_classes=["compact-btn", "soft-positive"])
+                            btn_backup_select = gr.Button(
+                                t("Use as fallback"), size="sm", scale=1,
+                                elem_classes=["compact-btn"])
+                        with gr.Row(elem_classes=["gap"]):
+                            btn_backup_verify = gr.Button(
+                                t("Verify SHA-256"), size="sm", scale=1,
+                                elem_classes=["compact-btn"])
+                            btn_backup_clear = gr.Button(
+                                t("Clear selection"), size="sm", scale=1,
+                                elem_classes=["compact-btn"])
+
                         gr.Markdown(f"<small class='stack-subhead'>{t('CHAT DATA')}</small>", elem_classes=["hdr"])
                         with gr.Row(elem_classes=["gap"]):
                             btn_export_md = gr.Button(
@@ -2555,6 +2692,14 @@ def build_ui() -> gr.Blocks:
             queue=True, concurrency_id="chat-run", concurrency_limit=1)\
             .then(memory_info_updates, None,
                   [mem_g_info, mem_mode_info, mem_p_info], queue=False)
+        btn_backup_create.click(
+            create_offline_backup_handler, None, backup_status, queue=False)
+        btn_backup_select.click(
+            select_offline_backup_handler, None, backup_status, queue=False)
+        btn_backup_verify.click(
+            verify_offline_backup_handler, None, backup_status, queue=False)
+        btn_backup_clear.click(
+            clear_offline_backup_handler, None, backup_status, queue=False)
 
         # chaty (radio = přepnutí chatu; druhé radio = chaty bez projektu)
         chats_radio.input(load_session_handler, chats_radio,
@@ -2775,6 +2920,8 @@ def build_ui() -> gr.Blocks:
             gr.Timer(10.0).tick(skills_info_text, outputs=skills_info, queue=False,
                                 show_progress="hidden")
             gr.Timer(2.0).tick(research_status_text, outputs=research_status, queue=False,
+                               show_progress="hidden")
+            gr.Timer(2.0).tick(offline_backup_status_text, outputs=backup_status, queue=False,
                                show_progress="hidden")
     return ui
 

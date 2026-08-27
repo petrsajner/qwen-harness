@@ -23,7 +23,7 @@ from harness.agent import build_registry
 from harness.changes import ChangeJournal, file_sha256
 from harness.config import Config, load_config
 from harness.dependencies import (dependencies_current, mark_dependencies_current,
-                                  requirements_digest)
+                                  requirements_digest, sync_dependencies)
 from harness.llm import parse_tool_arguments
 from harness.processes import ProcessManager
 from harness.safety import Risk, SafetyPolicy
@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.4.0",
-          "viditelná verze aplikace odpovídá instalátoru 1.4.0")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.4.1",
+          "viditelná verze aplikace odpovídá instalátoru 1.4.1")
     invariants = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     check(all(item in invariants for item in (
         "Language servers or an LSP runtime/distribution layer",
@@ -859,8 +859,81 @@ def test_dependency_marker() -> None:
         requirements.write_text("example==2.0\n", encoding="utf-8")
         check(not dependencies_current(requirements, venv),
               "zmena requirements zneplatni dependency marker")
+        from unittest.mock import patch
+        with patch("harness.dependencies.subprocess.call", return_value=0) as pip_call:
+            rc = sync_dependencies(requirements, venv, force=True)
+        command = pip_call.call_args.args[0]
+        check(rc == 0 and command[-2:] == ["-r", str(requirements)],
+              "dependency sync instaluje deklarované requirements")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_offline_backup() -> None:
+    print("[offline backup]")
+    from scripts.offline_backup import backup_info, create_backup, restore_backup, verify_backup
+
+    outer = Path(tempfile.mkdtemp())
+    try:
+        source = outer / "source"
+        (source / "runtime" / "models").mkdir(parents=True)
+        (source / "runtime" / "llama" / "bin").mkdir(parents=True)
+        (source / ".venv" / "Lib" / "site-packages" / "example").mkdir(parents=True)
+        (source / ".venv" / "Lib" / "site-packages" / "example" / "__init__.py").write_text(
+            "VALUE = 1\n", encoding="utf-8")
+        (source / "runtime" / "models" / "model.gguf").write_bytes(b"MODEL" * 1000)
+        (source / "runtime" / "models" / "mmproj.gguf").write_bytes(b"VISION" * 100)
+        (source / "runtime" / "llama" / "bin" / "llama-server.exe").write_bytes(
+            b"LLAMA" * 500)
+        (source / "runtime" / "llama" / "bin" / "cuda.dll").write_bytes(b"CUDA" * 200)
+        (source / "requirements.txt").write_text("example==1.0\n", encoding="utf-8")
+        (source / "version.txt").write_text("test-version\n", encoding="utf-8")
+        (source / "dist").mkdir()
+        (source / "dist" / "QwenHarness-Setup-test-version.exe").write_bytes(b"SETUP")
+        backup = outer / "QwenHarness-Offline-Backup"
+        manifest = create_backup(source, backup)
+        check(manifest["format_version"] == 2 and (backup / "manifest.json").is_file(),
+              "create backup vytvoří verzovaný manifest")
+        verified = verify_backup(backup)
+        check(verified["ok"] and verified["files"] >= 5,
+              "neporušená offline záloha projde SHA-256 kontrolou")
+        info = backup_info(backup)
+        check(info["app_version"] == "test-version" and len(info["models"]) == 2
+              and info["dependencies"] and info["installer"].endswith(".exe"),
+              "backup info popíše verzi, modely, Setup.exe a lokální Python závislosti")
+        restored_root = outer / "restored"
+        (restored_root / ".venv" / "Scripts").mkdir(parents=True)
+        (restored_root / ".venv" / "Scripts" / "python.exe").touch()
+        (restored_root / "requirements.txt").write_text("example==1.0\n", encoding="utf-8")
+        result = restore_backup(restored_root, backup)
+        check(result["ok"]
+              and (restored_root / "runtime/models/model.gguf").read_bytes()
+              == b"MODEL" * 1000
+              and (restored_root / "runtime/llama/bin/llama-server.exe").is_file()
+              and (restored_root / ".venv/Lib/site-packages/example/__init__.py").is_file()
+              and (restored_root / ".venv/.requirements.sha256").is_file(),
+              "restore obnoví modely, llama runtime i Python závislosti")
+        fallback_root = outer / "fallback"
+        targeted = restore_backup(fallback_root, backup, {"models"})
+        check((fallback_root / "runtime/models/model.gguf").is_file()
+              and not (fallback_root / "runtime/llama").exists()
+              and targeted["dependencies"] == "not-requested",
+              "fallback restore obnoví jen online nedostupnou komponentu")
+        damaged = backup / "payload" / "runtime" / "models" / "model.gguf"
+        damaged.write_bytes(b"DAMAGED")
+        check(not verify_backup(backup)["ok"],
+              "poškození payloadu odhalí velikost nebo SHA-256")
+        installer_text = (ROOT / "installer" / "run_setup.bat").read_text(encoding="utf-8")
+        check("offline_backup.py restore" in installer_text
+              and "scripts\\sync_deps.py" in installer_text
+              and "--components models" in installer_text
+              and "QWEN_HARNESS_BACKUP_PREFER" in
+                  (ROOT / "installer/run_setup_from_backup.bat").read_text(encoding="utf-8")
+              and "run_setup_from_backup.bat" in
+                  (ROOT / "installer/qwen-harness.iss").read_text(encoding="utf-8"),
+              "installer obsahuje lokální restore a výběr backup složky")
+    finally:
+        shutil.rmtree(outer, ignore_errors=True)
 
 
 def test_streaming_bridge() -> None:
@@ -1984,9 +2057,11 @@ def test_user_manuals() -> None:
 
     expected = {
         "QwenHarness-Manual-EN.pdf": (
-            15, ("1.4.0", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
+            15, ("1.4.1", "Python 3.12", "Offline backup", "Work Modes",
+                 "User-Facing Tool Reference", "Troubleshooting")),
         "QwenHarness-Manual-CS.pdf": (
-            10, ("1.4.0", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
+            10, ("1.4.1", "Python 3.12", "offline zálohy", "Pracovní režimy",
+                 "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():
         # dev strom: output/pdf; instalovaná kopie: docs (tam je umísťuje instalátor)
@@ -2018,6 +2093,7 @@ if __name__ == "__main__":
     test_reasoning_effort_kwargs()
     test_runtime_lifecycle_helpers()
     test_dependency_marker()
+    test_offline_backup()
     test_streaming_bridge()
     test_parallel_read_tools()
     test_resume_task_and_process_after_restart()
