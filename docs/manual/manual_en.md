@@ -119,20 +119,18 @@ The **Work mode** dropdown changes the model's tools and behavior for the active
 
 Model and KV changes automatically request a server restart. Loading takes roughly 10-20 seconds depending on the model and disk cache.
 
-## Collapsible sidebar groups
+## Sidebar organization
 
-Most secondary controls are collapsed to keep the sidebar readable:
+The sidebar follows the normal working order instead of presenting every feature as a separate panel:
 
-- **Context & handoff** - manual compression and a summarized handoff to a new chat.
-- **Changes in this task** - files changed since the current task began and one-click rollback.
-- **Task progress** - the persistent goal, current step, completed steps, latest validation, and diff-review state.
-- **Unfinished task** - resume work saved before an application restart.
-- **Long-running operations** - running background commands and their termination control.
-- **Browser session** - current isolated Edge page and a direct close control.
-- **What the model currently sees** - context statistics and pinned files.
-- **Available skills** - skill catalog and personal skill folder.
-- **Research progress** - source counts, ledger export, and synthesis export.
-- **Settings** - model, KV cache, autonomy, thinking, language, and memory files.
+- **Workspace** keeps the compact server bar, project selector, active-chat controls, and one collapsible chat browser near the top.
+- **Current task** combines the persistent plan, changed files, rollback, and resume state in one section.
+- **Context** combines context statistics, pins, compression, and handoff.
+- **Research progress** appears only in Research mode.
+- **Runtime** combines background processes and the isolated browser session.
+- **Settings & help** contains project setup, chat import/export, model behavior, memory, skills, and both manuals.
+
+Current task, Context, Runtime, and Settings share one visual surface with row separators. They are collapsed by default to keep navigation compact.
 
 ## Project and chat area
 

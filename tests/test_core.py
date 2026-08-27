@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.3.9",
-          "viditelná verze aplikace odpovídá instalátoru 1.3.9")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.4.0",
+          "viditelná verze aplikace odpovídá instalátoru 1.4.0")
     invariants = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     check(all(item in invariants for item in (
         "Language servers or an LSP runtime/distribution layer",
@@ -128,6 +128,14 @@ def test_config() -> None:
         "One-million-token context",
         "general plugin host, MCP ecosystem",
     )), "trvalé non-goals jsou zapsané v kořenových produktových pravidlech")
+    web_source = (ROOT / "webapp.py").read_text(encoding="utf-8")
+    check(all(marker in web_source for marker in (
+        'elem_id="workspace-control-stack"',
+        't("Current task")', 't("Context")', 't("Runtime")',
+        't("Settings & help")', 'show_progress="hidden"',
+    )) and 't("Available skills"), open=' not in web_source
+          and 't("Help & manuals"), open=' not in web_source,
+          "sidebar používá sjednocenou informační architekturu bez samostatných výkřiků")
 
 
 def test_memory_layers() -> None:
@@ -1976,9 +1984,9 @@ def test_user_manuals() -> None:
 
     expected = {
         "QwenHarness-Manual-EN.pdf": (
-            15, ("1.3.9", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
+            15, ("1.4.0", "Work Modes", "User-Facing Tool Reference", "Troubleshooting")),
         "QwenHarness-Manual-CS.pdf": (
-            10, ("1.3.9", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
+            10, ("1.4.0", "Pracovní režimy", "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():
         # dev strom: output/pdf; instalovaná kopie: docs (tam je umísťuje instalátor)

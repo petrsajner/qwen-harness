@@ -81,14 +81,15 @@ These are product decisions, not postponed roadmap items.
 
 ## Interface
 
-The main workspace keeps model status, work mode and server controls visible while
-leaving most of the window to the conversation and prompt composer.
+The compact web-first sidebar puts project/chat navigation before technical controls.
+Current task, Context, Runtime, and Settings & help share one unified control surface,
+while most of the window remains dedicated to the conversation and prompt composer.
 
 ![Qwen Harness main workspace](docs/images/qwen-harness-overview.jpg)
 
-| Model and memory settings | Context and built-in manuals |
+| Settings, memory and guidance | Task and context |
 |---|---|
-| Select the model, KV precision, autonomy, thinking depth and language. The same panel exposes all three memory layers. | Inspect exactly what the model currently sees, pin important files and open either PDF manual from the application. |
+| Project setup, model behavior, all memory layers, skills and manuals live in one setup surface. | Follow the task plan and changed files, inspect context, manage pins, compress, or hand off. |
 | ![Qwen Harness settings and memory](docs/images/qwen-harness-settings-memory.jpg) | ![Qwen Harness context inspector and manuals](docs/images/qwen-harness-context-manuals.jpg) |
 
 ## Architecture

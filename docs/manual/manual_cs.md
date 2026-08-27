@@ -103,18 +103,18 @@ Dropdown **Pracovní režim** mění nástroje a chování modelu pro aktivní c
 
 Změna modelu nebo KV cache automaticky vyžádá restart. Načítání obvykle trvá 10-20 sekund.
 
-## Sbalovací skupiny sidebaru
+## Uspořádání sidebaru
 
-- **Kontext a předání** - ruční komprese a předání do nového chatu.
-- **Změny této úlohy** - změněné soubory a rollback.
-- **Průběh úlohy** - persistentní cíl, aktuální a dokončené kroky, poslední kontrola a stav kontroly diffu.
-- **Rozpracovaná úloha** - obnovení práce po restartu.
-- **Dlouhé operace** - procesy na pozadí a jejich ukončení.
-- **Browser session** - aktuální izolovaná stránka Edge a přímé zavření procesu.
-- **Co model právě používá** - kontext a připnuté soubory.
-- **Dostupné skills** - katalog a osobní složka skillů.
-- **Průběh výzkumu** - zdroje, ledger a syntéza.
-- **Nastavení** - model, KV, autonomie, thinking, jazyk a paměť.
+Sidebar odpovídá běžnému pořadí práce a nezobrazuje každou funkci jako samostatný panel:
+
+- **Pracovní prostor** drží nahoře kompaktní server, projekt, ovládání aktivního chatu a jeden sbalitelný seznam chatů.
+- **Aktuální úloha** spojuje plán, změněné soubory, rollback a obnovení práce.
+- **Kontext** spojuje statistiky, pins, kompresi a předání.
+- **Průběh výzkumu** se objeví jen v režimu Výzkum.
+- **Provoz** spojuje procesy na pozadí a izolovaný browser.
+- **Nastavení a nápověda** obsahuje správu projektů, import/export chatu, model, paměť, skills a oba manuály.
+
+Aktuální úloha, Kontext, Provoz a Nastavení sdílejí jeden povrch s jemnými oddělovači a jsou standardně sbalené.
 
 ## Projekty a chaty
 

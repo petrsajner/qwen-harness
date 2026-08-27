@@ -1417,7 +1417,11 @@ def open_in_editor(path: Path | str):
 
 def skills_info_text() -> str:
     from harness.skills import SkillLibrary
-    return SkillLibrary(cfg, Path(state.workspace) if state.workspace else None).catalog()
+    items = SkillLibrary(cfg, Path(state.workspace) if state.workspace else None).list()
+    if not items:
+        return t("<small>No skills available.</small>")
+    names = " · ".join(f"`{item.name}`" for item in items)
+    return t("**{count} skills available**", count=len(items)) + "\n\n" + names
 
 
 def open_skills_folder() -> None:
@@ -2196,14 +2200,44 @@ button.primary:hover { filter: brightness(1.12) !important; }
   background: #123346 !important; border-color: #27617e !important; color: #c9ebff !important;
 }
 .server-restart button:hover { background: #17455e !important; border-color: #347da1 !important; }
-.sidebar-section { border-radius: 7px !important; margin: 3px 0 !important; overflow: hidden !important; }
-.sidebar-section.info-section { border-color: #293442 !important; background: #101720 !important; }
-.sidebar-section.action-section { border-color: #3b3831 !important; background: #171714 !important; }
-.sidebar-section.settings-section { border-color: #2f3d39 !important; background: #111a18 !important; }
-.sidebar-section.attention-section { border-color: #66532b !important; background: #211c11 !important; }
+.nav-section { border: 0 !important; border-radius: 6px !important;
+  margin: 4px 0 !important; background: transparent !important; overflow: hidden !important; }
+.nav-section .label-wrap { background: #151b23 !important; border: 1px solid #2c3744 !important;
+  border-radius: 6px !important; min-height: 34px !important; padding: 5px 9px !important; }
+.nav-section .label-wrap:hover { background: #1a222c !important; border-color: #3a4858 !important; }
+#workspace-control-stack { background: #121820 !important; border: 1px solid #2a3441 !important;
+  border-radius: 8px !important; padding: 0 !important; margin: 3px 0 6px !important;
+  gap: 0 !important; overflow: hidden !important; }
+#workspace-control-stack #workspace-control-stack { background: transparent !important;
+  border: 0 !important; border-radius: 0 !important; margin: 0 !important; }
+#workspace-control-stack .styler { background: transparent !important; }
+.stack-section { background: transparent !important; border: 0 !important;
+  border-bottom: 1px solid #27313d !important; border-radius: 0 !important;
+  margin: 0 !important; overflow: hidden !important; }
+.stack-section:last-child { border-bottom: 0 !important; }
+.stack-section .label-wrap { background: transparent !important; border: 0 !important;
+  border-radius: 0 !important; min-height: 38px !important; padding: 7px 10px !important;
+  font-weight: 600 !important; color: #d6dde7 !important; }
+.stack-section .label-wrap:hover { background: #18212b !important; color: #ffffff !important; }
+.stack-section.task-section .label-wrap { border-left: 2px solid #2dd4bf !important; }
+.stack-section.settings-stack-section .label-wrap { border-left: 2px solid #6aa58f !important; }
+.stack-section > .gap { padding: 0 10px 10px !important; gap: 6px !important; }
+.stack-subhead { color: #8292a6 !important; font-size: 9px !important;
+  font-weight: 700 !important; letter-spacing: .08em !important; margin: 8px 0 3px !important;
+  display: block !important; text-transform: uppercase !important; }
+.stack-copy { margin: 0 !important; }
+.stack-copy p, .stack-copy li { color: #b7c0cc !important; font-size: 11px !important;
+  line-height: 1.42 !important; margin-top: 2px !important; margin-bottom: 2px !important; }
+.stack-copy ul { margin: 3px 0 5px 16px !important; padding: 0 !important; }
+.inline-attention { background: #241d10 !important; border-left: 2px solid #b78a39 !important;
+  border-radius: 4px !important; padding: 6px 7px !important; margin-top: 6px !important; }
+.transfer-section { border: 0 !important; border-top: 1px solid #293442 !important;
+  border-radius: 0 !important; margin-top: 5px !important; background: transparent !important; }
+.transfer-section .label-wrap { background: transparent !important; border: 0 !important;
+  padding: 5px 1px !important; min-height: 30px !important; }
 #active-chat-panel { background: #141a22 !important; border: 1px solid #354453 !important;
   border-left: 3px solid #2dd4bf !important; border-radius: 7px !important;
-  padding: 8px !important; margin-top: 10px !important; gap: 6px !important; }
+  padding: 7px !important; margin-top: 5px !important; gap: 5px !important; }
 #active-chat-panel #active-chat-panel { background: transparent !important; border: 0 !important;
   border-left: 0 !important; border-radius: 0 !important; padding: 0 !important;
   margin: 0 !important; gap: 6px !important; }
@@ -2211,6 +2245,10 @@ button.primary:hover { filter: brightness(1.12) !important; }
 #active-chat-panel > .gap { flex-wrap: nowrap !important; width: 100% !important; }
 #active-chat-panel .chat-new, #active-chat-panel .chat-delete {
   min-width: 0 !important; flex: 1 1 0 !important; width: 0 !important; }
+.chat-meta-row { flex-wrap: nowrap !important; width: 100% !important; gap: 5px !important; }
+.chat-meta-row > * { min-width: 0 !important; flex: 1 1 0 !important; width: 0 !important; }
+#active-chat-panel .chat-meta-row input, #active-chat-panel .chat-meta-row textarea {
+  font-size: 11px !important; }
 #rename-chat-input, #move-dd { background: #0d1219 !important; border: 1px solid #35404d !important;
   border-radius: 6px !important; min-height: 34px !important; }
 #rename-chat-input textarea, #rename-chat-input input { font-size: 12.5px !important; }
@@ -2250,7 +2288,7 @@ def build_ui() -> gr.Blocks:
                     label=t("Work mode"),
                 )
 
-                gr.Markdown(f"<small class='side-h'>{t('⚙ FEATURES')}</small>", elem_classes=["hdr"])
+                gr.Markdown(f"<small class='side-h'>{t('WORKSPACE')}</small>", elem_classes=["hdr"])
                 with gr.Group(elem_id="server-control-bar"):
                     gr.Markdown("SERVER", elem_classes=["server-panel-title"])
                     with gr.Row(elem_classes=["gap"]):
@@ -2264,181 +2302,10 @@ def build_ui() -> gr.Blocks:
                             "restart", size="sm", scale=1,
                             elem_classes=["compact-btn", "server-restart"])
 
-                with gr.Accordion(
-                        t("Context & handoff"), open=False,
-                        elem_classes=["sidebar-section", "action-section"]):
-                    with gr.Row(elem_classes=["gap"]):
-                        btn_compress = gr.Button(
-                            t("Compress"), size="sm", scale=1,
-                            elem_classes=["compact-btn"])
-                        btn_handoff = gr.Button(
-                            t("Hand off"), size="sm", scale=1,
-                            elem_classes=["compact-btn"])
-
-                with gr.Accordion(
-                        t("Changes in this task"), open=False,
-                        visible=state.work_mode in ("writing", "development", "computer"),
-                        elem_classes=["sidebar-section", "info-section"]) as changes_panel:
-                    task_changes = gr.Markdown(task_changes_text, elem_classes=["hdr"])
-                    btn_undo_task = gr.Button(
-                        t("Revert task changes"), size="sm", variant="stop",
-                        interactive=False,
-                    )
-
-                with gr.Accordion(
-                        t("Task progress"), open=True,
-                        visible=state.work_mode in ("writing", "development", "computer"),
-                        elem_classes=["sidebar-section", "info-section"]) as task_plan_panel:
-                    task_plan_info = gr.Markdown(task_plan_text, elem_classes=["hdr"])
-
-                with gr.Accordion(
-                        t("Unfinished task"), open=True,
-                        visible=state.agent.has_resumable_task,
-                        elem_classes=["sidebar-section", "attention-section"]) as resumable_panel:
-                    resumable_status = gr.Markdown(resumable_task_text, elem_classes=["hdr"])
-                    btn_resume_task = gr.Button(
-                        t("Continue task"), size="sm",
-                        interactive=state.agent.has_resumable_task,
-                    )
-
-                with gr.Accordion(
-                        t("Long-running operations"), open=False,
-                        visible=state.work_mode in ("development", "computer"),
-                        elem_classes=["sidebar-section", "info-section"]) as process_panel:
-                    process_status = gr.Markdown(active_processes_text, elem_classes=["hdr"])
-                    btn_stop_processes = gr.Button(
-                        t("Stop running operations"), size="sm", variant="stop",
-                        interactive=False,
-                    )
-
-                with gr.Accordion(
-                        t("Browser session"), open=False,
-                        visible=state.work_mode in ("development", "computer"),
-                        elem_classes=["sidebar-section", "info-section"]) as browser_panel:
-                    browser_status = gr.Markdown(browser_status_text, elem_classes=["hdr"])
-                    btn_close_browser = gr.Button(
-                        t("Close browser"), size="sm", variant="stop",
-                        interactive=bool(state.browser.status().get("running")),
-                    )
-
-                with gr.Accordion(
-                        t("What the model currently sees"), open=False,
-                        elem_classes=["sidebar-section", "info-section"]):
-                    context_info = gr.Markdown(context_inspector_text, elem_classes=["hdr"])
-                    with gr.Row(elem_classes=["gap"]):
-                        btn_pin_file = gr.Button(t("Pin file"), size="sm", scale=1)
-                        btn_clear_pins = gr.Button(
-                            t("Unpin all"), size="sm", scale=1,
-                            interactive=bool(state.session.meta.get("pinned_files")),
-                        )
-
-                with gr.Accordion(
-                        t("Available skills"), open=False,
-                        elem_classes=["sidebar-section", "info-section"]):
-                    skills_info = gr.Markdown(skills_info_text, elem_classes=["hdr"])
-                    btn_open_skills = gr.Button(t("Open skills folder"), size="sm")
-
-                with gr.Accordion(
-                        t("Help & manuals"), open=False,
-                        elem_classes=["sidebar-section", "info-section"]):
-                    with gr.Row(elem_classes=["gap"]):
-                        btn_manual_en = gr.Button(
-                            t("English manual (PDF)"), size="sm", scale=1)
-                        btn_manual_cs = gr.Button(
-                            t("Czech manual (PDF)"), size="sm", scale=1)
-
-                with gr.Accordion(
-                        t("Research progress"), open=False,
-                        visible=state.work_mode == "research",
-                        elem_classes=["sidebar-section", "info-section"]) as research_panel:
-                    research_status = gr.Markdown(research_status_text, elem_classes=["hdr"])
-                    btn_export_research = gr.Button(t("Export all sources"), size="sm")
-                    with gr.Row(elem_classes=["gap"]):
-                        btn_export_research_docx = gr.Button(t("Synthesis DOCX"), size="sm")
-                        btn_export_research_pdf = gr.Button(t("Synthesis PDF"), size="sm")
-                    research_export_file = gr.File(
-                        label="Research ledger", visible=False, interactive=False)
-
-                with gr.Accordion(
-                        t("⚙️ Settings"), open=False,
-                        elem_classes=["sidebar-section", "settings-section"]):
-                    model_dd = gr.Dropdown(
-                        model_choices, value=state.model_key, label=t("Model"),
-                        interactive=not state.model_switch.snapshot().busy,
-                    )
-                    kv_cache_dd = gr.Dropdown(
-                        choices=kv_cache_choices(state.model_key),
-                        value=cfg.kv_cache_mode(state.model_key),
-                        label=t("KV cache precision"),
-                        interactive=(len(kv_cache_choices(state.model_key)) > 1
-                                     and not state.model_switch.snapshot().busy),
-                    )
-                    autonomy_dd = gr.Dropdown(["supervised", "semi", "auto"], value=state.autonomy,
-                                              label=t("Autonomy"))
-                    thinking_dd = gr.Dropdown(["xhigh", "medium", "low", "off"],
-                                              value=("off" if not state.thinking else state.reasoning_effort),
-                                              label=t("Thinking"))
-                    lang_dd = gr.Dropdown(
-                        choices=language_choices(), value=get_language(),
-                        label=t("Language"))
-                    gpu_dd = gr.Dropdown(
-                        choices=gpu_setting_choices(), value=state.gpu_choice,
-                        label=t("GPU (VRAM)"), info=None)
-                    settings_info = gr.Markdown("")
-                    gr.Markdown(f"<small class='side-h'>{t('🧠 MEMORY')}</small>", elem_classes=["hdr"])
-                    gr.Markdown(t("The model reads memory on every task and after compression; "
-                                  "it stores facts on request (“remember…”)."),
-                                elem_classes=["hdr"])
-                    mem_g_info = gr.Markdown(_mem_g_text(), elem_classes=["hdr"])
-                    btn_mem_g = gr.Button(t("Global memory — open"), size="sm")
-                    mem_mode_info = gr.Markdown(_mem_mode_text(), elem_classes=["hdr"])
-                    btn_mem_mode = gr.Button(t("Mode memory — open"), size="sm")
-                    mem_p_info = gr.Markdown(_mem_p_text(), elem_classes=["hdr"])
-                    btn_mem_p = gr.Button(t("Project memory — open"), size="sm")
-
                 gr.Markdown(f"<small class='side-h'>{t('📁 PROJECTS')}</small>", elem_classes=["hdr"])
                 proj_dd = gr.Dropdown(choices=project_choices(), value=current_project_name(),
                                       interactive=True, show_label=False, container=False,
                                       elem_id="proj-dd", info=None)
-                with gr.Accordion(
-                        t("Project management"), open=False,
-                        elem_classes=["sidebar-section", "action-section"]):
-                    with gr.Row(elem_classes=["gap"]):
-                        btn_proj_new = gr.Button(
-                            t("New"), size="sm", scale=1,
-                            elem_classes=["compact-btn", "soft-positive"])
-                        btn_proj_attach = gr.Button(
-                            t("Attach"), size="sm", scale=1,
-                            elem_classes=["compact-btn"])
-                    btn_proj_delete = gr.Button(
-                        t("Delete project + folder"), size="sm", variant="stop",
-                        elem_classes=["compact-btn", "soft-danger"])
-                    proj_delete_state = gr.Markdown("", elem_classes=["hdr"])
-                    with gr.Row(visible=False) as proj_new_row:
-                        proj_new_tb = gr.Textbox(
-                            placeholder=t("new project name…"),
-                            show_label=False, container=False, scale=3)
-                        btn_proj_create = gr.Button(
-                            "OK", variant="primary", size="sm", scale=1,
-                            elem_classes=["compact-btn"])
-
-                gr.Markdown(f"<small class='side-h'>{t('💬 PROJECT CHATS')}</small>", elem_classes=["hdr"])
-                chats_radio = gr.Radio(choices=chat_choices(), value=state.session.id,
-                                       show_label=False, container=False, elem_id="chats-radio",
-                                       info=None)
-
-                gr.Markdown(f"<small class='side-h'>{t('💬 CHATS WITHOUT PROJECT')}</small>", elem_classes=["hdr"])
-                noproj_radio = gr.Radio(choices=noproj_chat_choices(), value=None,
-                                        show_label=False, container=False, elem_id="noproj-radio",
-                                        info=None)
-
-                with gr.Accordion(t("Search all chats"), open=False):
-                    history_query = gr.Textbox(
-                        placeholder=t("word or phrase…"), show_label=False,
-                        container=False,
-                    )
-                    btn_history_search = gr.Button(t("Search"), size="sm")
-                    history_results = gr.Radio(choices=[], show_label=False, container=False)
 
                 with gr.Group(elem_id="active-chat-panel"):
                     with gr.Row(elem_classes=["gap"]):
@@ -2449,18 +2316,125 @@ def build_ui() -> gr.Blocks:
                             t("Delete"), size="sm", scale=1,
                             elem_classes=["compact-btn", "chat-delete"])
                     del_state = gr.Markdown("", elem_id="del-state", elem_classes=["hdr"])
-                    rename_tb = gr.Textbox(
-                        placeholder=t("Rename and press Enter…"),
-                        show_label=False, container=False,
-                        elem_id="rename-chat-input")
-                    move_dd = gr.Dropdown(
-                        choices=move_project_choices(), value="",
-                        show_label=False, container=False,
-                        elem_id="move-dd", info=None)
+                    with gr.Row(elem_classes=["gap", "chat-meta-row"]):
+                        rename_tb = gr.Textbox(
+                            placeholder=t("Rename…"),
+                            show_label=False, container=False, scale=1,
+                            elem_id="rename-chat-input")
+                        move_dd = gr.Dropdown(
+                            choices=move_project_choices(), value="", scale=1,
+                            show_label=False, container=False,
+                            elem_id="move-dd", info=None)
+
+                with gr.Accordion(t("Chats"), open=False, elem_classes=["nav-section"]):
+                    gr.Markdown(f"<small class='stack-subhead'>{t('PROJECT CHATS')}</small>", elem_classes=["hdr"])
+                    chats_radio = gr.Radio(choices=chat_choices(), value=state.session.id,
+                                           show_label=False, container=False, elem_id="chats-radio",
+                                           info=None)
+                    gr.Markdown(f"<small class='stack-subhead'>{t('CHATS WITHOUT PROJECT')}</small>", elem_classes=["hdr"])
+                    noproj_radio = gr.Radio(choices=noproj_chat_choices(), value=None,
+                                            show_label=False, container=False, elem_id="noproj-radio",
+                                            info=None)
+                    gr.Markdown(f"<small class='stack-subhead'>{t('SEARCH')}</small>", elem_classes=["hdr"])
+                    history_query = gr.Textbox(
+                        placeholder=t("word or phrase…"), show_label=False,
+                        container=False,
+                    )
+                    btn_history_search = gr.Button(t("Search"), size="sm")
+                    history_results = gr.Radio(choices=[], show_label=False, container=False)
+
+                gr.Markdown(f"<small class='side-h'>{t('CURRENT WORK')}</small>", elem_classes=["hdr"])
+                with gr.Group(elem_id="workspace-control-stack"):
+                    with gr.Accordion(
+                            t("Current task"), open=False,
+                            visible=state.work_mode in ("writing", "development", "computer"),
+                            elem_classes=["stack-section", "task-section"]) as task_plan_panel:
+                        task_plan_info = gr.Markdown(task_plan_text, elem_classes=["hdr", "stack-copy"])
+                        with gr.Column(
+                                visible=state.work_mode in ("writing", "development", "computer")) as changes_panel:
+                            gr.Markdown(f"<small class='stack-subhead'>{t('CHANGED FILES')}</small>", elem_classes=["hdr"])
+                            task_changes = gr.Markdown(task_changes_text, elem_classes=["hdr", "stack-copy"])
+                            btn_undo_task = gr.Button(
+                                t("Revert task changes"), size="sm", variant="stop",
+                                interactive=False)
+                        with gr.Column(
+                                visible=state.agent.has_resumable_task,
+                                elem_classes=["inline-attention"]) as resumable_panel:
+                            resumable_status = gr.Markdown(resumable_task_text, elem_classes=["hdr", "stack-copy"])
+                            btn_resume_task = gr.Button(
+                                t("Continue task"), size="sm",
+                                interactive=state.agent.has_resumable_task)
 
                     with gr.Accordion(
-                            t("Export / import"), open=False,
-                            elem_classes=["sidebar-section", "info-section"]):
+                            t("Context"), open=False,
+                            elem_classes=["stack-section"]):
+                        context_info = gr.Markdown(context_inspector_text, elem_classes=["hdr", "stack-copy"])
+                        with gr.Row(elem_classes=["gap"]):
+                            btn_pin_file = gr.Button(t("Pin file"), size="sm", scale=1)
+                            btn_clear_pins = gr.Button(
+                                t("Unpin all"), size="sm", scale=1,
+                                interactive=bool(state.session.meta.get("pinned_files")))
+                        with gr.Row(elem_classes=["gap"]):
+                            btn_compress = gr.Button(
+                                t("Compress"), size="sm", scale=1,
+                                elem_classes=["compact-btn"])
+                            btn_handoff = gr.Button(
+                                t("Hand off"), size="sm", scale=1,
+                                elem_classes=["compact-btn"])
+
+                    with gr.Accordion(
+                            t("Research progress"), open=True,
+                            visible=state.work_mode == "research",
+                            elem_classes=["stack-section"]) as research_panel:
+                        research_status = gr.Markdown(research_status_text, elem_classes=["hdr", "stack-copy"])
+                        btn_export_research = gr.Button(t("Export all sources"), size="sm")
+                        with gr.Row(elem_classes=["gap"]):
+                            btn_export_research_docx = gr.Button(t("Synthesis DOCX"), size="sm")
+                            btn_export_research_pdf = gr.Button(t("Synthesis PDF"), size="sm")
+                        research_export_file = gr.File(
+                            label="Research ledger", visible=False, interactive=False)
+
+                    with gr.Accordion(
+                            t("Runtime"), open=False,
+                            visible=state.work_mode in ("development", "computer"),
+                            elem_classes=["stack-section"]) as process_panel:
+                        gr.Markdown(f"<small class='stack-subhead'>{t('PROCESSES')}</small>", elem_classes=["hdr"])
+                        process_status = gr.Markdown(active_processes_text, elem_classes=["hdr", "stack-copy"])
+                        btn_stop_processes = gr.Button(
+                            t("Stop running operations"), size="sm", variant="stop",
+                            interactive=False)
+                        with gr.Column(
+                                visible=state.work_mode in ("development", "computer")) as browser_panel:
+                            gr.Markdown(f"<small class='stack-subhead'>{t('BROWSER')}</small>", elem_classes=["hdr"])
+                            browser_status = gr.Markdown(browser_status_text, elem_classes=["hdr", "stack-copy"])
+                            btn_close_browser = gr.Button(
+                                t("Close browser"), size="sm", variant="stop",
+                                interactive=bool(state.browser.status().get("running")))
+
+                    with gr.Accordion(
+                            t("Settings & help"), open=False,
+                            elem_classes=["stack-section", "settings-stack-section"]):
+                        gr.Markdown(f"<small class='stack-subhead'>{t('PROJECT SETUP')}</small>", elem_classes=["hdr"])
+                        with gr.Row(elem_classes=["gap"]):
+                            btn_proj_new = gr.Button(
+                                t("New"), size="sm", scale=1,
+                                elem_classes=["compact-btn", "soft-positive"])
+                            btn_proj_attach = gr.Button(
+                                t("Attach"), size="sm", scale=1,
+                                elem_classes=["compact-btn"])
+                        btn_proj_delete = gr.Button(
+                            t("Delete project + folder"), size="sm", variant="stop",
+                            elem_classes=["compact-btn", "soft-danger"])
+                        proj_delete_state = gr.Markdown("", elem_classes=["hdr"])
+                        with gr.Row(visible=False) as proj_new_row:
+                            proj_new_tb = gr.Textbox(
+                                placeholder=t("new project name…"),
+                                show_label=False, container=False, scale=3)
+                            btn_proj_create = gr.Button(
+                                "OK", variant="primary", size="sm", scale=1,
+                                elem_classes=["compact-btn"])
+
+                        gr.Markdown(f"<small class='stack-subhead'>{t('CHAT DATA')}</small>", elem_classes=["hdr"])
                         with gr.Row(elem_classes=["gap"]):
                             btn_export_md = gr.Button(
                                 "Markdown", size="sm", elem_classes=["compact-btn"])
@@ -2473,6 +2447,50 @@ def build_ui() -> gr.Blocks:
                         btn_import_chat = gr.Button(
                             t("Import as new chat"), size="sm",
                             elem_classes=["compact-btn"])
+
+                        gr.Markdown(f"<small class='stack-subhead'>{t('MODEL & BEHAVIOR')}</small>", elem_classes=["hdr"])
+                        model_dd = gr.Dropdown(
+                            model_choices, value=state.model_key, label=t("Model"),
+                            interactive=not state.model_switch.snapshot().busy)
+                        kv_cache_dd = gr.Dropdown(
+                            choices=kv_cache_choices(state.model_key),
+                            value=cfg.kv_cache_mode(state.model_key),
+                            label=t("KV cache precision"),
+                            interactive=(len(kv_cache_choices(state.model_key)) > 1
+                                         and not state.model_switch.snapshot().busy))
+                        autonomy_dd = gr.Dropdown(
+                            ["supervised", "semi", "auto"], value=state.autonomy,
+                            label=t("Autonomy"))
+                        thinking_dd = gr.Dropdown(
+                            ["xhigh", "medium", "low", "off"],
+                            value=("off" if not state.thinking else state.reasoning_effort),
+                            label=t("Thinking"))
+                        lang_dd = gr.Dropdown(
+                            choices=language_choices(), value=get_language(),
+                            label=t("Language"))
+                        gpu_dd = gr.Dropdown(
+                            choices=gpu_setting_choices(), value=state.gpu_choice,
+                            label=t("GPU (VRAM)"), info=None)
+                        settings_info = gr.Markdown("")
+
+                        gr.Markdown(f"<small class='stack-subhead'>{t('MEMORY')}</small>", elem_classes=["hdr"])
+                        mem_g_info = gr.Markdown(_mem_g_text(), elem_classes=["hdr", "stack-copy"])
+                        btn_mem_g = gr.Button(t("Global memory — open"), size="sm")
+                        mem_mode_info = gr.Markdown(_mem_mode_text(), elem_classes=["hdr", "stack-copy"])
+                        btn_mem_mode = gr.Button(t("Mode memory — open"), size="sm")
+                        mem_p_info = gr.Markdown(_mem_p_text(), elem_classes=["hdr", "stack-copy"])
+                        btn_mem_p = gr.Button(t("Project memory — open"), size="sm")
+
+                        gr.Markdown(f"<small class='stack-subhead'>{t('SKILLS')}</small>", elem_classes=["hdr"])
+                        skills_info = gr.Markdown(skills_info_text, elem_classes=["hdr", "stack-copy"])
+                        btn_open_skills = gr.Button(t("Open skills folder"), size="sm")
+
+                        gr.Markdown(f"<small class='stack-subhead'>{t('MANUALS')}</small>", elem_classes=["hdr"])
+                        with gr.Row(elem_classes=["gap"]):
+                            btn_manual_en = gr.Button(
+                                t("English manual (PDF)"), size="sm", scale=1)
+                            btn_manual_cs = gr.Button(
+                                t("Czech manual (PDF)"), size="sm", scale=1)
 
             # ================= HLAVNÍ CHAT =================
             with gr.Column(scale=5, elem_id="main"):
@@ -2726,29 +2744,38 @@ def build_ui() -> gr.Blocks:
 
         ui.load(on_page_load, None,
                 [chat, confirm_row, status_box, chats_radio, noproj_radio, del_state,
-                 work_mode_dd])\
+                 work_mode_dd], show_progress="hidden")\
             .then(memory_info_updates, None,
-                  [mem_g_info, mem_mode_info, mem_p_info], queue=False)
+                  [mem_g_info, mem_mode_info, mem_p_info], queue=False,
+                  show_progress="hidden")
 
         # živý status (⏳ načítám model → 🟢) každých 5 s
         if hasattr(gr, "Timer"):
             gr.Timer(5.0).tick(
                 refresh_runtime_controls, outputs=[status_box, model_dd, kv_cache_dd],
-                queue=False)
+                queue=False, show_progress="hidden")
             gr.Timer(2.0).tick(
-                refresh_task_changes, outputs=[task_changes, btn_undo_task], queue=False)
-            gr.Timer(1.0).tick(task_plan_text, outputs=task_plan_info, queue=False)
+                refresh_task_changes, outputs=[task_changes, btn_undo_task], queue=False,
+                show_progress="hidden")
+            gr.Timer(1.0).tick(task_plan_text, outputs=task_plan_info, queue=False,
+                               show_progress="hidden")
             gr.Timer(2.0).tick(
                 refresh_resumable_task,
-                outputs=[resumable_status, btn_resume_task, resumable_panel], queue=False)
+                outputs=[resumable_status, btn_resume_task, resumable_panel], queue=False,
+                show_progress="hidden")
             gr.Timer(2.0).tick(
-                refresh_processes, outputs=[process_status, btn_stop_processes], queue=False)
+                refresh_processes, outputs=[process_status, btn_stop_processes], queue=False,
+                show_progress="hidden")
             gr.Timer(1.0).tick(
-                refresh_browser_status, outputs=[browser_status, btn_close_browser], queue=False)
+                refresh_browser_status, outputs=[browser_status, btn_close_browser], queue=False,
+                show_progress="hidden")
             gr.Timer(5.0).tick(refresh_context_inspector,
-                               outputs=[context_info, btn_clear_pins], queue=False)
-            gr.Timer(10.0).tick(skills_info_text, outputs=skills_info, queue=False)
-            gr.Timer(2.0).tick(research_status_text, outputs=research_status, queue=False)
+                               outputs=[context_info, btn_clear_pins], queue=False,
+                               show_progress="hidden")
+            gr.Timer(10.0).tick(skills_info_text, outputs=skills_info, queue=False,
+                                show_progress="hidden")
+            gr.Timer(2.0).tick(research_status_text, outputs=research_status, queue=False,
+                               show_progress="hidden")
     return ui
 
 

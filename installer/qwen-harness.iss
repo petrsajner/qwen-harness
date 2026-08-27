@@ -10,7 +10,7 @@
 ; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
 ; (používá installer\release.bat s verzí z installer\version.txt)
 #ifndef MyAppVersion
-#define MyAppVersion "1.3.9"
+#define MyAppVersion "1.4.0"
 #endif
 
 #define MyAppName "Qwen3.8-27B Harness"
