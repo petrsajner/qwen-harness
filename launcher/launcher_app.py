@@ -1,4 +1,4 @@
-r"""Qwen3.8-27B Harness — spustitelný launcher (kompilováno PyInstallerem na QwenHarness.exe).
+r"""Marvin — spustitelný launcher (kompilováno PyInstallerem na Marvin.exe).
 
 Životní cyklus:
   START → preflight (venv/modely; chybí-li → nabídne instalaci v konzoli)
@@ -6,8 +6,8 @@ r"""Qwen3.8-27B Harness — spustitelný launcher (kompilováno PyInstallerem na
         → start Web UI (bez autoprotein prohlížeče) + nativní okno (WebView2)
   KONEC → zavření okna: stop Web UI + llama-server, VRAM uvolněna.
 
-Build:  installer\build_exe.bat  →  dist\QwenHarness\QwenHarness.exe
-Test:   QwenHarness.exe --smoke  (životní cyklus bez okna)
+Build:  installer\build_exe.bat  →  dist\Marvin\Marvin.exe
+Test:   Marvin.exe --smoke  (životní cyklus bez okna)
 """
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ def _alert(msg: str, question: bool = False) -> bool:
         import ctypes
         flags = 0x24 if question else 0x10  # YESNO+QUESTION | ICON_ERROR
         return ctypes.windll.user32.MessageBoxW(
-            None, msg, f"Qwen3.8-27B Harness v{APP_VERSION}", flags) == 6
+            None, msg, f"Marvin v{APP_VERSION}", flags) == 6
     except Exception:
         return False
 
@@ -181,7 +181,7 @@ def _focus_window() -> None:
             def cb(h, l):
                 buf = ctypes.create_unicode_buffer(128)
                 u.GetWindowTextW(h, buf, 128)
-                if "Qwen3.8-27B Harness" in buf.value:
+                if "Marvin" in buf.value:
                     found.append(h)
                 return True
 
@@ -216,10 +216,10 @@ def _show_splash() -> None:
             global _splash_done
             try:
                 root = tk.Tk()
-                root.title(f"Qwen3.8-27B Harness v{APP_VERSION}")
+                root.title(f"Marvin v{APP_VERSION}")
                 root.overrideredirect(True)
                 root.attributes("-topmost", True)
-                splash_text = (f"Qwen3.8-27B Harness v{APP_VERSION}\n\n{t('starting …')}")
+                splash_text = (f"Marvin v{APP_VERSION}\n\n{t('starting …')}")
                 tk.Label(root, text=splash_text,
                          font=("Segoe UI", 13), padx=36, pady=22,
                          bg="#0b0e14", fg="#e8f0ff").pack()
@@ -256,7 +256,7 @@ def _write_loading_page(web_port: int):
     loading_msg = t("starting the interface… (first run takes a while)")
     slow_msg = t("still starting… (details: runtime/launcher.log)")
     p.write_text(f"""<!doctype html><html><head><meta charset="utf-8">
-<title>Qwen3.8-27B Harness</title>
+<title>Marvin</title>
 <style>
 body{{background:#0b0e14;color:#e6edf3;font-family:'Segoe UI',system-ui,sans-serif;
 display:flex;align-items:center;justify-content:center;height:100vh;margin:0;
@@ -268,7 +268,7 @@ h1{{font-size:21px;font-weight:600;margin:0}} h1 b{{color:#2dd4bf}}
 small{{color:#8b949e}}
 </style></head><body>
 <div class="r"></div>
-<h1><b>Qwen</b>3.8-27B Harness <small>v{APP_VERSION}</small></h1>
+<h1><b>Marvin</b> <small>v{APP_VERSION}</small></h1>
 <small id="s">{loading_msg}</small>
 <script>
 const APP='http://127.0.0.1:{web_port}/';
@@ -386,7 +386,7 @@ def main() -> int:
     _close_splash()
     try:
         import webview
-        webview.create_window(f"Qwen3.8-27B Harness v{APP_VERSION}", url,
+        webview.create_window(f"Marvin v{APP_VERSION}", url,
                                width=1440, height=920, min_size=(960, 640),
                                background_color="#0b0e14")
         _log(f"Window opened: {url} (model may still be loading in the background)")

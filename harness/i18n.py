@@ -325,7 +325,7 @@ _CS = {
         "<small>Není vybraná offline záloha. Jediným externím předpokladem zůstává Python 3.12.</small>",
     "⚠️ Backup manifest cannot be read: {error}": "⚠️ Manifest zálohy nelze načíst: {error}",
     "Select a parent folder for the offline backup": "Vyberte nadřazenou složku pro offline zálohu",
-    "Select a Qwen Harness offline backup": "Vyberte offline zálohu Qwen Harness",
+    "Select a Marvin offline backup": "Vyberte offline zálohu Marvin",
     "Offline backup creation started. Progress is visible in Runtime.":
         "Vytváření offline zálohy začalo. Průběh je vidět v Provozu.",
     "The selected folder does not contain a valid backup manifest.":

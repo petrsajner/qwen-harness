@@ -1,12 +1,12 @@
 @echo off
 rem ============================================================
-rem  Qwen3.8-27B Harness - environment and models setup
+rem  Marvin - environment and models setup
 rem  (run by the installer right after setup, or from the
 rem   Start Menu shortcut "Set up environment and models")
 rem ============================================================
 setlocal
 cd /d "%~dp0"
-title Qwen3.8-27B Harness - environment setup
+title Marvin - environment setup
 
 echo ============================================================
 echo  [1/4] Python environment (venv)
@@ -87,7 +87,7 @@ if errorlevel 1 ( echo [ERROR] A selected model is unavailable online and in the
 echo.
 echo ============================================================
 echo  DONE! The environment is ready.
-echo  Start Qwen3.8-27B Harness from the Start Menu / desktop icon.
+echo  Start Marvin from the Start Menu / desktop icon.
 echo ============================================================
 pause
 endlocal

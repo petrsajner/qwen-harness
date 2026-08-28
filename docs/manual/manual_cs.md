@@ -1,6 +1,6 @@
-# 1. Co je Qwen Harness
+# 1. Co je Marvin
 
-Qwen Harness je soukromá desktopová aplikace pro Windows, která provozuje lokální jazykové modely jako obecný chat, výzkumného asistenta, partnera pro psaní, coding agenta a operátora počítače. Inference modelu běží na pracovní stanici přes `llama.cpp`; konverzace a projektové soubory zůstávají na lokálním disku.
+Marvin je soukromá desktopová aplikace pro Windows, která provozuje lokální jazykové modely jako obecný chat, výzkumného asistenta, partnera pro psaní, coding agenta a operátora počítače. Inference modelu běží na pracovní stanici přes `llama.cpp`; konverzace a projektové soubory zůstávají na lokálním disku.
 
 Aplikace je navržena pro jednoho uživatele a jeden aktivní model. Nepoužívá paralelní modelové agenty. Aktivní model ale může paralelně spouštět nezávislé čtecí nástroje a může ponechat dlouhé příkazy běžet na pozadí.
 
@@ -36,17 +36,17 @@ Výběr projektu dá modelu přístup k danému adresáři prostřednictvím ná
 
 Jiné NVIDIA karty mohou fungovat, ale dodané kontexty a kvantizace byly nastaveny a ověřeny pro RTX 5090 s 32 GB. Karty s menší VRAM potřebují menší kontext, nižší kvantizaci, méně GPU vrstev nebo CPU offload.
 
-> POZNÁMKA: Python 3.12 je povinný externí předpoklad každé instalace. Setup.exe vytvoří oddělené virtuální prostředí, ale samotný Python neobsahuje ani neinstaluje. Před instalací Qwen Harness nainstalujte 64bitovou verzi Pythonu 3.12 z [python.org](https://www.python.org/downloads/) a zvolte **Add Python to PATH**.
+> POZNÁMKA: Python 3.12 je povinný externí předpoklad každé instalace. Setup.exe vytvoří oddělené virtuální prostředí, ale samotný Python neobsahuje ani neinstaluje. Před instalací Marvin nainstalujte 64bitovou verzi Pythonu 3.12 z [python.org](https://www.python.org/downloads/) a zvolte **Add Python to PATH**.
 
 ## Instalace pomocí Setup.exe
 
 1. Nainstalujte 64bitový Python 3.12 a v jeho instalátoru zapněte **Add Python to PATH**.
-2. Spusťte `QwenHarness-Setup-<verze>.exe`.
+2. Spusťte `Marvin-Setup-<verze>.exe`.
 3. Zvolte angličtinu nebo češtinu. Výchozí je angličtina.
 4. Zvolte, zda chcete ikonu na ploše.
 5. Při první instalaci ponechte zvolený setup prostředí a modelů po dokončení instalátoru.
 6. Nechte konzolovou instalaci doběhnout. Vytvoří Python virtuální prostředí, nainstaluje závislosti, stáhne `llama.cpp` a nakonfigurované modely.
-7. Spusťte **Qwen3.8-27B Harness** z nabídky Start nebo z plochy.
+7. Spusťte **Marvin** z nabídky Start nebo z plochy.
 
 Výchozí instalační adresář je:
 
@@ -429,7 +429,7 @@ Přesměrování, instalace balíčků, libovolný Python, kopírování, mazán
 
 # 17. Terminálové UI a CLI
 
-Instalátor přidá **Qwen3.8-27B Harness (CLI)** do nabídky Start. Spouští `run_cli.bat` a interaktivní TUI.
+Instalátor přidá **Marvin (CLI)** do nabídky Start. Spouští `run_cli.bat` a interaktivní TUI.
 
 | Příkaz | Účel |
 |---|---|
@@ -475,16 +475,16 @@ Aplikace umí vytvořit přenosnou instalační zálohu přímo ze souborů, kte
 - Odpovídající Setup.exe, pokud je dostupný v aktuálním build adresáři.
 - `manifest.json` s velikostí a SHA-256 hashem každého zálohovaného souboru.
 
-Modely, runtime i Python závislosti se kopírují přímo z aktuálního adresáře Qwen Harness. Při tvorbě zálohy se nic z toho znovu nestahuje. Je potřeba přibližně tolik volného místa, kolik zabírá nainstalovaný runtime; operace může trvat, protože se každý soubor kontrolně hashujete.
+Modely, runtime i Python závislosti se kopírují přímo z aktuálního adresáře Marvin. Při tvorbě zálohy se nic z toho znovu nestahuje. Je potřeba přibližně tolik volného místa, kolik zabírá nainstalovaný runtime; operace může trvat, protože se každý soubor kontrolně hashujete.
 
 ## Instalace z offline zálohy
 
 1. Na cílovém počítači nainstalujte 64bitový Python 3.12 a zapněte **Add Python to PATH**. Samotný Python v záloze není.
-2. Spusťte Setup.exe Qwen Harness, který je součástí zálohy. Pokud při tvorbě zálohy nebyl instalátor k dispozici, použijte odpovídající nebo novější kompatibilní Setup.exe.
+2. Spusťte Setup.exe Marvin, který je součástí zálohy. Pokud při tvorbě zálohy nebyl instalátor k dispozici, použijte odpovídající nebo novější kompatibilní Setup.exe.
 3. Použijte jednu z možností:
    - Pokud je Setup.exe uvnitř zálohy vedle `manifest.json`, spusťte ho přímo tam; zálohu rozpozná automaticky.
    - Položte zálohu vedle Setup.exe a přejmenujte ji přesně na `QwenHarness-Offline-Backup`; instalátor ji rozpozná automaticky.
-   - Nainstalujte Qwen Harness, v nabídce Start spusťte **Instalace z offline zálohy** a vyberte složku zálohy.
+   - Nainstalujte Marvin, v nabídce Start spusťte **Instalace z offline zálohy** a vyberte složku zálohy.
 4. Běžný setup nejprve použije standardní internetové zdroje. Pokud vybraný model, `llama.cpp` nebo Python závislosti nelze získat online, obnoví ze zvolené lokální zálohy pouze tuto neúspěšnou součást.
 5. Explicitní příkaz **Instalace z offline zálohy** v nabídce Start pořadí obrátí: nejdřív obnoví zálohu a teprve potom získá případné chybějící části.
 
@@ -511,7 +511,7 @@ Spusťte **Instalace prostředí a modelů** z nabídky Start. Hotové soubory s
 
 ## Port Web UI je obsazený
 
-Launcher najde blízký volný port nebo znovu použije existující Qwen Harness Web UI. URL je v `launcher.log`.
+Launcher najde blízký volný port nebo znovu použije existující Marvin Web UI. URL je v `launcher.log`.
 
 ## Dlouhý chat je pomalý nebo přetekl
 
@@ -631,7 +631,7 @@ pokud vlastník osobně nezmění toto produktové rozhodnutí:
 - Kontext s jedním milionem tokenů. Kontext zůstává v praktických profilech lokální GPU.
 - Obecný plugin host, MCP ekosystém nebo široký integrační framework.
 
-Tyto body do Qwen Harness nepatří. Nejsou odloženým roadmap backlogem.
+Tyto body do Marvin nepatří. Nejsou odloženým roadmap backlogem.
 
 - Jeden velký model zabere téměř celou GPU, proto je inference jednoslotová.
 - Čtecí nástroje a procesy na pozadí mohou běžet souběžně.

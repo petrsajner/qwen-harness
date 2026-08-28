@@ -30,7 +30,7 @@ from harness.version import APP_VERSION
 
 console = Console()
 
-BANNER = (f"[bold cyan]Qwen3.8-27B v{APP_VERSION}"
+BANNER = (f"[bold cyan]Marvin v{APP_VERSION}"
           f"{t('  •  local harness  •  RTX 5090')}[/bold cyan]")
 
 HELP = t("[bold]Commands:[/bold]\n"

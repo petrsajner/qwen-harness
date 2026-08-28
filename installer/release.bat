@@ -1,9 +1,9 @@
 @echo off
 rem ============================================================
-rem  RELEASE: build nove verze QwenHarness (exe + instalator)
+rem  RELEASE: build nove verze Marvin (exe + instalator)
 rem  - spusti testy, prebuilduje exe, zkompiluje instalator
 rem    s verzi z version.txt (stejne cislo zobrazuje aplikace)
-rem  - vysledek: dist\QwenHarness-Setup-<verze>.exe
+rem  - vysledek: dist\Marvin-Setup-<verze>.exe
 rem  Reinstall u zakladu: vse je rychle (venv/modely zustavaji,
 rem  setup krok odskrtni - program se jen prekopiruje)
 rem ============================================================
@@ -29,7 +29,7 @@ if errorlevel 1 (
 )
 echo        OK - vsechny testy prosly.
 
-echo [2/3] Build QwenHarness.exe...
+echo [2/3] Build Marvin.exe...
 call installer\build_exe.bat
 if errorlevel 1 ( echo [CHYBA] Exe build selhal. & pause & exit /b 1 )
 
@@ -44,7 +44,7 @@ if errorlevel 1 ( echo [CHYBA] Instalator build selhal. & pause & exit /b 1 )
 
 echo.
 echo ============================================================
-echo  RELEASE HOTOVO: dist\QwenHarness-Setup-%VERSION%.exe
+echo  RELEASE HOTOVO: dist\Marvin-Setup-%VERSION%.exe
 echo  Verze aplikace i instalatoru: %VERSION%
 echo ============================================================
 endlocal

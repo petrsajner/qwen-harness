@@ -1522,7 +1522,7 @@ def create_offline_backup_handler():
 
 
 def select_offline_backup_handler():
-    selected = pick_directory_dialog(t("Select a Qwen Harness offline backup"))
+    selected = pick_directory_dialog(t("Select a Marvin offline backup"))
     if not selected:
         return offline_backup_status_text()
     backup = _resolve_backup_folder(Path(selected))
@@ -1574,8 +1574,8 @@ def open_skills_folder() -> None:
 def open_user_manual(language: str) -> None:
     """Open the packaged user manual in the system PDF viewer."""
     import os as _os
-    filename = ("QwenHarness-Manual-CS.pdf" if language == "cs"
-                else "QwenHarness-Manual-EN.pdf")
+    filename = ("Marvin-Manual-CS.pdf" if language == "cs"
+                else "Marvin-Manual-EN.pdf")
     candidates = [
         cfg.root / "docs" / filename,
         cfg.root / "output" / "pdf" / filename,
@@ -2409,12 +2409,12 @@ def build_ui() -> gr.Blocks:
         (str(model.get("status_label") or key), key)
         for key, model in cfg.data["models"].items()
     ]
-    with gr.Blocks(title=f"Qwen3.8-27B Harness v{APP_VERSION}") as ui:
+    with gr.Blocks(title=f"Marvin v{APP_VERSION}") as ui:
         with gr.Row(elem_id="app-row", elem_classes=["gap"]):
             # ================= LEVÝ SIDEBAR =================
             with gr.Column(scale=0, elem_id="sidebar"):
                 gr.Markdown(
-                    f"## 🤖 <span style='color:#2dd4bf'>Qwen</span>3.8 "
+                    f"## 🤖 <span style='color:#2dd4bf'>Marvin</span> "
                     f"<small class='app-version'>v{APP_VERSION}</small>",
                             elem_classes=["hdr", "side-title"])
                 status_box = gr.Markdown(refresh_status, elem_id="status-pill")

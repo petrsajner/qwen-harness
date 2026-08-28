@@ -1,4 +1,4 @@
-"""Qwen3.8-27B Harness — desktopová Windows aplikace.
+"""Marvin — desktopová Windows aplikace.
 
 Životní cyklus:
   START   → zkontroluje prostředí, nastartuje llama-server (pokud neběží),
@@ -45,7 +45,7 @@ def _alert(msg: str) -> None:
     try:
         import ctypes
         ctypes.windll.user32.MessageBoxW(
-            None, msg, f"Qwen3.8-27B Harness v{APP_VERSION}", 0x10)
+            None, msg, f"Marvin v{APP_VERSION}", 0x10)
     except Exception:
         pass
 
@@ -74,7 +74,7 @@ def _focus_window() -> None:
         def cb(h, l):
             buf = ctypes.create_unicode_buffer(128)
             user32.GetWindowTextW(h, buf, 128)
-            if "Qwen3.8-27B Harness" in buf.value:
+            if "Marvin" in buf.value:
                 found.append(h)
             return True
 
@@ -161,7 +161,7 @@ def main() -> int:
         import webview  # pywebview (WebView2)
         model = servermgmt.running_model(cfg) or cfg.model_key()
         webview.create_window(
-            f"Qwen3.8-27B Harness v{APP_VERSION} - {model}",
+            f"Marvin v{APP_VERSION} - {model}",
             url, width=1440, height=920, min_size=(960, 640),
             background_color="#0b0e14",
         )

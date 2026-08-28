@@ -1,4 +1,6 @@
-# Local AI Harness
+# Marvin — local AI harness
+
+Your local AI companion — a brain the size of a planet that never leaves your machine.
 
 A harness for local work with **Qwen3.8-27B** and **Ornith 1.5 35B-A3B** models on an
 **RTX 5090 (32 GB)**. Model inference, projects, memories and chats stay local.
@@ -10,15 +12,15 @@ The UI language is **English by default**; the installer offers a language choic
 
 ## User manuals
 
-- [English user manual](output/pdf/QwenHarness-Manual-EN.pdf)
-- [Český uživatelský manuál](output/pdf/QwenHarness-Manual-CS.pdf)
+- [English user manual](output/pdf/Marvin-Manual-EN.pdf)
+- [Český uživatelský manuál](output/pdf/Marvin-Manual-CS.pdf)
 
 Both manuals are also installed with the application and can be opened from
 **Help & manuals** in the left sidebar.
 
 ## Permanent product boundaries
 
-The following are **explicit non-goals and will not be added**. Qwen Harness is a
+The following are **explicit non-goals and will not be added**. Marvin is a
 personal, single-user Windows tool with a web-first interface and one local model:
 
 - No language-server or LSP distribution layer. The built-in lightweight symbol
@@ -85,12 +87,12 @@ The compact web-first sidebar puts project/chat navigation before technical cont
 Current task, Context, Runtime, and Settings & help share one unified control surface,
 while most of the window remains dedicated to the conversation and prompt composer.
 
-![Qwen Harness main workspace](docs/images/qwen-harness-overview.jpg)
+![Marvin main workspace](docs/images/qwen-harness-overview.jpg)
 
 | Settings, memory and guidance | Task and context |
 |---|---|
 | Project setup, model behavior, all memory layers, skills and manuals live in one setup surface. | Follow the task plan and changed files, inspect context, manage pins, compress, or hand off. |
-| ![Qwen Harness settings and memory](docs/images/qwen-harness-settings-memory.jpg) | ![Qwen Harness context inspector and manuals](docs/images/qwen-harness-context-manuals.jpg) |
+| ![Marvin settings and memory](docs/images/qwen-harness-settings-memory.jpg) | ![Marvin context inspector and manuals](docs/images/qwen-harness-context-manuals.jpg) |
 
 ## Architecture
 
@@ -115,7 +117,7 @@ runtime/  (gitignored)                harness/  (Python)
 
 **Required prerequisite:** install 64-bit **Python 3.12** from
 [python.org](https://www.python.org/downloads/release/python-31210/) and enable
-**Add Python to PATH** in its installer. Qwen Harness creates its own virtual
+**Add Python to PATH** in its installer. Marvin creates its own virtual
 environment, but it does not bundle the Python interpreter itself.
 
 ```bash
@@ -161,7 +163,7 @@ from the web UI (buttons).
 ### Installer (Setup.exe)
 
 ```bash
-installer/build_installer.bat     # builds dist/QwenHarness-Setup-<version>.exe
+installer/build_installer.bat     # builds dist/Marvin-Setup-<version>.exe
 ```
 
 - Installs into `%LOCALAPPDATA%\QwenHarness` (no admin rights), Start Menu +

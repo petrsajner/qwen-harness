@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================
-rem  Qwen3.8-27B Harness - desktop app launcher
+rem  Marvin - desktop app launcher
 rem  - on first run it creates the venv + downloads deps/models
 rem  - then opens the native app window (qwen_app.py)
 rem ============================================================
@@ -57,6 +57,6 @@ if not exist "runtime\models\mmproj-F16.gguf" (
     if errorlevel 1 ( echo [ERROR] Models are unavailable online and in the backup. & pause & exit /b 1 )
 )
 
-echo [APP] Starting Qwen3.8-27B Harness...
+echo [APP] Starting Marvin...
 start "" ".venv\Scripts\pythonw.exe" "qwen_app.py"
 endlocal

@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.4.6",
-          "viditelná verze aplikace odpovídá instalátoru 1.4.6")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.5.0",
+          "viditelná verze aplikace odpovídá instalátoru 1.5.0")
     invariants = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     check(all(item in invariants for item in (
         "Language servers or an LSP runtime/distribution layer",
@@ -802,7 +802,7 @@ def test_runtime_lifecycle_helpers() -> None:
     try:
         from launcher.launcher_app import _free_web_port
     except ImportError:
-        # instalovaná kopie: launcher je přeložený v QwenHarness.exe, zdroje chybí
+        # instalovaná kopie: launcher je přeložený v Marvin.exe, zdroje chybí
         _free_web_port = None
 
     tmp = Path(tempfile.mkdtemp())
@@ -896,7 +896,7 @@ def test_offline_backup() -> None:
         (source / "requirements.txt").write_text("example==1.0\n", encoding="utf-8")
         (source / "version.txt").write_text("test-version\n", encoding="utf-8")
         (source / "dist").mkdir()
-        (source / "dist" / "QwenHarness-Setup-test-version.exe").write_bytes(b"SETUP")
+        (source / "dist" / "Marvin-Setup-test-version.exe").write_bytes(b"SETUP")
         backup = outer / "QwenHarness-Offline-Backup"
         manifest = create_backup(source, backup)
         check(manifest["format_version"] == 2 and (backup / "manifest.json").is_file(),
@@ -2099,11 +2099,11 @@ def test_user_manuals() -> None:
     from pypdf import PdfReader
 
     expected = {
-        "QwenHarness-Manual-EN.pdf": (
-            15, ("1.4.6", "Python 3.12", "Offline backup", "Work Modes",
+        "Marvin-Manual-EN.pdf": (
+            15, ("1.5.0", "Python 3.12", "Offline backup", "Work Modes",
                  "User-Facing Tool Reference", "Troubleshooting")),
-        "QwenHarness-Manual-CS.pdf": (
-            10, ("1.4.6", "Python 3.12", "offline zálohy", "Pracovní režimy",
+        "Marvin-Manual-CS.pdf": (
+            10, ("1.5.0", "Python 3.12", "offline zálohy", "Pracovní režimy",
                  "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():

@@ -1,4 +1,4 @@
-# Qwen Harness Product Invariants
+# Marvin Product Invariants
 
 This repository builds a personal, single-user Windows application. The web UI is
 the primary product surface. Shell access exists only as a backup capability for

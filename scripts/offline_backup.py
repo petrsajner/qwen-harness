@@ -1,4 +1,4 @@
-"""Create, verify, inspect, and restore a portable Qwen Harness offline backup.
+"""Create, verify, inspect, and restore a portable Marvin offline backup.
 
 The script deliberately uses only the Python standard library so restore can run
 before project dependencies are installed.
@@ -87,7 +87,7 @@ def _runtime_sources(root: Path) -> list[tuple[Path, Path, str]]:
     if selection.is_file():
         sources.append((selection, Path("payload/runtime/model-selection.txt"), "settings"))
     version = _version(root)
-    installer = root / "dist" / f"QwenHarness-Setup-{version}.exe"
+    installer = root / "dist" / f"Marvin-Setup-{version}.exe"
     if installer.is_file():
         sources.append((installer, Path(installer.name), "installer"))
     return sources
@@ -102,7 +102,7 @@ def _write_readme(path: Path) -> None:
         "Keep manifest.json with the payload and python-dependencies folders.\n\n"
         "On another Windows PC:\n"
         "1. Install Python 3.12 (the only external prerequisite).\n"
-        "2. Run the QwenHarness-Setup executable included in this folder.\n"
+        "2. Run the Marvin-Setup executable included in this folder.\n"
         "   The installer detects manifest.json beside itself automatically.\n"
         "   With another compatible Setup.exe, use the Start Menu command\n"
         "   'Set up from offline backup' and select this folder.\n"
@@ -111,7 +111,7 @@ def _write_readme(path: Path) -> None:
         "   from this backup. The explicit Start Menu offline command restores\n"
         "   this backup first instead.\n\n"
         "Run `python scripts/offline_backup.py verify --backup <this-folder>`\n"
-        "from an installed/source Qwen Harness copy to verify every SHA-256.\n",
+        "from an installed/source Marvin copy to verify every SHA-256.\n",
         encoding="utf-8")
 
 

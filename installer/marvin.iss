@@ -1,6 +1,6 @@
 ; ============================================================
-;  Qwen3.8-27B Harness - installer (Inno Setup 6)
-;  Build:  installer\build_installer.bat  →  dist\QwenHarness-Setup-<verze>.exe
+;  Marvin - installer (Inno Setup 6)
+;  Build:  installer\build_installer.bat  →  dist\Marvin-Setup-<verze>.exe
 ;
 ;  Language: the wizard offers English (default) and Czech; the
 ;  selected language is written to {app}\runtime\ui-language.txt
@@ -10,12 +10,12 @@
 ; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
 ; (používá installer\release.bat s verzí z installer\version.txt)
 #ifndef MyAppVersion
-#define MyAppVersion "1.4.6"
+#define MyAppVersion "1.5.0"
 #endif
 
-#define MyAppName "Qwen3.8-27B Harness"
-#define MyAppPublisher "Petr - lokalni AI harness"
-#define MyAppExeName "QwenHarness.exe"
+#define MyAppName "Marvin"
+#define MyAppPublisher "Petr - Marvin, local AI harness"
+#define MyAppExeName "Marvin.exe"
 #define MyAppIcon "..\app_icon.ico"
 
 [Setup]
@@ -28,7 +28,7 @@ DefaultGroupName={#MyAppName}
 ; bez admin prav - instalace do uzivatelskeho profilu
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=QwenHarness-Setup-{#MyAppVersion}
+OutputBaseFilename=Marvin-Setup-{#MyAppVersion}
 SetupIconFile={#MyAppIcon}
 UninstallDisplayIcon={app}\app_icon.ico
 Compression=lzma2
@@ -38,6 +38,10 @@ ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=no
 ; vzdy zobraz vyber jazyka (anglictina je prvni = vychozi)
 ShowLanguageDialog=yes
+
+; po prejmenovani produktu odstranit stare exe z predchozi instalace
+[InstallDelete]
+Type: files; Name: "{app}\QwenHarness.exe"
 
 [Languages]
 ; First entry = default language (English base after installation).
@@ -61,8 +65,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; hlavní aplikace (PyInstaller: exe + _internal)
-Source: "..\dist\QwenHarness\QwenHarness.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\dist\QwenHarness\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\Marvin\Marvin.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\Marvin\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; podpůrné zdroje (harness jádro, skripty, config)
 Source: "..\qwen_app.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\webapp.py"; DestDir: "{app}"; Flags: ignoreversion
@@ -74,8 +78,8 @@ Source: "version.txt"; DestDir: "{app}"; DestName: "version.txt"; Flags: ignorev
 Source: "..\config.yaml"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\AGENTS.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\output\pdf\QwenHarness-Manual-EN.pdf"; DestDir: "{app}\docs"; Flags: ignoreversion
-Source: "..\output\pdf\QwenHarness-Manual-CS.pdf"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "..\output\pdf\Marvin-Manual-EN.pdf"; DestDir: "{app}\docs"; Flags: ignoreversion
+Source: "..\output\pdf\Marvin-Manual-CS.pdf"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\app_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\harness\*.py"; DestDir: "{app}\harness"; Flags: ignoreversion recursesubdirs
 Source: "..\harness\tools\*.py"; DestDir: "{app}\harness\tools"; Flags: ignoreversion
@@ -231,7 +235,16 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   I: Integer;
   Selection: String;
+  OldGroup: String;
 begin
+  if CurStep = ssInstall then
+  begin
+    // rebrand: odstranit zastupce ze stareho nazvu produktu
+    OldGroup := ExpandConstant('{autoprograms}') + '\Qwen3.8-27B Harness';
+    if DirExists(OldGroup) then
+      DelTree(OldGroup, True, True, True);
+    DeleteFile(ExpandConstant('{autodesktop}') + '\Qwen3.8-27B Harness.lnk');
+  end;
   if CurStep = ssPostInstall then
   begin
     CreateDir(ExpandConstant('{app}\runtime'));

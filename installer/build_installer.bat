@@ -1,6 +1,6 @@
 @echo off
 rem ============================================================
-rem  Build instalatoru QwenHarness (Inno Setup 6)
+rem  Build instalatoru Marvin (Inno Setup 6)
 rem  - najde ISCC, pripadne doinstaluje Inno Setup pres winget
 rem  - verzi cte z installer\version.txt
 rem ============================================================
@@ -32,9 +32,9 @@ if not defined ISCC (
 )
 
 echo [BUILD] Kompiluji instalator (%ISCC%)...
-"%ISCC%" "/DMyAppVersion=%VERSION%" "qwen-harness.iss"
+"%ISCC%" "/DMyAppVersion=%VERSION%" "marvin.iss"
 if errorlevel 1 ( echo [CHYBA] Kompilace selhala. & pause & exit /b 1 )
 
 echo.
-echo [BUILD] HOTOVO: dist\QwenHarness-Setup-%VERSION%.exe
+echo [BUILD] HOTOVO: dist\Marvin-Setup-%VERSION%.exe
 pause

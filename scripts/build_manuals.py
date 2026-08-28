@@ -143,7 +143,7 @@ class ManualDocTemplate(BaseDocTemplate):
         super().__init__(
             str(filename), pagesize=A4, leftMargin=18 * mm, rightMargin=18 * mm,
             topMargin=18 * mm, bottomMargin=17 * mm, title=title,
-            author="Qwen Harness Project",
+            author="Marvin Project",
         )
         self.manual_title = title
         self.language = language
@@ -363,8 +363,8 @@ def build(source: Path, target: Path, title: str, subtitle: str, language: str, 
 def main() -> int:
     version = (ROOT / "installer" / "version.txt").read_text(encoding="utf-8").strip()
     manuals = [
-        ("manual_en.md", "Qwen Harness User Manual", "Complete guide to the local chat and coding workstation", "en", "QwenHarness-Manual-EN.pdf"),
-        ("manual_cs.md", "Uživatelský manuál Qwen Harness", "Kompletní průvodce lokální chatovací a vývojovou stanicí", "cs", "QwenHarness-Manual-CS.pdf"),
+        ("manual_en.md", "Marvin User Manual", "Complete guide to the local chat and coding workstation", "en", "Marvin-Manual-EN.pdf"),
+        ("manual_cs.md", "Uživatelský manuál Marvin", "Kompletní průvodce lokální chatovací a vývojovou stanicí", "cs", "Marvin-Manual-CS.pdf"),
     ]
     for source_name, title, subtitle, language, target_name in manuals:
         build(SOURCE_DIR / source_name, OUTPUT_DIR / target_name,

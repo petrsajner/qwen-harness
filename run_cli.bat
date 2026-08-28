@@ -1,11 +1,11 @@
 @echo off
 rem ============================================================
-rem  Qwen3.8-27B Harness - CLI (terminal UI) launcher
+rem  Marvin - CLI (terminal UI) launcher
 rem  Opens a console window with the interactive TUI.
 rem ============================================================
 setlocal
 cd /d "%~dp0"
-title Qwen3.8-27B Harness - CLI
+title Marvin - CLI
 
 if not exist ".venv\Scripts\python.exe" (
     echo [ERROR] Python environment is missing.

@@ -1,6 +1,6 @@
-# 1. What Qwen Harness Is
+# 1. What Marvin Is
 
-Qwen Harness is a private Windows desktop application for running local language models as a general chat assistant, research assistant, writing partner, coding agent, and computer operator. Model inference runs on your workstation through `llama.cpp`; conversations and project files remain on local storage.
+Marvin is a private Windows desktop application for running local language models as a general chat assistant, research assistant, writing partner, coding agent, and computer operator. Model inference runs on your workstation through `llama.cpp`; conversations and project files remain on local storage.
 
 The application is designed for one user and one active model. It does not use parallel model agents. The active model can, however, run independent read-only tools in parallel and can leave long commands running in the background.
 
@@ -36,17 +36,17 @@ Selecting a project gives the model access to that directory through tools. It d
 
 Other NVIDIA GPUs may work, but the supplied contexts and quantizations were tuned and tested for a 32 GB RTX 5090. Lower-VRAM cards require smaller contexts, lower quantization, fewer GPU layers, or CPU offload.
 
-> NOTE: Python 3.12 is a required external prerequisite for every installation. Setup.exe creates an isolated virtual environment, but it does not contain or install Python itself. Install the 64-bit Python 3.12 release from [python.org](https://www.python.org/downloads/) and select **Add Python to PATH** before installing Qwen Harness.
+> NOTE: Python 3.12 is a required external prerequisite for every installation. Setup.exe creates an isolated virtual environment, but it does not contain or install Python itself. Install the 64-bit Python 3.12 release from [python.org](https://www.python.org/downloads/) and select **Add Python to PATH** before installing Marvin.
 
 ## Installing with Setup.exe
 
 1. Install 64-bit Python 3.12 and enable **Add Python to PATH** in the Python installer.
-2. Run `QwenHarness-Setup-<version>.exe`.
+2. Run `Marvin-Setup-<version>.exe`.
 3. Choose English or Czech in the installer. English is the default.
 4. Choose whether to create a desktop shortcut.
 5. Keep the post-install environment/model setup selected on the first installation.
 6. Allow the console setup to complete. It creates the Python virtual environment, installs dependencies, downloads `llama.cpp`, and downloads the configured models.
-7. Start **Qwen3.8-27B Harness** from the Start Menu or desktop.
+7. Start **Marvin** from the Start Menu or desktop.
 
 The default installation directory is:
 
@@ -675,7 +675,7 @@ Read-only commands are classified conservatively. Redirection, package installat
 
 # 17. Terminal UI and CLI
 
-The installer creates **Qwen3.8-27B Harness (CLI)** in the Start Menu. It opens `run_cli.bat`, which launches the interactive terminal UI using the installed Python environment.
+The installer creates **Marvin (CLI)** in the Start Menu. It opens `run_cli.bat`, which launches the interactive terminal UI using the installed Python environment.
 
 ## Commands
 
@@ -736,16 +736,16 @@ The application can also create a complete reusable installation backup from fil
 - The matching Setup.exe when it is available in the current build directory.
 - `manifest.json` with the size and SHA-256 hash of every backed-up file.
 
-Backup creation copies model, runtime, and Python dependency files directly from the current Qwen Harness directory. It does not download any of them again. It needs free space approximately equal to the installed runtime and may take time because every copied file is hashed.
+Backup creation copies model, runtime, and Python dependency files directly from the current Marvin directory. It does not download any of them again. It needs free space approximately equal to the installed runtime and may take time because every copied file is hashed.
 
 ## Installing from the offline backup
 
 1. Install 64-bit Python 3.12 on the destination computer and enable **Add Python to PATH**. Python itself is not stored in the backup.
-2. Run the Qwen Harness Setup.exe included in the backup. If an installer was not available when the backup was created, use a matching or newer compatible Setup.exe.
+2. Run the Marvin Setup.exe included in the backup. If an installer was not available when the backup was created, use a matching or newer compatible Setup.exe.
 3. Use either of these methods:
    - When Setup.exe is inside the backup folder beside `manifest.json`, run it there; it detects the backup automatically.
    - Put the backup beside Setup.exe and rename it exactly to `QwenHarness-Offline-Backup`; the installer detects it automatically.
-   - Install Qwen Harness, open the Start Menu, run **Set up from offline backup**, and select the backup folder.
+   - Install Marvin, open the Start Menu, run **Set up from offline backup**, and select the backup folder.
 4. Normal setup first uses the standard internet sources. If a selected model, `llama.cpp`, or the Python dependencies cannot be obtained online, setup restores only that failed component from the selected local backup.
 5. The explicit Start Menu command **Set up from offline backup** reverses the order: it restores the backup immediately and then only obtains anything that is still missing.
 
@@ -775,7 +775,7 @@ The offline installation backup does not include chats, projects, memory, or per
 
 ## Web UI port is occupied
 
-The launcher searches for an available nearby Web UI port. If another Qwen Harness Web UI already owns the configured port, the launcher reuses it. See `runtime\launcher.log` for the selected URL.
+The launcher searches for an available nearby Web UI port. If another Marvin Web UI already owns the configured port, the launcher reuses it. See `runtime\launcher.log` for the selected URL.
 
 ## Model or projector is missing
 
@@ -937,7 +937,7 @@ personally reverses this product decision:
 - One-million-token context profiles. Context remains within practical local GPU profiles.
 - A general plugin host, MCP ecosystem, or broad third-party integration framework.
 
-These items do not belong to Qwen Harness. They are not deferred roadmap work.
+These items do not belong to Marvin. They are not deferred roadmap work.
 
 - One large model occupies nearly the full GPU, so model inference is intentionally single-slot.
 - Read-only tools and background processes can still run concurrently.
