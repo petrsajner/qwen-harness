@@ -65,6 +65,8 @@ class LLMClient:
             extra_body["chat_template_kwargs"] = {"enable_thinking": bool(thinking)}
         if "top_k" in s:
             extra_body["top_k"] = s.pop("top_k")
+        if "min_p" in s:  # OpenAI SDK min_p nezna - llama-server pres extra_body (Nemotron)
+            extra_body["min_p"] = s.pop("min_p")
         params: dict[str, Any] = {
             "model": self.model_name,
             "messages": messages,
@@ -156,6 +158,8 @@ class LLMClient:
         extra_body: dict[str, Any] = {}
         if "top_k" in s:
             extra_body["top_k"] = s.pop("top_k")
+        if "min_p" in s:  # OpenAI SDK min_p nezna - llama-server pres extra_body (Nemotron)
+            extra_body["min_p"] = s.pop("min_p")
         if thinking is not None:
             extra_body["chat_template_kwargs"] = {"enable_thinking": bool(thinking)}
         params: dict[str, Any] = {

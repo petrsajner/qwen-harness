@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.4.1",
-          "viditelná verze aplikace odpovídá instalátoru 1.4.1")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.4.2",
+          "viditelná verze aplikace odpovídá instalátoru 1.4.2")
     invariants = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     check(all(item in invariants for item in (
         "Language servers or an LSP runtime/distribution layer",
@@ -445,8 +445,8 @@ def test_gpu_autofit() -> None:
           f"auto-fit pro 24 GB vybírá proveditelnou kombinaci ({choice})")
     check(set(fitting_profiles(cfg, "ornith_q5", 24.0)) == set(),
           "Ornith na 24 GB nemá žádný profil")
-    check(set(download_keys(cfg, 24.0)) == {"q3", "q4", "q5"},
-          "setup pro 24 GB stahuje jen modely, které se vejdou")
+    check(set(download_keys(cfg, 24.0)) == {"q3", "q4", "q5", "nemotron_q4"},
+          "setup pro 24 GB stahuje jen modely, které se vejdou (Nemotron Q4 s pretokem)")
     check(set(download_keys(cfg, 16.0)) == {"q3"},
           "setup pro 16 GB stahuje jen IQ3_S (hraniční provoz)")
     check(best_fit(cfg, 16.0) == ("q3", "q8_0"),
@@ -457,8 +457,15 @@ def test_gpu_autofit() -> None:
           "q3 má KV varianty pro 16/24/32 GB karty")
     check(all("min_vram_gb" in p for p in q3_profiles.values()),
           "každý q3 profil má min_vram_gb")
-    check(set(download_keys(cfg, 32.0)) == {"q3", "q4", "q5", "ornith_q5"},
+    check(set(download_keys(cfg, 32.0)) == {"q3", "q4", "q5", "ornith_q5",
+                                            "nemotron_q4", "nemotron_q5"},
           "setup pro 32 GB stahuje vše")
+    # Nemotron: namerene profily, pretok do RAM, text-only (bez mmproj)
+    nq4 = cfg.kv_cache_profiles("nemotron_q4")
+    check(nq4["q8_0_512k_spill"].get("server_args") == ["--n-cpu-moe", "18"],
+          "Nemotron spill profil nese --n-cpu-moe")
+    check(cfg.mmproj_file("nemotron_q4") is None and cfg.mmproj_file("q5") is not None,
+          "Nemotron je text-only (mmproj None), Qwen mmproj má")
     check(best_fit(cfg, 32.0) == ("q5", "q8_0"),
           "na 32 GB zůstává výchozí Q5 s Q8 KV")
     # kompaktní profil používá cache_type q8_0, ne svůj klíč
@@ -923,14 +930,20 @@ def test_offline_backup() -> None:
         damaged.write_bytes(b"DAMAGED")
         check(not verify_backup(backup)["ok"],
               "poškození payloadu odhalí velikost nebo SHA-256")
-        installer_text = (ROOT / "installer" / "run_setup.bat").read_text(encoding="utf-8")
+        # dev strom: installer/; instalovaná kopie: skripty v kořenu aplikace
+        setup_bat = next((p2 for p2 in (ROOT / "installer" / "run_setup.bat",
+                                        ROOT / "run_setup.bat") if p2.is_file()), None)
+        backup_bat = next((p2 for p2 in (ROOT / "installer" / "run_setup_from_backup.bat",
+                                         ROOT / "run_setup_from_backup.bat") if p2.is_file()), None)
+        iss_file = ROOT / "installer" / "qwen-harness.iss"
+        installer_text = setup_bat.read_text(encoding="utf-8") if setup_bat else ""
         check("offline_backup.py restore" in installer_text
               and "scripts\\sync_deps.py" in installer_text
               and "--components models" in installer_text
-              and "QWEN_HARNESS_BACKUP_PREFER" in
-                  (ROOT / "installer/run_setup_from_backup.bat").read_text(encoding="utf-8")
-              and "run_setup_from_backup.bat" in
-                  (ROOT / "installer/qwen-harness.iss").read_text(encoding="utf-8"),
+              and backup_bat is not None
+              and "QWEN_HARNESS_BACKUP_PREFER" in backup_bat.read_text(encoding="utf-8")
+              and (not iss_file.is_file() or "run_setup_from_backup.bat" in
+                   iss_file.read_text(encoding="utf-8")),
               "installer obsahuje lokální restore a výběr backup složky")
     finally:
         shutil.rmtree(outer, ignore_errors=True)
@@ -2057,10 +2070,10 @@ def test_user_manuals() -> None:
 
     expected = {
         "QwenHarness-Manual-EN.pdf": (
-            15, ("1.4.1", "Python 3.12", "Offline backup", "Work Modes",
+            15, ("1.4.2", "Python 3.12", "Offline backup", "Work Modes",
                  "User-Facing Tool Reference", "Troubleshooting")),
         "QwenHarness-Manual-CS.pdf": (
-            10, ("1.4.1", "Python 3.12", "offline zálohy", "Pracovní režimy",
+            10, ("1.4.2", "Python 3.12", "offline zálohy", "Pracovní režimy",
                  "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():

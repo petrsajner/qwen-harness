@@ -447,6 +447,8 @@ _CS = {
     "⚡ GPU set to {vram} GB — switching to {model} ({profile})":
         "⚡ GPU nastaveno na {vram} GB — přepínám na {model} ({profile})",
     "✅ GPU setting saved ({vram})": "✅ Nastavení GPU uloženo ({vram})",
+    "⚠ The active model has no vision - image attachments were dropped":
+        "⚠ Aktivní model nemá vision - obrázkové přílohy byly odloženy",
 
     # ------------------------------------------------ work modes
     "Discussion": "Diskuze",

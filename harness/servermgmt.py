@@ -215,12 +215,17 @@ def _start_locked(cfg: Config, model_key: str | None = None,
         "--image-min-tokens", "1024",  # přesnější vision grounding (computer use)
         "--alias", model_key,
     ]
-    if mmproj.exists():
+    if mmproj is None:
+        pass  # text-only model (bez vision) - mmproj neni treba
+    elif mmproj.exists():
         argv += ["--mmproj", str(mmproj)]
     else:
         print(f"[WARNING] mmproj not found ({mmproj}) - vision (images) will not work!")
     argv += cfg.kv_cache_server_args(model_key)
     argv += [str(x) for x in cfg.model(model_key).get("server_args", [])]
+    # profil muze nesit vlastni server args (napr. --n-cpu-moe pretok pro danou kartu)
+    profile = cfg.kv_cache_profiles(model_key).get(cfg.kv_cache_mode(model_key), {})
+    argv += [str(x) for x in profile.get("server_args", [])]
     argv += [str(x) for x in srv.get("extra_args", [])]
 
     log_path = cfg.path("paths.runtime_dir") / "llama-server.log"

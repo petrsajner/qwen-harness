@@ -10,7 +10,7 @@
 ; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
 ; (používá installer\release.bat s verzí z installer\version.txt)
 #ifndef MyAppVersion
-#define MyAppVersion "1.4.1"
+#define MyAppVersion "1.4.2"
 #endif
 
 #define MyAppName "Qwen3.8-27B Harness"
@@ -73,6 +73,7 @@ Source: "..\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "version.txt"; DestDir: "{app}"; DestName: "version.txt"; Flags: ignoreversion
 Source: "..\config.yaml"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\AGENTS.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\output\pdf\QwenHarness-Manual-EN.pdf"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\output\pdf\QwenHarness-Manual-CS.pdf"; DestDir: "{app}\docs"; Flags: ignoreversion
 Source: "..\app_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
@@ -105,9 +106,9 @@ var
   ModelList: TNewCheckListBox;
   // naplni se v InitializeWizard (Pascal Script neumi typovane konstanty);
   // zrcadli min_vram_gb z config.yaml (nejnizsi profil kazdeho modelu)
-  ModelKeys: array[0..3] of String;
-  ModelNames: array[0..3] of String;
-  ModelMinVram: array[0..3] of Double;
+  ModelKeys: array[0..5] of String;
+  ModelNames: array[0..5] of String;
+  ModelMinVram: array[0..5] of Double;
 
 procedure FillModelTable;
 begin
@@ -115,14 +116,20 @@ begin
   ModelKeys[1] := 'q4';
   ModelKeys[2] := 'q5';
   ModelKeys[3] := 'ornith_q5';
+  ModelKeys[4] := 'nemotron_q4';
+  ModelKeys[5] := 'nemotron_q5';
   ModelNames[0] := 'Qwen3.8-27B IQ3_S  (12.0 GB download)  -  16 GB GPUs (borderline)';
   ModelNames[1] := 'Qwen3.8-27B Q4_K_M  (16.5 GB download)  -  24 GB+ GPUs';
   ModelNames[2] := 'Qwen3.8-27B Q5_K_M  (19.8 GB download)  -  24 GB+ GPUs';
   ModelNames[3] := 'Ornith 1.5 35B-A3B Q5 Abliterated  (23.0 GB download)  -  32 GB GPUs';
+  ModelNames[4] := 'Nemotron 3.5 Lightning 30B-A3B Q4_K_XL  (25.5 GB download)  -  24 GB+ GPUs (32 GB: up to 1M ctx)';
+  ModelNames[5] := 'Nemotron 3.5 Lightning 30B-A3B Q5_K_XL  (30.4 GB download)  -  26 GB+ GPUs';
   ModelMinVram[0] := 15.0;
   ModelMinVram[1] := 23.0;
   ModelMinVram[2] := 24.0;
   ModelMinVram[3] := 30.0;
+  ModelMinVram[4] := 24.0;
+  ModelMinVram[5] := 26.0;
 end;
 
 function DetectVRAM: Double;
@@ -159,7 +166,7 @@ begin
   ModelList.SetBounds(ScaleX(0), ScaleY(0), ModelPage.SurfaceWidth, ScaleY(120));
   ModelList.Parent := ModelPage.Surface;
   ModelList.ShowLines := False;
-  for I := 0 to 3 do
+  for I := 0 to 5 do
   begin
     Fits := (Vram <= 0) or (ModelMinVram[I] <= Vram);
     Checked := Fits;  // default: stahnout vse, co se vejde (auto chovani)

@@ -585,6 +585,20 @@ def _run_steps(history: list[dict], approve: bool | None = None):
 
 
 # ------------------------------------------------------------- handlery
+def _model_supports_images() -> bool:
+    """Aktivní model umí vision? (text-only modely jako Nemotron mmproj nemají)"""
+    return bool(cfg.model(state.model_key).get("mmproj"))
+
+
+def _filter_images(paths: list[str]) -> list[str]:
+    """Obrázky jen když model umí vision; jinak toast a odložit přílohy."""
+    images = [p for p in (paths or []) if Path(p).suffix.lower() in IMG_MIMES]
+    if images and not _model_supports_images():
+        gr.Warning(t("⚠ The active model has no vision - image attachments were dropped"))
+        return []
+    return images
+
+
 def prepare_submission(message: str, files):
     """Immediately clear the composer and route the message to run or steering."""
     text = (message or "").strip()
@@ -598,7 +612,7 @@ def prepare_submission(message: str, files):
     try:
         cfg.data["thinking"] = state.thinking
         state.suppress_active_entry = False
-        images = [Path(path) for path in paths if Path(path).suffix.lower() in IMG_MIMES]
+        images = [Path(path) for path in _filter_images(paths)]
         state.agent.new_task(text or "Please analyze the attached image(s).", images=images)
         return {"kind": kind}, chat_view(), gr.update(value=""), gr.update(value=None)
     except Exception:
@@ -628,7 +642,7 @@ def send_message(message: str, files, _browser_history: list[dict]):
             return
         cfg.data["thinking"] = state.thinking
         state.suppress_active_entry = False  # zpráva = chat začíná být skutečný
-        imgs = [Path(f) for f in (files or []) if Path(f).suffix.lower() in IMG_MIMES]
+        imgs = [Path(f) for f in _filter_images(list(files or []))]
         state.agent.new_task(message.strip() or "Please analyze the attached image(s).", images=imgs)
         history = chat_view()
         yield history, gr.update(visible=False), refresh_status()

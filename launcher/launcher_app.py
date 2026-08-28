@@ -119,13 +119,14 @@ def _check_model_files() -> tuple[bool, str]:
     """Existují modely na SPRÁVNÉM místě (runtime/models v instalačním adresáři)?
 
     Vrací (ok, popis s přesnými cestami pro zobrazení uživateli).
+    mmproj se nevylučuje - text-only modely (Nemotron) žádný vision projektor nemají;
+    chybějící mmproj u vision modelu jen zaháší servermgmt warningem.
     """
     models_dir = ROOT / "runtime" / "models"
     ggufs = list(models_dir.glob("*.gguf")) if models_dir.exists() else []
-    has_mmproj = any("mmproj" in g.name.lower() for g in ggufs)
     has_model = any("mmproj" not in g.name.lower() and "mtp" not in g.name.lower() for g in ggufs)
     detail = t("looking in: {path}", path=models_dir)
-    return (has_model and has_mmproj), detail
+    return has_model, detail
 
 
 def _port_pid(port: int) -> int | None:

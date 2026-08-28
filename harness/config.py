@@ -121,6 +121,144 @@ BUILTIN_MODELS: dict[str, dict[str, Any]] = {
         },
         "supports_reasoning_effort": False,
     },
+    "nemotron_q4": {
+            "alias": "Nemotron 3.5 Lightning 30B-A3B Q4_K_XL (25.5 GB, hybrid MoE, ~210 tok/s)",
+            "status_label": "Nemotron 3.5 Lightning · Q4_XL",
+            "family": "nemotron",
+            "repo": "unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF",
+            "file": "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q4_K_XL.gguf",
+            "ctx_size": 524288,
+            "kv_cache": "q8_0_512k",
+            "kv_cache_profiles": {
+                    "q8_0_128k": {
+                            "cache_type": "q8_0",
+                            "label": "8-bit - context 128k",
+                            "label_cs": "8 bit - kontext 128k",
+                            "ctx_size": 131072,
+                            "min_vram_gb": 27
+                    },
+                    "q8_0_256k": {
+                            "cache_type": "q8_0",
+                            "label": "8-bit - context 256k",
+                            "label_cs": "8 bit - kontext 256k",
+                            "ctx_size": 262144,
+                            "min_vram_gb": 28
+                    },
+                    "q8_0_512k": {
+                            "cache_type": "q8_0",
+                            "label": "8-bit - context 512k",
+                            "label_cs": "8 bit - kontext 512k",
+                            "ctx_size": 524288,
+                            "min_vram_gb": 29.5
+                    },
+                    "q8_0_1m": {
+                            "cache_type": "q8_0",
+                            "label": "8-bit - context 1M (borderline)",
+                            "label_cs": "8 bit - kontext 1M (hraniční)",
+                            "ctx_size": 1048576,
+                            "min_vram_gb": 31.5
+                    },
+                    "q8_0_256k_spill": {
+                            "cache_type": "q8_0",
+                            "label": "8-bit - context 256k, MoE overflow to RAM (24 GB)",
+                            "label_cs": "8 bit - kontext 256k, MoE přeteče do RAM (24 GB)",
+                            "ctx_size": 262144,
+                            "min_vram_gb": 24,
+                            "server_args": [
+                                    "--n-cpu-moe",
+                                    "14"
+                            ]
+                    },
+                    "q8_0_512k_spill": {
+                            "cache_type": "q8_0",
+                            "label": "8-bit - context 512k, MoE overflow to RAM (24 GB)",
+                            "label_cs": "8 bit - kontext 512k, MoE přeteče do RAM (24 GB)",
+                            "ctx_size": 524288,
+                            "min_vram_gb": 24,
+                            "server_args": [
+                                    "--n-cpu-moe",
+                                    "18"
+                            ]
+                    }
+            },
+            "server_args": [
+                    "-fa",
+                    "on"
+            ],
+            "supports_reasoning_effort": False,
+            "sampling": {
+                    "thinking": {
+                            "temperature": 0.6,
+                            "top_p": 0.95,
+                            "min_p": 0.01
+                    },
+                    "non_thinking": {
+                            "temperature": 0.2
+                    }
+            }
+    },
+    "nemotron_q5": {
+            "alias": "Nemotron 3.5 Lightning 30B-A3B Q5_K_XL (30.4 GB, hybrid MoE, top quality)",
+            "status_label": "Nemotron 3.5 Lightning · Q5_KXL",
+            "family": "nemotron",
+            "repo": "unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF",
+            "file": "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q5_K_XL.gguf",
+            "ctx_size": 131072,
+            "kv_cache": "q8_0_128k",
+            "kv_cache_profiles": {
+                    "q8_0_128k": {
+                            "cache_type": "q8_0",
+                            "label": "8-bit - context 128k (full GPU, borderline)",
+                            "label_cs": "8 bit - kontext 128k (plně GPU, hraniční)",
+                            "ctx_size": 131072,
+                            "min_vram_gb": 31.5
+                    },
+                    "q8_0_256k": {
+                            "cache_type": "q8_0",
+                            "label": "8-bit - context 256k (full GPU, borderline)",
+                            "label_cs": "8 bit - kontext 256k (plně GPU, hraniční)",
+                            "ctx_size": 262144,
+                            "min_vram_gb": 31.5
+                    },
+                    "q8_0_256k_spill": {
+                            "cache_type": "q8_0",
+                            "label": "8-bit - context 256k, MoE overflow to RAM (more headroom)",
+                            "label_cs": "8 bit - kontext 256k, MoE přeteče do RAM (větší rezerva)",
+                            "ctx_size": 262144,
+                            "min_vram_gb": 29.5,
+                            "server_args": [
+                                    "--n-cpu-moe",
+                                    "8"
+                            ]
+                    },
+                    "q8_0_512k_spill": {
+                            "cache_type": "q8_0",
+                            "label": "8-bit - context 512k, MoE overflow to RAM",
+                            "label_cs": "8 bit - kontext 512k, MoE přeteče do RAM",
+                            "ctx_size": 524288,
+                            "min_vram_gb": 26,
+                            "server_args": [
+                                    "--n-cpu-moe",
+                                    "16"
+                            ]
+                    }
+            },
+            "server_args": [
+                    "-fa",
+                    "on"
+            ],
+            "supports_reasoning_effort": False,
+            "sampling": {
+                    "thinking": {
+                            "temperature": 0.6,
+                            "top_p": 0.95,
+                            "min_p": 0.01
+                    },
+                    "non_thinking": {
+                            "temperature": 0.2
+                    }
+            }
+    },
 }
 
 DEFAULTS: dict[str, Any] = {
@@ -272,8 +410,12 @@ class Config:
     def model_file(self, key: str | None = None) -> Path:
         return self.path("paths.models_dir") / self.model(key)["file"]
 
-    def mmproj_file(self, key: str | None = None) -> Path:
-        return self.path("paths.models_dir") / self.model(key)["mmproj"]
+    def mmproj_file(self, key: str | None = None) -> Path | None:
+        """Cesta k vision projektoru; None pro text-only modely (bez mmproj v configu)."""
+        mmproj = self.model(key).get("mmproj")
+        if not mmproj:
+            return None
+        return self.path("paths.models_dir") / mmproj
 
     def mmproj_repo(self, key: str | None = None) -> str:
         model = self.model(key)
