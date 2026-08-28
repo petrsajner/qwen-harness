@@ -10,7 +10,7 @@
 ; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
 ; (používá installer\release.bat s verzí z installer\version.txt)
 #ifndef MyAppVersion
-#define MyAppVersion "1.4.3"
+#define MyAppVersion "1.4.4"
 #endif
 
 #define MyAppName "Qwen3.8-27B Harness"
@@ -199,7 +199,10 @@ begin
     Subtitle := 'GPU VRAM could not be detected - all models are offered. Uncheck what you do not want to download.';
   ModelPage := CreateCustomPage(wpSelectDir, 'Models to download',
     'Choose which models to download on first launch. ' + Subtitle);
-  RefreshModelChecks(ExpandConstant('{app}'));
+  // {app} jeste neni inicializovane (ExpandConstant by hodil internal error)
+  // - prvotni stav = chovani ciste instalace; skutecnou detekci existujicich
+  // modelu provede NextButtonClick(wpSelectDir) s finalni cestou
+  RefreshModelChecks('');
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
