@@ -1766,7 +1766,7 @@ def refresh_status():
 
 def refresh_runtime_controls():
     switch = state.model_switch.snapshot()
-    update_args = {}  # dropdown je interaktivni vzdy (i behem nahravani)
+    update_args = {"interactive": True}  # nikdy nezamkat (i behem nahravani)
     if switch.status == "failed":
         update_args["value"] = state.model_key
     key = switch.target if switch.busy and switch.target else state.model_key
@@ -2605,13 +2605,12 @@ def build_ui() -> gr.Blocks:
                         gr.Markdown(f"<small class='stack-subhead'>{t('MODEL & BEHAVIOR')}</small>", elem_classes=["hdr"])
                         model_dd = gr.Dropdown(
                             model_choices, value=state.model_key, label=t("Model"),
-                            interactive=not state.model_switch.snapshot().busy)
+                            interactive=True)  # nikdy nezamykat - prepnuti je okamzite
                         kv_cache_dd = gr.Dropdown(
                             choices=kv_cache_choices(state.model_key),
                             value=cfg.kv_cache_mode(state.model_key),
                             label=t("KV cache precision"),
-                            interactive=(len(kv_cache_choices(state.model_key)) > 1
-                                         and not state.model_switch.snapshot().busy))
+                            interactive=len(kv_cache_choices(state.model_key)) > 1)
                         autonomy_dd = gr.Dropdown(
                             ["supervised", "semi", "auto"], value=state.autonomy,
                             label=t("Autonomy"))

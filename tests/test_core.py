@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.4.5",
-          "viditelná verze aplikace odpovídá instalátoru 1.4.5")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.4.6",
+          "viditelná verze aplikace odpovídá instalátoru 1.4.6")
     invariants = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     check(all(item in invariants for item in (
         "Language servers or an LSP runtime/distribution layer",
@@ -2100,10 +2100,10 @@ def test_user_manuals() -> None:
 
     expected = {
         "QwenHarness-Manual-EN.pdf": (
-            15, ("1.4.5", "Python 3.12", "Offline backup", "Work Modes",
+            15, ("1.4.6", "Python 3.12", "Offline backup", "Work Modes",
                  "User-Facing Tool Reference", "Troubleshooting")),
         "QwenHarness-Manual-CS.pdf": (
-            10, ("1.4.5", "Python 3.12", "offline zálohy", "Pracovní režimy",
+            10, ("1.4.6", "Python 3.12", "offline zálohy", "Pracovní režimy",
                  "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():
