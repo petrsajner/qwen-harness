@@ -10,7 +10,7 @@
 ; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
 ; (používá installer\release.bat s verzí z installer\version.txt)
 #ifndef MyAppVersion
-#define MyAppVersion "1.4.2"
+#define MyAppVersion "1.4.3"
 #endif
 
 #define MyAppName "Qwen3.8-27B Harness"
@@ -104,11 +104,12 @@ Filename: "{app}\run_setup.bat"; Description: "{cm:RunSetupDesc}"; Flags: postin
 var
   ModelPage: TWizardPage;
   ModelList: TNewCheckListBox;
-  // naplni se v InitializeWizard (Pascal Script neumi typovane konstanty);
-  // zrcadli min_vram_gb z config.yaml (nejnizsi profil kazdeho modelu)
+  // naplni se v FillModelTable (Pascal Script neumi typovane konstanty);
+  // zrcadli config.yaml (min_vram_gb = nejnizsi profil modelu)
   ModelKeys: array[0..5] of String;
   ModelNames: array[0..5] of String;
   ModelMinVram: array[0..5] of Double;
+  ModelFiles: array[0..5] of String;
 
 procedure FillModelTable;
 begin
@@ -130,6 +131,12 @@ begin
   ModelMinVram[3] := 30.0;
   ModelMinVram[4] := 24.0;
   ModelMinVram[5] := 26.0;
+  ModelFiles[0] := 'Qwen3.8-27B-UD-IQ3_S.gguf';
+  ModelFiles[1] := 'Qwen3.8-27B-UD-Q4_K_M.gguf';
+  ModelFiles[2] := 'Qwen3.8-27B-UD-Q5_K_M.gguf';
+  ModelFiles[3] := 'Ornith-1.5-35B-Abliterated-Dynamic-Q5_K_M.gguf';
+  ModelFiles[4] := 'NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q4_K_XL.gguf';
+  ModelFiles[5] := 'NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q5_K_XL.gguf';
 end;
 
 function DetectVRAM: Double;
@@ -147,11 +154,41 @@ begin
     Result := StrToIntDef(Trim(Lines[0]), 0) / 1024.0;
 end;
 
-procedure InitializeWizard;
+procedure RefreshModelChecks(AppDir: String);
 var
   I: Integer;
   Vram: Double;
-  Fits, Checked: Boolean;
+  Fits, Checked, HasAnyModel: Boolean;
+  ModelsDir: String;
+begin
+  Vram := DetectVRAM;
+  ModelsDir := AppDir + '\runtime\models';
+  HasAnyModel := False;
+  for I := 0 to 5 do
+    if FileExists(ModelsDir + '\' + ModelFiles[I]) then HasAnyModel := True;
+  // TNewCheckListBox neumi mazat polozky - pri refreshi ho vytvorime znovu
+  if ModelList <> nil then
+    ModelList.Free;
+  ModelList := TNewCheckListBox.Create(ModelPage.Surface);
+  ModelList.SetBounds(ScaleX(0), ScaleY(0), ModelPage.SurfaceWidth, ScaleY(120));
+  ModelList.Parent := ModelPage.Surface;
+  ModelList.ShowLines := False;
+  for I := 0 to 5 do
+  begin
+    Fits := (Vram <= 0) or (ModelMinVram[I] <= Vram);
+    // cista instalace: zaskrtni vse, co se vejde; upgrade: zaskrtni jen jiz
+    // stazene - nove modely se automaticky nestahuji, uzivatel je docita sam
+    if HasAnyModel then
+      Checked := Fits and FileExists(ModelsDir + '\' + ModelFiles[I])
+    else
+      Checked := Fits;
+    ModelList.AddCheckBox(ModelNames[I], '', 0, Checked, Fits, False, False, TObject(I));
+  end;
+end;
+
+procedure InitializeWizard;
+var
+  Vram: Double;
   Subtitle: String;
 begin
   FillModelTable;
@@ -162,16 +199,7 @@ begin
     Subtitle := 'GPU VRAM could not be detected - all models are offered. Uncheck what you do not want to download.';
   ModelPage := CreateCustomPage(wpSelectDir, 'Models to download',
     'Choose which models to download on first launch. ' + Subtitle);
-  ModelList := TNewCheckListBox.Create(ModelPage.Surface);
-  ModelList.SetBounds(ScaleX(0), ScaleY(0), ModelPage.SurfaceWidth, ScaleY(120));
-  ModelList.Parent := ModelPage.Surface;
-  ModelList.ShowLines := False;
-  for I := 0 to 5 do
-  begin
-    Fits := (Vram <= 0) or (ModelMinVram[I] <= Vram);
-    Checked := Fits;  // default: stahnout vse, co se vejde (auto chovani)
-    ModelList.AddCheckBox(ModelNames[I], '', 0, Checked, Fits, False, False, TObject(I));
-  end;
+  RefreshModelChecks(ExpandConstant('{app}'));
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -180,6 +208,8 @@ var
   AnyChecked: Boolean;
 begin
   Result := True;
+  if CurPageID = wpSelectDir then
+    RefreshModelChecks(WizardDirValue);  // instalacni adresar je finalni az tady
   if CurPageID = ModelPage.ID then
   begin
     AnyChecked := False;
@@ -203,7 +233,6 @@ begin
   begin
     CreateDir(ExpandConstant('{app}\runtime'));
     // uloz vybrany jazyk instalatoru -> aplikace se podle nej nastavi
-    // ("en" nebo "cze"; webapp mapuje cze->cs, vychozi je anglictina)
     SaveStringToFile(ExpandConstant('{app}\runtime\ui-language.txt'), ActiveLanguage, False);
     // uloz vyber modelu z wizardu (comma list; run_setup.bat ho preda downloadu)
     Selection := '';
@@ -216,12 +245,5 @@ begin
         end;
     if Selection <> '' then
       SaveStringToFile(ExpandConstant('{app}\runtime\model-selection.txt'), Selection, False);
-    // Self-contained backup folder (Setup.exe beside manifest), or sidecar backup.
-    if FileExists(ExpandConstant('{src}\manifest.json')) then
-      SaveStringToFile(ExpandConstant('{app}\runtime\offline-backup-path.txt'),
-        ExpandConstant('{src}'), False)
-    else if FileExists(ExpandConstant('{src}\QwenHarness-Offline-Backup\manifest.json')) then
-      SaveStringToFile(ExpandConstant('{app}\runtime\offline-backup-path.txt'),
-        ExpandConstant('{src}\QwenHarness-Offline-Backup'), False);
   end;
 end;
