@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.4.4",
-          "viditelná verze aplikace odpovídá instalátoru 1.4.4")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.4.5",
+          "viditelná verze aplikace odpovídá instalátoru 1.4.5")
     invariants = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     check(all(item in invariants for item in (
         "Language servers or an LSP runtime/distribution layer",
@@ -1608,29 +1608,59 @@ def test_async_model_switch() -> None:
 
     entered = threading.Event()
     release = threading.Event()
+    stopped = threading.Event()
     callbacks: list[str] = []
 
     def ensure(_cfg, key):
-        entered.set()
-        release.wait(timeout=2)
-        return key == "q5"
+        if key == "q5":  # prvni cil - "loading", dokud ho nezabijeme
+            entered.set()
+            release.wait(timeout=2)
+            return False  # server zabit -> ensure selze
+        return key == "q4"
 
-    controller = ModelSwitchController(load_config(), ensure_fn=ensure)
+    stop_calls: list[int] = []
+
+    def stop(_cfg, **_kwargs):
+        stop_calls.append(1)
+        if len(stop_calls) >= 2:  # 1. stop = worker pred ensure; dalsi = preruseni
+            release.set()  # simulace zabiti loadingu
+            stopped.set()
+        return True
+
+    controller = ModelSwitchController(load_config(), ensure_fn=ensure, stop_fn=stop,
+                                       running_fn=lambda _cfg, _key: False)
     check(controller.request("q5", on_success=callbacks.append),
           "první switch se spustí na pozadí")
     check(entered.wait(timeout=1) and controller.snapshot().busy,
           "controller ihned hlásí starting")
-    check(not controller.request("q4"), "souběžný switch je odmítnut")
-    release.set()
-    check(controller.wait(timeout=2), "background switch doběhne")
+    check(controller.request("q4", on_success=callbacks.append),
+          "souběžný request se přijme (přepíše cíl, nepřipraví odmítnutí)")
+    check(controller.wait(timeout=3), "background switch doběhne")
     snap = controller.snapshot()
-    check(snap.status == "ready" and snap.target == "q5" and callbacks == ["q5"],
-          "úspěšný switch publikuje ready a callback")
+    check(snap.status == "ready" and snap.target == "q4",
+          f"nejnovější cíl vyhraje ({snap.status}/{snap.target})")
+    check(callbacks == ["q4"], "callback přišel jen pro vítězný cíl")
+    check(stopped.is_set(), "přepnutí přerušilo probíhající loading")
 
-    failed = ModelSwitchController(load_config(), ensure_fn=lambda _cfg, _key: False)
+    failed = ModelSwitchController(load_config(), ensure_fn=lambda _cfg, _key: False,
+                                   stop_fn=stop, running_fn=lambda _cfg, _key: False)
     check(failed.request("q4") and failed.wait(timeout=2)
           and failed.snapshot().status == "failed",
           "selhání serveru se propíše do stavu controlleru")
+
+    #KV profil se aplikuje pri startu (set_kv_cache_mode pred ensure)
+    applied: list[tuple[str, str]] = []
+
+    def ensure_kv(cfg2, key):
+        applied.append((key, cfg2.kv_cache_mode(key)))
+        return True
+
+    kvctl = ModelSwitchController(load_config(), ensure_fn=ensure_kv, stop_fn=stop,
+                                  running_fn=lambda _cfg, _key: False)
+    kvctl.request("q4", kv_profile="q8_0", on_success=callbacks.append)
+    kvctl.wait(timeout=2)
+    check(applied == [("q4", "q8_0")],
+          "kv_profile z requestu se aplikuje před startem serveru")
 
 
 def test_session_meta() -> None:
@@ -2070,10 +2100,10 @@ def test_user_manuals() -> None:
 
     expected = {
         "QwenHarness-Manual-EN.pdf": (
-            15, ("1.4.4", "Python 3.12", "Offline backup", "Work Modes",
+            15, ("1.4.5", "Python 3.12", "Offline backup", "Work Modes",
                  "User-Facing Tool Reference", "Troubleshooting")),
         "QwenHarness-Manual-CS.pdf": (
-            10, ("1.4.4", "Python 3.12", "offline zálohy", "Pracovní režimy",
+            10, ("1.4.5", "Python 3.12", "offline zálohy", "Pracovní režimy",
                  "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():

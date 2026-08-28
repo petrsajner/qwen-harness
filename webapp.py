@@ -1019,8 +1019,8 @@ def change_gpu_setting(value):
 
 def change_model(key: str):
     _warn_if_not_fitting(key)
-    if not state.model_switch.request(key, on_success=_model_switch_succeeded):
-        gr.Info(t("A model is already loading; wait for the current operation to finish."))
+    # request vzdy uspeje; probihajici loading se prerusi a nahradi novym cilem
+    state.model_switch.request(key, on_success=_model_switch_succeeded)
     return refresh_runtime_controls()
 
 
@@ -1047,17 +1047,20 @@ def kv_cache_choices(key: str) -> list[tuple[str, str]]:
 
 
 def kv_cache_control_update(key: str | None = None, *, busy: bool = False):
+    # busy se ignoruje - dropdown je interaktivni i behem nahravani modelu
     key = key or state.model_key
     choices = kv_cache_choices(key)
     return gr.update(
         choices=choices,
         value=cfg.kv_cache_mode(key),
-        interactive=len(choices) > 1 and not busy,
+        interactive=len(choices) > 1,
     )
 
 
 def change_kv_cache(mode: str):
-    key = state.model_key
+    # cil je model, ktery se prave nacita (dropdown ukazuje jeho profily)
+    switch = state.model_switch.snapshot()
+    key = switch.target if switch.busy and switch.target else state.model_key
     _warn_if_not_fitting(key, mode)
     try:
         cfg.set_kv_cache_mode(key, mode)
@@ -1066,9 +1069,11 @@ def change_kv_cache(mode: str):
         return refresh_runtime_controls()
     state.kv_cache_modes[key] = mode
     state.save_ui_state()
-    if not state.model_switch.request(
-            key, restart=True, on_success=_model_switch_succeeded):
-        gr.Info(t("A model is already loading; KV cache cannot be switched right now."))
+    if switch.busy or servermgmt.server_state(cfg) == "running":
+        # loading se restartuje s novou KV - volba se "aplikuje az bude model
+        # nahrany" (novym nahranim); bezici model se restartuje standardne
+        state.model_switch.request(key, restart=True, kv_profile=mode,
+                                   on_success=_model_switch_succeeded)
     return refresh_runtime_controls()
 
 
@@ -1761,12 +1766,12 @@ def refresh_status():
 
 def refresh_runtime_controls():
     switch = state.model_switch.snapshot()
-    update_args = {"interactive": not switch.busy}
+    update_args = {}  # dropdown je interaktivni vzdy (i behem nahravani)
     if switch.status == "failed":
         update_args["value"] = state.model_key
     key = switch.target if switch.busy and switch.target else state.model_key
     return (refresh_status(), gr.update(**update_args),
-            kv_cache_control_update(key, busy=switch.busy))
+            kv_cache_control_update(key))
 
 
 def _autostart_server_thread() -> None:
@@ -1935,12 +1940,10 @@ def server_cmd(cmd: str):
     if cmd == "start":
         return change_model(state.model_key)
     if cmd == "stop":
-        servermgmt.stop(cfg, quiet=True)
-        state.model_switch.reset()
+        state.model_switch.cancel()  # zahodit prani + stop server
     if cmd == "restart":
-        if not state.model_switch.request(
-                state.model_key, restart=True, on_success=_model_switch_succeeded):
-            gr.Info(t("A model is already loading; restart cannot start right now."))
+        state.model_switch.request(state.model_key, restart=True,
+                                   on_success=_model_switch_succeeded)
     return refresh_runtime_controls()
 
 

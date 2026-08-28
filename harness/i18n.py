@@ -149,12 +149,6 @@ _CS = {
     "Select a JSONL chat export first.": "Nejdřív vyber JSONL export chatu.",
     "Chat imported as a new chat.": "Chat byl importován jako nová session.",
     "Chat import failed: {error}": "Import chatu selhal: {error}",
-    "A model is already loading; wait for the current operation to finish.":
-        "Model se už načítá; počkej na dokončení aktuální operace.",
-    "A model is already loading; KV cache cannot be switched right now.":
-        "Model se už načítá; KV cache nyní nelze přepnout.",
-    "A model is already loading; restart cannot start right now.":
-        "Model se už načítá; restart nyní nelze spustit.",
     "∅ No project — new chats will have no project":
         "∅ Bez projektu - nové chatty budou bez příslušnosti",
     "Project folder does not exist: {path}": "Složka projektu neexistuje: {path}",
