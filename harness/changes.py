@@ -171,13 +171,13 @@ class ChangeJournal:
             if res.get("restored"):
                 return res
             if not self.base.exists():
-                return {"restored": [], "errors": ["No task checkpoints found"]}
+                return {"restored": [], "errors": []}
             manifests = sorted(self.base.glob("*/manifest.json"), reverse=True)
             for m in manifests:
                 data = self._read_json(m)
                 if data and data.get("files") and not data.get("undone_at"):
                     return self.undo(data.get("task_id"))
-            return {"restored": [], "errors": ["No un-reverted task changes found"]}
+            return {"restored": [], "errors": []}
 
     def create_checkpoint(self, label: str = "manual") -> str:
         """Create an explicit snapshot checkpoint."""

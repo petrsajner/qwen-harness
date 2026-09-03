@@ -78,9 +78,10 @@ class ReadFileTool(Tool):
         return truncate(f"{header}\n{numbered}", limit=100_000)
 
 
-def validate_syntax_pre_write(path: Path, content: str) -> str | None:
+def validate_syntax_pre_write(path: Path | str, content: str) -> str | None:
     """Ověří základní syntaktickou validitu před zápisem na disk."""
-    suffix = path.suffix.lower()
+    p = Path(path) if isinstance(path, str) else path
+    suffix = p.suffix.lower()
     if suffix in (".py", ".pyi"):
         import ast
         try:

@@ -2249,7 +2249,8 @@ def undo_current_task():
     journal = getattr(state.agent.ctx, "changes", None)
     if journal is None:
         gr.Warning(t("Restore point is not available."))
-        return refresh_task_changes()
+        tc_text, btn_up = refresh_task_changes()
+        return tc_text, btn_up, chat_view()
     result = journal.revert_last_task()
     if result.get("errors"):
         gr.Warning(t("Some files could not be restored: {errors}",
@@ -2263,7 +2264,8 @@ def undo_current_task():
         )
     else:
         gr.Info(t("No changes to revert in this task."))
-    return refresh_task_changes()
+    tc_text, btn_up = refresh_task_changes()
+    return tc_text, btn_up, chat_view()
 
 
 def active_processes_text() -> str:
@@ -2800,143 +2802,6 @@ button.primary:hover { filter: brightness(1.12) !important; }
 }
 """
 
-SLASH_POPUP_HTML = """
-<div id="slash-menu" class="slash-autocomplete-menu" style="display: none;"></div>
-<script>
-(function() {
-  const COMMANDS = [
-    { cmd: "/compress", label: "/compress", desc: "Komprese KV kontextu do souhrnu" },
-    { cmd: "/revert", label: "/revert", desc: "Vrátit soubory do stavu před úlohou" },
-    { cmd: "/checkpoint", label: "/checkpoint [název]", desc: "Vytvořit snapshot projektu" },
-    { cmd: "/search", label: "/search <dotaz>", desc: "Rychlé FTS5 prohledání projektu" },
-    { cmd: "/pin", label: "/pin <cesta>", desc: "Připnout soubor do trvalého kontextu" },
-    { cmd: "/unpin", label: "/unpin <cesta>", desc: "Odepnout soubor z kontextu" },
-    { cmd: "/pins", label: "/pins", desc: "Zobrazit všechny připnuté soubory" },
-    { cmd: "/test", label: "/test", desc: "Spustit projektové testy a kontroly" },
-    { cmd: "/plan", label: "/plan <úloha>", desc: "Vytvořit plán před realizací" },
-    { cmd: "/review", label: "/review", desc: "Zkontrolovat poslední změny v projektu" },
-    { cmd: "/clear", label: "/clear", desc: "Vyčistit chat a začít novou relaci" },
-    { cmd: "/help", label: "/help", desc: "Zobrazit nápovědu ke všem příkazům" }
-  ];
-
-  let activeIndex = 0;
-  let currentMatches = [];
-
-  function getMsgTextarea() {
-    const el = document.getElementById("msg-in");
-    return el ? el.querySelector("textarea") : null;
-  }
-
-  function getMenu() {
-    let menu = document.getElementById("slash-menu");
-    if (!menu) {
-      menu = document.createElement("div");
-      menu.id = "slash-menu";
-      menu.className = "slash-autocomplete-menu";
-      document.body.appendChild(menu);
-    }
-    return menu;
-  }
-
-  function hideMenu() {
-    const menu = getMenu();
-    menu.style.display = "none";
-    currentMatches = [];
-  }
-
-  function positionMenu(ta, menu) {
-    const rect = ta.getBoundingClientRect();
-    menu.style.left = rect.left + "px";
-    menu.style.width = Math.min(rect.width, 520) + "px";
-    menu.style.bottom = (window.innerHeight - rect.top + 6) + "px";
-    menu.style.top = "auto";
-  }
-
-  function selectCommand(cmd) {
-    const ta = getMsgTextarea();
-    if (!ta) return;
-    ta.value = cmd + " ";
-    ta.focus();
-    ta.dispatchEvent(new Event("input", { bubbles: true }));
-    hideMenu();
-  }
-
-  function renderMenu(matches, ta) {
-    const menu = getMenu();
-    if (!matches.length) {
-      hideMenu();
-      return;
-    }
-    currentMatches = matches;
-    if (activeIndex >= matches.length) activeIndex = 0;
-    if (activeIndex < 0) activeIndex = matches.length - 1;
-
-    positionMenu(ta, menu);
-    menu.innerHTML = "";
-    matches.forEach((item, idx) => {
-      const row = document.createElement("div");
-      row.className = "slash-autocomplete-item" + (idx === activeIndex ? " active" : "");
-      row.innerHTML = "<b>" + item.label + "</b><span>" + item.desc + "</span>";
-      row.addEventListener("mousedown", function(e) {
-        e.preventDefault();
-        selectCommand(item.cmd);
-      });
-      menu.appendChild(row);
-    });
-    menu.style.display = "block";
-  }
-
-  function setupListener() {
-    const ta = getMsgTextarea();
-    if (!ta || ta._slash_bound) return;
-    ta._slash_bound = true;
-
-    ta.addEventListener("input", function() {
-      const val = ta.value;
-      if (val.startsWith("/")) {
-        const query = val.split(" ")[0].toLowerCase();
-        const matches = COMMANDS.filter(c => c.cmd.startsWith(query));
-        activeIndex = 0;
-        renderMenu(matches, ta);
-      } else {
-        hideMenu();
-      }
-    });
-
-    ta.addEventListener("keydown", function(e) {
-      const menu = getMenu();
-      if (menu.style.display === "none" || !currentMatches.length) return;
-
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        activeIndex = (activeIndex + 1) % currentMatches.length;
-        renderMenu(currentMatches, ta);
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        activeIndex = (activeIndex - 1 + currentMatches.length) % currentMatches.length;
-        renderMenu(currentMatches, ta);
-      } else if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
-        if (currentMatches[activeIndex]) {
-          e.preventDefault();
-          e.stopPropagation();
-          selectCommand(currentMatches[activeIndex].cmd);
-        }
-      } else if (e.key === "Escape") {
-        hideMenu();
-      }
-    });
-
-    ta.addEventListener("blur", function() {
-      setTimeout(hideMenu, 200);
-    });
-  }
-
-  setInterval(setupListener, 800);
-  document.addEventListener("DOMContentLoaded", setupListener);
-})();
-</script>
-"""
-
 
 # Nový build_ui - layout ve stylu ZCode/Codex: levý sidebar + hlavní chat
 def build_ui() -> gr.Blocks:
@@ -3182,7 +3047,6 @@ def build_ui() -> gr.Blocks:
 
             # ================= HLAVNÍ CHAT =================
             with gr.Column(scale=5, elem_id="main"):
-                gr.HTML(SLASH_POPUP_HTML, visible=False)
                 chat = gr.Chatbot(value=chat_view(), show_label=False, height=560,
                                   render_markdown=True, elem_id="main-chat", buttons=["copy"])
                 with gr.Row(elem_id="composer-layout", elem_classes=["gap"]):
@@ -3353,7 +3217,7 @@ def build_ui() -> gr.Blocks:
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         btn_compress.click(compress_now, chat, [chat, confirm_row, status_box], queue=True,
                            concurrency_id="chat-run", concurrency_limit=1)
-        btn_undo_task.click(undo_current_task, None, [task_changes, btn_undo_task], queue=False)
+        btn_undo_task.click(undo_current_task, None, [task_changes, btn_undo_task, chat], queue=False)
         btn_resume_task.click(continue_saved_task, None,
                               [chat, confirm_row, status_box], queue=True,
                               concurrency_id="chat-run", concurrency_limit=1)
@@ -3398,7 +3262,7 @@ def build_ui() -> gr.Blocks:
         gr.Markdown(f"<small>{failsafe_hint}</small>",
                     elem_classes=["hdr"], elem_id="footer-hint")
 
-        # Ctrl+Enter + VYNUCENÝ DARK MODE + chytrý autoscroll
+        # Ctrl+Enter + VYNUCENÝ DARK MODE + chytrý autoscroll + SLASH MENU
         ui.load(None, None, None, js="""
         () => {
           const setDark = () => {
@@ -3430,6 +3294,153 @@ def build_ui() -> gr.Blocks:
             mo.observe(el, {childList: true, subtree: true, characterData: true});
           };
           setup(); setTimeout(setup, 2500);
+
+          // ===== SLASH COMMANDS AUTOCOMPLETE =====
+          const COMMANDS = [
+            { cmd: "/compress", label: "/compress", desc: "Komprese KV kontextu do souhrnu" },
+            { cmd: "/revert", label: "/revert", desc: "Vrátit soubory do stavu před úlohou" },
+            { cmd: "/checkpoint", label: "/checkpoint [název]", desc: "Vytvořit snapshot projektu" },
+            { cmd: "/search", label: "/search <dotaz>", desc: "Rychlé FTS5 prohledání projektu" },
+            { cmd: "/pin", label: "/pin <cesta>", desc: "Připnout soubor do trvalého kontextu" },
+            { cmd: "/unpin", label: "/unpin <cesta>", desc: "Odepnout soubor z kontextu" },
+            { cmd: "/pins", label: "/pins", desc: "Zobrazit všechny připnuté soubory" },
+            { cmd: "/test", label: "/test", desc: "Spustit projektové testy a kontroly" },
+            { cmd: "/plan", label: "/plan <úloha>", desc: "Vytvořit plán před realizací" },
+            { cmd: "/review", label: "/review", desc: "Zkontrolovat poslední změny v projektu" },
+            { cmd: "/clear", label: "/clear", desc: "Vyčistit chat a začít novou relaci" },
+            { cmd: "/help", label: "/help", desc: "Zobrazit nápovědu ke všem příkazům" }
+          ];
+
+          let activeIndex = 0;
+          let currentMatches = [];
+
+          function getMsgInput() {
+            const el = document.getElementById("msg-in");
+            return el ? (el.querySelector("textarea") || el.querySelector("input")) : null;
+          }
+
+          function getMenu() {
+            let menu = document.getElementById("slash-menu");
+            if (!menu) {
+              menu = document.createElement("div");
+              menu.id = "slash-menu";
+              menu.className = "slash-autocomplete-menu";
+              menu.style.display = "none";
+              document.body.appendChild(menu);
+            }
+            return menu;
+          }
+
+          function hideMenu() {
+            const menu = getMenu();
+            menu.style.display = "none";
+            currentMatches = [];
+          }
+
+          function positionMenu(ta, menu) {
+            const rect = ta.getBoundingClientRect();
+            menu.style.left = rect.left + "px";
+            menu.style.width = Math.min(rect.width, 520) + "px";
+            menu.style.bottom = (window.innerHeight - rect.top + 6) + "px";
+            menu.style.top = "auto";
+          }
+
+          function selectCommand(cmd) {
+            const ta = getMsgInput();
+            if (!ta) return;
+            ta.value = cmd + " ";
+            ta.focus();
+            ta.dispatchEvent(new Event("input", { bubbles: true }));
+            ta.dispatchEvent(new Event("change", { bubbles: true }));
+            hideMenu();
+          }
+
+          function renderMenu(matches, ta) {
+            const menu = getMenu();
+            if (!matches.length) {
+              hideMenu();
+              return;
+            }
+            currentMatches = matches;
+            if (activeIndex >= matches.length) activeIndex = 0;
+            if (activeIndex < 0) activeIndex = matches.length - 1;
+
+            positionMenu(ta, menu);
+            menu.innerHTML = "";
+            matches.forEach((item, idx) => {
+              const row = document.createElement("div");
+              row.className = "slash-autocomplete-item" + (idx === activeIndex ? " active" : "");
+              row.innerHTML = "<b>" + item.label + "</b><span>" + item.desc + "</span>";
+              row.addEventListener("mousedown", function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                selectCommand(item.cmd);
+              });
+              menu.appendChild(row);
+            });
+            menu.style.display = "block";
+          }
+
+          function setupSlashMenu() {
+            const ta = getMsgInput();
+            if (!ta) return;
+            if (ta._slash_bound) return;
+            ta._slash_bound = true;
+
+            function checkValue() {
+              const val = ta.value || "";
+              if (val.startsWith("/")) {
+                const query = val.split(" ")[0].toLowerCase();
+                const matches = COMMANDS.filter(c => c.cmd.startsWith(query));
+                renderMenu(matches, ta);
+              } else {
+                hideMenu();
+              }
+            }
+
+            ta.addEventListener("input", function() {
+              activeIndex = 0;
+              checkValue();
+            });
+
+            ta.addEventListener("keyup", function(e) {
+              if (e.key === "Backspace" || e.key === "Delete") {
+                checkValue();
+              }
+            });
+
+            ta.addEventListener("keydown", function(e) {
+              const menu = getMenu();
+              if (menu.style.display === "none" || !currentMatches.length) return;
+
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                activeIndex = (activeIndex + 1) % currentMatches.length;
+                renderMenu(currentMatches, ta);
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                activeIndex = (activeIndex - 1 + currentMatches.length) % currentMatches.length;
+                renderMenu(currentMatches, ta);
+              } else if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+                if (currentMatches[activeIndex]) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  selectCommand(currentMatches[activeIndex].cmd);
+                }
+              } else if (e.key === "Escape") {
+                hideMenu();
+              }
+            });
+
+            ta.addEventListener("blur", function() {
+              setTimeout(hideMenu, 250);
+            });
+          }
+
+          setupSlashMenu();
+          setTimeout(setupSlashMenu, 1000);
+          setTimeout(setupSlashMenu, 2500);
+          setInterval(setupSlashMenu, 800);
         }
         """)
 
@@ -3529,7 +3540,6 @@ if __name__ == "__main__":
                     server_name=host,
                     server_port=port,
                     css=CUSTOM_CSS,
-                    head=SLASH_POPUP_HTML,
                     show_error=True,  # detail chyb při ladění (jen localhost)
                     inbrowser=not browser_opened and not os.environ.get("QWEN_NO_BROWSER"),
                     allowed_paths=[str(cfg.path("paths.sessions_dir"))],
