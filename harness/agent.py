@@ -178,6 +178,7 @@ class Agent:
         self._tools_used_this_task = 0
         self._tool_steps_since_update = 0
         self._summary_requested = False
+        self._tool_call_history: list[str] = []
         restored = self.session.load_task_state()
         if restored.get("status") in ("running", "waiting_confirmation"):
             self._steps = int(restored.get("steps", 0))
@@ -300,6 +301,7 @@ class Agent:
         self._tool_steps_since_update = 0
         self._summary_requested = False
         self._overflow_retried = False
+        self._tool_call_history = []
         self.safety.new_task()
         self.session.add("user", text, images=images)
         self.ctx.changes.begin_task(text)
@@ -324,6 +326,7 @@ class Agent:
         self._tool_steps_since_update = 0
         self._summary_requested = False
         self._overflow_retried = False
+        self._tool_call_history = []
         self.safety.new_task()
         self.ctx.changes.begin_task(label)
         self.ctx.task_plan.begin(label)
@@ -378,10 +381,10 @@ class Agent:
         return None
 
     # ------------------------------------------------------------------
-    def _execute_calls(self, calls: list[dict], assistant_text: str = "") -> list[tuple]:
+    def _execute_calls(self, calls: list[dict], assistant_text: str = "", reasoning: str = "") -> list[tuple]:
         """Vykoná tool calls a přidá výsledky do session. Vrátí trace."""
         # asistentova zpráva s tool_calls (přesně jak ji vrátil model)
-        self.session.add("assistant", assistant_text, tool_calls=calls)
+        self.session.add("assistant", assistant_text, tool_calls=calls, reasoning=reasoning)
         prepared = []
         for call in calls:
             name = call["function"]["name"]
@@ -607,13 +610,40 @@ class Agent:
 
         if res.stopped:
             if (res.content or "").strip():
-                self.session.add("assistant", res.content)
+                self.session.add("assistant", res.content, reasoning=res.reasoning)
             self._save_task_state("aborted", result="Zastaveno uživatelem.")
             return StepResult(Status.ABORTED, text="Zastaveno uživatelem.",
                               reasoning=res.reasoning)
 
         # 4) tool calls?
         if res.has_tool_calls:
+            call_sig = "|".join(
+                f"{c['function']['name']}:{c['function'].get('arguments', '').strip()}"
+                for c in res.tool_calls
+            )
+            self._tool_call_history.append(call_sig)
+
+            # Detekce zacyklení: 5x identické volání nástrojů za sebou
+            if (len(self._tool_call_history) >= 5
+                    and len(set(self._tool_call_history[-5:])) == 1):
+                self.session.add("assistant", res.content, reasoning=res.reasoning)
+                first_name = res.tool_calls[0]["function"]["name"]
+                loop_msg = (
+                    f"Zastaveno: Detekováno zacyklení nástrojů ({first_name}). "
+                    "Stejná akce byla opakována 5× bez posunu."
+                )
+                self.session.add("user", f"[LOOP DETECTED] {loop_msg}")
+                self._save_task_state("complete", result=loop_msg)
+                return StepResult(Status.FINAL, text=loop_msg, reasoning=res.reasoning)
+
+            loop_warning = None
+            if len(self._tool_call_history) >= 2 and self._tool_call_history[-1] == self._tool_call_history[-2]:
+                loop_warning = (
+                    "[LOOP WARNING] You just repeated the exact same tool call as in the previous step. "
+                    "If it failed or did not achieve your goal, do NOT repeat it again. "
+                    "Change your approach or explain the problem."
+                )
+
             risky = []
             for c in res.tool_calls:
                 tool = self.registry.get(c["function"]["name"])
@@ -640,7 +670,9 @@ class Agent:
                                   pending_summary=self._summarize_calls(res.tool_calls),
                                   text=res.content,
                                   reasoning=res.reasoning)
-            trace = self._execute_calls(res.tool_calls, res.content or "")
+            trace = self._execute_calls(res.tool_calls, res.content or "", reasoning=res.reasoning)
+            if loop_warning:
+                self.session.add("user", loop_warning)
             # 📢 progress nudge: dlouhá série kroků bez slov k uživateli
             self._tools_used_this_task += len(trace)
             self._tool_steps_since_update += 1
@@ -656,7 +688,7 @@ class Agent:
             run = self.ctx.research.current()
             if run and run.get("status") == "collecting" and run.get("sources"):
                 if (res.content or "").strip():
-                    self.session.add("assistant", res.content)
+                    self.session.add("assistant", res.content, reasoning=res.reasoning)
                 self.emit("info", "Sestavuji závěrečnou syntézu ze všech načtených zdrojů...")
                 try:
                     res.content = synthesize_research(
@@ -684,7 +716,7 @@ class Agent:
             readiness = self.ctx.task_plan.readiness(has_changes)
             if readiness:
                 if (res.content or "").strip():
-                    self.session.add("assistant", res.content)
+                    self.session.add("assistant", res.content, reasoning=res.reasoning)
                 self.ctx.task_plan.mark_review_nudged()
                 self.session.add(
                     "user", COMPLETION_REVIEW_NOTE.format(issues="; ".join(readiness)))
@@ -695,12 +727,12 @@ class Agent:
                 and not self._summary_requested
                 and not _looks_structured(res.content or "")):
             self._summary_requested = True
-            self.session.add("assistant", res.content)
+            self.session.add("assistant", res.content, reasoning=res.reasoning)
             note = WRITING_SUMMARY_NOTE if self.work_mode == "writing" else SUMMARY_NOTE
             self.session.add("user", note)
             self._save_task_state("running")
             return StepResult(Status.CONTINUE, text=res.content, reasoning=res.reasoning)
-        self.session.add("assistant", res.content)
+        self.session.add("assistant", res.content, reasoning=res.reasoning)
         self._save_task_state("complete", result=res.content)
         return StepResult(Status.FINAL, text=res.content, reasoning=res.reasoning)
 
@@ -753,11 +785,12 @@ def build_registry(mode: str, work_mode: str | None = None) -> ToolRegistry:
     výzkum/diskuze potřebují číst zdroje a ukládat výsledky na disk.
     Coding navíc (repo přehled, Git, shell) jen Vývoj a Počítač.
     """
-    from harness.tools import browser, code, computer, context, documents, fs, git, memory, shell, skills, task, vision, web
+    from harness.tools import browser, code, computer, context, documents, fs, git, memory, search, shell, skills, task, vision, web
     selected = normalize_work_mode(work_mode, mode)
     reg = ToolRegistry()
     memory.register_memory_tools(reg)  # chat má alespoň paměť
     web.register_web_tools(reg)        # internet: web_search + web_fetch (všude)
+    search.register_search_tools(reg)  # FTS5 fulltext: search_project (všude)
     context.register_context_tools(reg)
     skills.register_skill_tools(reg)
     documents.register_document_tools(reg)

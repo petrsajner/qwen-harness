@@ -78,6 +78,30 @@ class ReadFileTool(Tool):
         return truncate(f"{header}\n{numbered}", limit=100_000)
 
 
+def validate_syntax_pre_write(path: Path, content: str) -> str | None:
+    """Ověří základní syntaktickou validitu před zápisem na disk."""
+    suffix = path.suffix.lower()
+    if suffix in (".py", ".pyi"):
+        import ast
+        try:
+            ast.parse(content, filename=str(path))
+        except SyntaxError as e:
+            return f"SyntaxError at line {e.lineno}, col {e.offset}: {e.msg}"
+    elif suffix == ".json":
+        import json
+        try:
+            json.loads(content)
+        except json.JSONDecodeError as e:
+            return f"JSONDecodeError at line {e.lineno}, col {e.colno}: {e.msg}"
+    elif suffix in (".yaml", ".yml"):
+        try:
+            import yaml
+            yaml.safe_load(content)
+        except Exception as e:
+            return f"YAMLError: {e}"
+    return None
+
+
 class WriteFileTool(Tool):
     name = "write_file"
     description = ("Write/create a file with full content (overwrites existing). "
@@ -91,6 +115,9 @@ class WriteFileTool(Tool):
 
     def run(self, ctx: AgentContext, path: str, content: str) -> str:
         f = ctx.resolve(path)
+        syntax_err = validate_syntax_pre_write(f, content)
+        if syntax_err:
+            return f"ERROR: Syntax validation failed before saving: {syntax_err}. File was not modified."
         existed = f.exists()
         if ctx.changes:
             ctx.changes.record_before(f)
@@ -151,6 +178,9 @@ class ApplyPatchTool(Tool):
             updated = updated.replace(old, new, expected)
         if updated == text:
             return "OK: patch produced no content change"
+        syntax_err = validate_syntax_pre_write(target, updated)
+        if syntax_err:
+            return f"ERROR: Syntax validation failed after applying patch: {syntax_err}. File was not modified."
         if ctx.changes:
             ctx.changes.record_before(target)
         atomic_write_text(target, updated)

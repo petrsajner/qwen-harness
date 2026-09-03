@@ -70,6 +70,10 @@ def detect_language(root: Path) -> str | None:
 
 _CS = {
     # ------------------------------------------------ runtime / live zprávy
+    "Thinking… ({sec}s)": "Uvažování… ({sec}s)",
+    "Thought for {sec}s": "Uvažování trvalo {sec}s",
+    "Thought": "Uvažování",
+    "completed": "dokončeno",
     "🧰 <i>{detail} · generated ~{amount} chars</i>": "🧰 <i>{detail} · vytvořeno ~{amount} znaků</i>",
     "tool": "nástroj",
     "⏳ {sec}s without new tokens": "⏳ {sec}s bez nových tokenů",

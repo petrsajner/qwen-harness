@@ -38,6 +38,100 @@ def _template_kwargs(cfg: Config) -> dict:
     return {}
 
 
+class ThinkStreamParser:
+    """Stream parser separating reasoning from content across <think> tags."""
+
+    def __init__(self, on_text: Callable[[str], None] | None = None,
+                 on_reasoning: Callable[[str], None] | None = None) -> None:
+        self.on_text = on_text
+        self.on_reasoning = on_reasoning
+        self.in_think = False
+        self.buffer = ""
+
+    def feed(self, chunk: str) -> tuple[list[str], list[str]]:
+        """Processes a chunk of delta.content and returns (text_parts, reasoning_parts)."""
+        text_out: list[str] = []
+        reasoning_out: list[str] = []
+        self.buffer += chunk
+
+        while self.buffer:
+            if not self.in_think:
+                start_idx = self.buffer.find("<think>")
+                if start_idx != -1:
+                    before = self.buffer[:start_idx]
+                    if before:
+                        text_out.append(before)
+                        if self.on_text:
+                            self.on_text(before)
+                    self.in_think = True
+                    self.buffer = self.buffer[start_idx + len("<think>"):].lstrip("\r\n")
+                    continue
+
+                matched = False
+                for i in range(1, min(len("<think>"), len(self.buffer) + 1)):
+                    if "<think>".startswith(self.buffer[-i:]):
+                        safe = self.buffer[:-i]
+                        if safe:
+                            text_out.append(safe)
+                            if self.on_text:
+                                self.on_text(safe)
+                        self.buffer = self.buffer[-i:]
+                        matched = True
+                        break
+                if matched:
+                    break
+                text_out.append(self.buffer)
+                if self.on_text:
+                    self.on_text(self.buffer)
+                self.buffer = ""
+            else:
+                end_idx = self.buffer.find("</think>")
+                if end_idx != -1:
+                    thought = self.buffer[:end_idx]
+                    if thought:
+                        reasoning_out.append(thought)
+                        if self.on_reasoning:
+                            self.on_reasoning(thought)
+                    self.in_think = False
+                    self.buffer = self.buffer[end_idx + len("</think>"):].lstrip("\r\n")
+                    continue
+
+                matched = False
+                for i in range(1, min(len("</think>"), len(self.buffer) + 1)):
+                    if "</think>".startswith(self.buffer[-i:]):
+                        safe = self.buffer[:-i]
+                        if safe:
+                            reasoning_out.append(safe)
+                            if self.on_reasoning:
+                                self.on_reasoning(safe)
+                        self.buffer = self.buffer[-i:]
+                        matched = True
+                        break
+                if matched:
+                    break
+                reasoning_out.append(self.buffer)
+                if self.on_reasoning:
+                    self.on_reasoning(self.buffer)
+                self.buffer = ""
+        return text_out, reasoning_out
+
+    def flush(self) -> tuple[list[str], list[str]]:
+        """Flush any remaining buffered text at end of stream."""
+        text_out: list[str] = []
+        reasoning_out: list[str] = []
+        if self.buffer:
+            if self.in_think:
+                reasoning_out.append(self.buffer)
+                if self.on_reasoning:
+                    self.on_reasoning(self.buffer)
+            else:
+                text_out.append(self.buffer)
+                if self.on_text:
+                    self.on_text(self.buffer)
+            self.buffer = ""
+        return text_out, reasoning_out
+
+
 class LLMClient:
     def __init__(self, cfg: Config):
         self.cfg = cfg
@@ -84,6 +178,7 @@ class LLMClient:
         tc_acc: dict[int, dict] = {}
         stop_requested = False
         chars_after_stop = 0
+        parser = ThinkStreamParser(on_text=on_text, on_reasoning=on_reasoning)
 
         stream = self.client.chat.completions.create(**params)
         try:
@@ -100,9 +195,11 @@ class LLMClient:
                     if on_reasoning:
                         on_reasoning(r)
                 if delta.content:
-                    text_parts.append(delta.content)
-                    if on_text:
-                        on_text(delta.content)
+                    tp, rp = parser.feed(delta.content)
+                    if tp:
+                        text_parts.extend(tp)
+                    if rp:
+                        reasoning_parts.extend(rp)
                 for tc in delta.tool_calls or []:
                     if tc.index is None:
                         tc.index = 0
@@ -124,10 +221,16 @@ class LLMClient:
                     if delta.content:
                         chars_after_stop += len(delta.content)
                     visible = "".join(text_parts)
-                    if (not visible or SENTENCE_END_RE.search(visible)
-                            or chars_after_stop >= 240):
+                    # Zastavit při větě jen pokud máme viditelný text nebo po 240 znacích
+                    if (visible and SENTENCE_END_RE.search(visible)) or chars_after_stop >= 240:
                         res.stopped = True
                         break
+            # Flush parsing buffer na konci streamu
+            ftp, frp = parser.flush()
+            if ftp:
+                text_parts.extend(ftp)
+            if frp:
+                reasoning_parts.extend(frp)
         finally:
             if res.stopped:
                 close = getattr(stream, "close", None)
@@ -175,10 +278,15 @@ class LLMClient:
             params["extra_body"] = extra_body
         resp = self.client.chat.completions.create(**params)
         msg = resp.choices[0].message
-        res = AssistantResult(content=msg.content or "")
-        r = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None)
-        if r:
-            res.reasoning = r
+        raw_content = msg.content or ""
+        r = getattr(msg, "reasoning_content", None) or getattr(msg, "reasoning", None) or ""
+        think_match = re.search(r"<think>(.*?)</think>", raw_content, re.DOTALL)
+        if think_match:
+            extracted_thought = think_match.group(1).strip()
+            if not r:
+                r = extracted_thought
+            raw_content = re.sub(r"<think>.*?</think>", "", raw_content, flags=re.DOTALL).lstrip("\r\n")
+        res = AssistantResult(content=raw_content, reasoning=r)
         for tc in msg.tool_calls or []:
             res.tool_calls.append({
                 "id": tc.id,

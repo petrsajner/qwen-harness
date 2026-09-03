@@ -92,8 +92,19 @@ class ToolRegistry:
             return f"ERROR in {name}: {type(e).__name__}: {e}\n{tb}"
 
 
-def truncate(text: str, limit: int = 20000, label: str = "output") -> str:
-    """Ořízne dlouhý výstup s hláškou pro model."""
+def truncate(text: str, limit: int = 20000, label: str = "output",
+             head_ratio: float = 0.35) -> str:
+    """Inteligentní ořez výstupu: uchová začátek i konec (head+tail).
+
+    Zabrání ztrátě chybových hlášek, test výsledků a stack trace na konci logu.
+    """
     if len(text) <= limit:
         return text
-    return text[:limit] + f"\n... [{label} truncated, {len(text) - limit} chars omitted]"
+    head_len = int(limit * head_ratio)
+    tail_len = max(0, limit - head_len)
+    head = text[:head_len]
+    tail = text[-tail_len:] if tail_len > 0 else ""
+    omitted = len(text) - (head_len + tail_len)
+    omitted_lines = text[head_len:len(text) - tail_len].count("\n")
+    lines_info = f"~{omitted_lines} lines / " if omitted_lines > 0 else ""
+    return f"{head}\n\n... [{label} truncated: {lines_info}{omitted:,} chars omitted] ...\n\n{tail}"

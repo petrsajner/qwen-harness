@@ -34,6 +34,8 @@ class StreamHub:
         self._lock = threading.Lock()
         self.text: list[str] = []
         self.reasoning: list[str] = []
+        self.reasoning_start: float | None = None
+        self.reasoning_end: float | None = None
         self.tool_call_name = ""
         self.tool_call_chars = 0
         self.tool_call_preview = ""
@@ -46,6 +48,8 @@ class StreamHub:
         with self._lock:
             self.text = []
             self.reasoning = []
+            self.reasoning_start = None
+            self.reasoning_end = None
             self.tool_call_name = ""
             self.tool_call_chars = 0
             self.tool_call_preview = ""
@@ -56,14 +60,19 @@ class StreamHub:
 
     def on_event(self, kind: str, payload: Any) -> None:
         with self._lock:
+            now = time.time()
             if kind == "text" and payload:
+                if self.reasoning_start is not None and self.reasoning_end is None:
+                    self.reasoning_end = now
                 self.text.append(str(payload))
                 self.rev += 1
-                self.last_activity = time.time()
+                self.last_activity = now
             elif kind == "reasoning" and payload:
+                if self.reasoning_start is None:
+                    self.reasoning_start = now
                 self.reasoning.append(str(payload))
                 self.rev += 1
-                self.last_activity = time.time()
+                self.last_activity = now
             elif kind == "tool_delta" and payload:
                 name, arguments = payload
                 self.tool_call_name += str(name or "")
@@ -98,12 +107,19 @@ class StreamHub:
 
     def progress(self) -> dict[str, Any]:
         with self._lock:
+            now = time.time()
+            if self.reasoning_start is not None:
+                end = self.reasoning_end if self.reasoning_end is not None else now
+                duration = max(0.0, end - self.reasoning_start)
+            else:
+                duration = 0.0
             return {
                 "tool_call_name": self.tool_call_name,
                 "tool_call_chars": self.tool_call_chars,
                 "tool_call_preview": self.tool_call_preview,
                 "tools_running": list(self.tools_running),
                 "last_tool": self.last_tool,
+                "reasoning_duration": duration,
                 "generated_chars": (
                     sum(map(len, self.text)) + sum(map(len, self.reasoning))
                     + self.tool_call_chars

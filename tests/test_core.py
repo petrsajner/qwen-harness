@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.5.0",
-          "viditelná verze aplikace odpovídá instalátoru 1.5.0")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.5.1",
+          "viditelná verze aplikace odpovídá instalátoru 1.5.1")
     invariants = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     check(all(item in invariants for item in (
         "Language servers or an LSP runtime/distribution layer",
@@ -488,7 +488,7 @@ def test_registry_modes() -> None:
                                 "list_dir", "read_file", "write_file", "apply_patch",
                                 "list_task_changes", "undo_task_changes", "search_files",
                                 "find_files", "make_directory", "move_file", "delete_file",
-                                "view_image"},
+                                "view_image", "search_project"},
           f"chat režim: memory + web + context + disk nástroje ({len(chat.names())})")
     check({"list_dir", "run_command", "view_image"} <= set(agent.names()),
           f"agent režim: fs+patch+shell+vision ({len(agent.names())})")
@@ -2124,6 +2124,171 @@ def test_user_manuals() -> None:
               f"{filename} obsahuje verzi a klíčové kapitoly")
 
 
+def test_thinking_and_communication():
+    print("[thinking and clean communication]")
+    from harness.llm import ThinkStreamParser
+    from harness.session import Session
+    from harness.config import load_config
+    import webapp
+
+    # 1) ThinkStreamParser s rozdělenými tagy přes chunky
+    text_accum, reason_accum = [], []
+    parser = ThinkStreamParser(on_text=text_accum.append, on_reasoning=reason_accum.append)
+    t1, r1 = parser.feed("<th")
+    t2, r2 = parser.feed("ink>Hluboka uvaha modelu</thi")
+    t3, r3 = parser.feed("nk>\nOdpoved modelu.")
+    tf, rf = parser.flush()
+    full_text = "".join(t1 + t2 + t3 + tf)
+    full_reason = "".join(r1 + r2 + r3 + rf)
+    check(full_text == "Odpoved modelu." and full_reason == "Hluboka uvaha modelu",
+          "ThinkStreamParser čistě oddělí <think> i při rozseknutí tagu v chuncích")
+    check("".join(text_accum) == "Odpoved modelu." and "".join(reason_accum) == "Hluboka uvaha modelu",
+          "ThinkStreamParser volá on_text a on_reasoning se správnými segmenty")
+
+    # 2) Session reasoning persistence
+    cfg = load_config()
+    s = Session(cfg, transient=False)
+    s.add("user", "Dotaz na uvažování")
+    s.add("assistant", "Finální odpověď", reasoning="Vnitřní monolog modelu")
+    check(s.messages[-1].get("reasoning") == "Vnitřní monolog modelu",
+          "Session uchová reasoning v paměti")
+    loaded = Session.load(cfg, s.id)
+    check(loaded.messages[-1].get("reasoning") == "Vnitřní monolog modelu",
+          "Session perzistuje a znovu načte reasoning z JSONL")
+    api_msgs = s.to_api_messages()
+    last_api = api_msgs[-1]
+    check(last_api.get("reasoning_content") == "Vnitřní monolog modelu" and "reasoning" not in last_api,
+          "to_api_messages namapuje reasoning na reasoning_content pro llama-server")
+
+    # 3) webapp thought box & chat view rendering
+    thought_open = webapp._format_thought_box("Moje uvaha", open_box=True, elapsed_s=4)
+    check('<details class="thought-box" open>' in thought_open and "Thinking…" in thought_open,
+          "_format_thought_box otevře box při streamování úvahy s časovačem")
+    thought_closed = webapp._format_thought_box("Moje uvaha", open_box=False, duration=3.5)
+    check('<details class="thought-box">' in thought_closed and "open" not in thought_closed
+          and "Thought for 4s" in thought_closed,
+          "_format_thought_box sbalí box po dokončení s trváním úvahy")
+
+    webapp.state.session = loaded
+    view = webapp.chat_view()
+    assistant_view = [m for m in view if m["role"] == "assistant"]
+    check(len(assistant_view) >= 1 and 'class="thought-box"' in assistant_view[-1]["content"]
+          and "Finální odpověď" in assistant_view[-1]["content"],
+          "chat_view vykreslí rozbalovací thought-box a finální odpověď")
+
+    # 4) tool box v chat view
+    loaded.add("tool", "výstup souboru abc.txt", name="read_file")
+    view_with_tool = webapp.chat_view()
+    tool_entry = view_with_tool[-1]
+    check('class="tool-box"' in tool_entry["content"] and "read_file" in tool_entry["content"]
+          and "výstup souboru abc.txt" in tool_entry["content"],
+          "chat_view vykreslí tool output jako elegantní collapsible tool-box")
+    Session.delete(cfg, s.id)
+
+
+def test_harness_enhancements():
+    print("[harness enhancements: truncate, syntax, fts5, loop, slash]")
+    from harness.tools.base import truncate, AgentContext
+    from harness.tools.fs import validate_syntax_pre_write
+    from harness.tools.search import SearchProjectTool
+    from harness.session import Session
+    from harness.config import load_config
+    import webapp
+    import tempfile
+
+    # 1) Head+Tail truncate
+    short = "kratky text"
+    check(truncate(short, limit=50) == short, "truncate zachová krátký text")
+    long_text = "START_OF_OUTPUT\n" + ("prostredni radek\n" * 100) + "END_OF_OUTPUT_ERROR_TRACE"
+    t_res = truncate(long_text, limit=60)
+    check("START_OF_OUTPUT" in t_res and "END_OF_OUTPUT_ERROR_TRACE" in t_res,
+          "truncate uchová začátek (head) i konec (tail) s chybou")
+    check("truncated:" in t_res and "omitted" in t_res,
+          "truncate vloží informaci o vynechaných řádcích/znacích")
+
+    # 2) Syntax validace před zápisem
+    valid_py = "def foo():\n    return 42\n"
+    invalid_py = "def foo(\n    return 42\n"
+    check(validate_syntax_pre_write(Path("test.py"), valid_py) is None,
+          "validate_syntax_pre_write propustí validní Python")
+    check(validate_syntax_pre_write(Path("test.py"), invalid_py) is not None,
+          "validate_syntax_pre_write zachytí nevalidní Python")
+    check(validate_syntax_pre_write(Path("test.json"), '{"a": 1}') is None,
+          "validate_syntax_pre_write propustí validní JSON")
+    check(validate_syntax_pre_write(Path("test.json"), '{"a": 1,}') is not None,
+          "validate_syntax_pre_write zachytí nevalidní JSON")
+
+    # 3) SearchProjectTool s FTS5
+    with tempfile.TemporaryDirectory() as tmpdir:
+        td = Path(tmpdir)
+        (td / "hello.py").write_text("def find_secret_token():\n    return 'xyz'\n", encoding="utf-8")
+        (td / "doc.md").write_text("# Project Notes\nDatabase connection pooling configuration.\n", encoding="utf-8")
+        cfg = load_config()
+        s = Session(cfg, transient=True)
+        ctx = AgentContext(cfg=cfg, session=s, workspace=td)
+        tool = SearchProjectTool()
+        search_res = tool.run(ctx, "secret token")
+        check("hello.py" in search_res and "secret" in search_res and "token" in search_res,
+              "SearchProjectTool najde kód podle klíčových slov přes FTS5")
+        search_res2 = tool.run(ctx, "database pooling")
+        check("doc.md" in search_res2 and "pooling" in search_res2,
+              "SearchProjectTool najde relevantní dokumentaci")
+
+    # 4) ChangeJournal revert_last_task
+    with tempfile.TemporaryDirectory() as tmpdir:
+        td = Path(tmpdir)
+        test_file = td / "important.txt"
+        test_file.write_text("ORIGINAL CONTENT", encoding="utf-8")
+        s = Session(cfg, transient=False)
+        from harness.changes import ChangeJournal
+        journal = ChangeJournal(s, td)
+        journal.begin_task("test task")
+        journal.record_before(test_file)
+        test_file.write_text("MODIFIED BAD CONTENT", encoding="utf-8")
+        journal.record_after(test_file)
+        check(test_file.read_text(encoding="utf-8") == "MODIFIED BAD CONTENT",
+              "Soubor byl upraven")
+        rev_res = journal.revert_last_task()
+        check(len(rev_res.get("restored", [])) == 1,
+              "revert_last_task obnovil 1 soubor")
+        check(test_file.read_text(encoding="utf-8") == "ORIGINAL CONTENT",
+              "revert_last_task vrátil přesný původní obsah")
+        Session.delete(cfg, s.id)
+
+    # 5) Slash command dispatcher
+    s_cmd = Session(cfg, transient=False)
+    webapp.state.session = s_cmd
+    webapp.state.rebuild_agent()
+    h1, p1 = webapp._handle_slash_command("/help")
+    check(h1 is True and "Dostupné Slash příkazy" in s_cmd.messages[-1]["content"],
+          "_handle_slash_command zpracuje /help lokálně")
+    h2, p2 = webapp._handle_slash_command("/pins")
+    check(h2 is True and "připnuté soubory" in s_cmd.messages[-1]["content"],
+          "_handle_slash_command zpracuje /pins lokálně")
+    h3, p3 = webapp._handle_slash_command("/test")
+    check(h3 is False and "projektové kontroly" in (p3 or ""),
+          "_handle_slash_command obohatí prompt pro /test")
+    Session.delete(cfg, s_cmd.id)
+
+    # 6) Detekce zacyklení
+    from harness.agent import Agent, Status, build_registry
+    from harness.llm import AssistantResult
+    from harness.safety import SafetyPolicy
+    script_loop = [AssistantResult(tool_calls=[_tc("list_dir", '{"path": "."}')]) for _ in range(6)]
+    s_loop = Session(cfg, transient=True)
+    agent_loop = Agent(cfg, LLMStub(script_loop), s_loop, build_registry("agent"),
+                       SafetyPolicy("auto"), mode="agent")
+    agent_loop.new_task("smycka")
+    loop_res = None
+    for _ in range(6):
+        r = agent_loop.step(approve=True)
+        if r.status is Status.FINAL:
+            loop_res = r
+            break
+    check(loop_res is not None and "Detekováno zacyklení" in loop_res.text,
+          "Agent detekuje nekonečnou smyčku identických volání a zastaví ji")
+
+
 if __name__ == "__main__":
     test_config()
     test_memory_layers()
@@ -2158,5 +2323,7 @@ if __name__ == "__main__":
     test_context_compression()
     test_communication_protocol()
     test_user_manuals()
+    test_thinking_and_communication()
+    test_harness_enhancements()
     print(f"\n{'=' * 40}\nVÝSLEDEK: {PASS} ✓ / {FAIL} ✗")
     sys.exit(1 if FAIL else 0)

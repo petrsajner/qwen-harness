@@ -39,7 +39,7 @@ if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86
 if not defined ISCC if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
 if not defined ISCC if exist "%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
 if not defined ISCC ( echo [CHYBA] ISCC nenalezen. & pause & exit /b 1 )
-"%ISCC%" "/DMyAppVersion=%VERSION%" installer\qwen-harness.iss
+"%ISCC%" "/DMyAppVersion=%VERSION%" installer\marvin.iss
 if errorlevel 1 ( echo [CHYBA] Instalator build selhal. & pause & exit /b 1 )
 
 echo.

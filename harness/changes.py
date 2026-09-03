@@ -164,6 +164,25 @@ class ChangeJournal:
             self._atomic_json(task_dir / "manifest.json", manifest)
             return {"task_id": manifest["task_id"], "restored": restored, "errors": errors}
 
+    def revert_last_task(self) -> dict:
+        """Rollback all file changes from the most recent task."""
+        with self._lock:
+            res = self.undo(self.task_id)
+            if res.get("restored"):
+                return res
+            if not self.base.exists():
+                return {"restored": [], "errors": ["No task checkpoints found"]}
+            manifests = sorted(self.base.glob("*/manifest.json"), reverse=True)
+            for m in manifests:
+                data = self._read_json(m)
+                if data and data.get("files") and not data.get("undone_at"):
+                    return self.undo(data.get("task_id"))
+            return {"restored": [], "errors": ["No un-reverted task changes found"]}
+
+    def create_checkpoint(self, label: str = "manual") -> str:
+        """Create an explicit snapshot checkpoint."""
+        return self.begin_task(label)
+
     def _display_path(self, path: Path) -> str:
         try:
             return str(path.relative_to(self.workspace))

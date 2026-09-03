@@ -48,8 +48,10 @@ class Session:
     # -- přidávání zpráv ---------------------------------------------------
     def add(self, role: str, content: Any, *, images: list[Path] | None = None,
             tool_calls: list[dict] | None = None, tool_call_id: str | None = None,
-            name: str | None = None) -> dict:
+            name: str | None = None, reasoning: str | None = None) -> dict:
         msg: dict[str, Any] = {"role": role, "content": content}
+        if reasoning:
+            msg["reasoning"] = str(reasoning)
         if tool_calls:
             msg["tool_calls"] = tool_calls
         if tool_call_id:
@@ -108,6 +110,10 @@ class Session:
         out: list[dict] = []
         for m in view:
             m2 = {k: v for k, v in m.items() if k != "images"}
+            if "reasoning" in m2:
+                reasoning_val = m2.pop("reasoning", None)
+                if reasoning_val and "reasoning_content" not in m2:
+                    m2["reasoning_content"] = reasoning_val
             imgs = [p for p in m.get("images", []) if p in recent]
             if not imgs:
                 if not m2.get("content") and not m2.get("tool_calls"):
@@ -181,12 +187,18 @@ class Session:
         self._save_meta()
         return True
 
-    def unpin_context_file(self, path: Path) -> bool:
-        resolved = str(path.resolve())
+    def unpin_context_file(self, path: Path | str) -> bool:
+        resolved = str(Path(path).resolve())
+        target_name = Path(path).name
         pins = list(self.meta.get("pinned_files") or [])
-        if resolved not in pins:
+        match = None
+        for p in pins:
+            if p == resolved or p == str(path) or Path(p).name == target_name:
+                match = p
+                break
+        if not match:
             return False
-        pins.remove(resolved)
+        pins.remove(match)
         self.meta["pinned_files"] = pins
         self._save_meta()
         return True

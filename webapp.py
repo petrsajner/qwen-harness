@@ -297,15 +297,40 @@ class AppState:
         self.save_ui_state()
 
 
-def _live_message(hub: StreamHub, elapsed_s: int = 0) -> dict:
-    """Živá zpráva: streamovaný text, nebo 'uvažuji' s poctivým indikátorem aktivity.
+def _format_thought_box(reasoning: str, *, open_box: bool = False,
+                        duration: float | None = None, elapsed_s: int = 0) -> str:
+    """Render collapsible reasoning box in markdown HTML (Antigravity style)."""
+    if not reasoning or not reasoning.strip():
+        return ""
+    import html
+    escaped = html.escape(reasoning.strip())
+    if open_box:
+        sec = int(duration) if (duration is not None and duration >= 1) else elapsed_s
+        title = t("Thinking… ({sec}s)", sec=sec)
+        open_attr = " open"
+        body_content = f"{escaped} <span class=\"blink-cursor\">▍</span>"
+    else:
+        if duration is not None and duration >= 0.5:
+            title = t("Thought for {sec}s", sec=max(1, round(duration)))
+        else:
+            title = t("Thought")
+        open_attr = ""
+        body_content = escaped
+    return (
+        f'<details class="thought-box"{open_attr}>\n'
+        f'<summary class="thought-summary">💭 <span>{title}</span></summary>\n'
+        f'<div class="thought-body">{body_content}</div>\n'
+        f'</details>\n\n'
+    )
 
-    elapsed_s = sekundy od posledního toku - roste, i když model mlčí (poctivé:
-    uživatel vidí, že se nic neděje; blikající kurzor se obnovuje jen s daty).
-    """
+
+def _live_message(hub: StreamHub, elapsed_s: int = 0) -> dict:
+    """Živá zpráva: streamovaný text nebo uvažování ve stylu Antigravity s poctivým indikátorem."""
     text, reasoning, _, _ = hub.snapshot()
     progress = hub.progress()
     cursor = ' <span class="blink-cursor">▍</span>'
+    duration = progress.get("reasoning_duration", 0.0)
+
     tool_line = ""
     if progress["tools_running"]:
         descriptions = [_tool_progress_text(name, args, preparing=False)
@@ -319,18 +344,28 @@ def _live_message(hub: StreamHub, elapsed_s: int = 0) -> dict:
             name, progress.get("tool_call_preview") or "", preparing=True)
         tool_line = t("🧰 <i>{detail} · generated ~{amount} chars</i>",
                       detail=detail, amount=amount)
+
     if text:
+        thought_block = _format_thought_box(
+            reasoning, open_box=False, duration=duration, elapsed_s=elapsed_s)
         if tool_line:
             suffix = "\n\n" + tool_line
         else:
             suffix = f"\n\n<i>{t('⏳ {sec}s without new tokens', sec=elapsed_s)}</i>" if elapsed_s >= 5 else ""
-        return {"role": "assistant", "content": text + cursor + suffix}
+        return {"role": "assistant", "content": thought_block + text + cursor + suffix}
+
+    if reasoning:
+        thought_block = _format_thought_box(
+            reasoning, open_box=True, duration=duration, elapsed_s=elapsed_s)
+        if tool_line:
+            return {"role": "assistant", "content": thought_block + tool_line + cursor}
+        return {"role": "assistant", "content": thought_block}
+
     if tool_line:
         return {"role": "assistant", "content": tool_line + cursor}
-    tail = reasoning[-200:].replace("\n", " ") if reasoning else ""
+
     head = t("💭 <i>thinking… ({sec}s)</i>", sec=elapsed_s)
-    return {"role": "assistant",
-            "content": (head + f" <small>{tail}</small>" if tail else head) + cursor}
+    return {"role": "assistant", "content": head + cursor}
 
 
 def _tool_progress_text(name: str, arguments, *, preparing: bool) -> str:
@@ -394,6 +429,8 @@ _HIDDEN_NOTE_PREFIXES = ("[TASK PROTOCOL", "[PROGRESS UPDATE", "[FINAL SUMMARY",
 
 def chat_view() -> list[dict]:
     """Převeď session messages do formátu gr.Chatbot (celá historie včetně komprimované části)."""
+    import html as _html
+    import re as _re
     from harness.agent import _PROTOCOL_MARKS
     hidden = tuple(_PROTOCOL_MARKS) + _HIDDEN_NOTE_PREFIXES[3:]
     out = []
@@ -405,26 +442,64 @@ def chat_view() -> list[dict]:
                                      "longer visible to the model (it works from a summary). Your "
                                      "history stays complete.")})
         role = m["role"]
-        if role == "system" or (role == "assistant" and not m.get("content")):
+        if role == "system":
             continue
-        if role == "user" and str(m.get("content", "")).startswith(hidden):
-            continue  # interní protokolové poznámky se v chatu nezobrazují
-        content = m.get("content") or ""
+
+        raw_content = m.get("content") or ""
+        reasoning = str(m.get("reasoning") or "").strip()
         imgs = m.get("images", [])
+
+        # Detekce a extrakce <think>...</think> z obsahu (např. ze starších zpráv)
+        if isinstance(raw_content, str) and "<think>" in raw_content and "</think>" in raw_content:
+            think_match = _re.search(r"<think>(.*?)</think>", raw_content, _re.DOTALL)
+            if think_match:
+                if not reasoning:
+                    reasoning = think_match.group(1).strip()
+                raw_content = _re.sub(r"<think>.*?</think>", "", raw_content, flags=_re.DOTALL).strip()
+
+        if role == "assistant" and not raw_content and not reasoning and not m.get("tool_calls"):
+            continue
+        if role == "user" and str(raw_content).startswith(hidden):
+            continue  # interní protokolové poznámky se v chatu nezobrazují
+
         if role == "tool":
             name = m.get("name", "tool")
-            short = content if len(content) <= 400 else content[:400] + " …"
-            out.append({"role": "assistant",
-                        "content": f"🔧 **{name}** → {short}"})
+            tool_content = str(raw_content).strip()
+            preview = tool_content[:90].replace("\n", " ") + ("…" if len(tool_content) > 90 else "")
+            escaped_preview = _html.escape(preview)
+            escaped_full = _html.escape(tool_content)
+            out.append({
+                "role": "assistant",
+                "content": (
+                    f'<details class="tool-box">\n'
+                    f'<summary class="tool-summary">🔧 <b>{_html.escape(name)}</b> '
+                    f'<span class="tool-badge">{t("completed")}</span> '
+                    f'<small class="tool-preview">{escaped_preview}</small></summary>\n'
+                    f'<pre class="tool-output"><code>{escaped_full}</code></pre>\n'
+                    f'</details>'
+                )
+            })
             continue
-        if role == "user" and imgs and content.startswith("[The following image"):
+
+        if role == "user" and imgs and str(raw_content).startswith("[The following image"):
             # zpráva s přiloženými obrázky od nástrojů
             out.append({"role": "assistant",
                         "content": t("🖼️ attached image: {name}", name=Path(imgs[-1]).name)})
             continue
-        msg: dict = {"role": role, "content": content or "…"}
+
+        rendered_content = str(raw_content) if raw_content else ""
+        if role == "assistant" and reasoning:
+            thought_html = (
+                f'<details class="thought-box">\n'
+                f'<summary class="thought-summary">💭 <span>{t("Thought")}</span></summary>\n'
+                f'<div class="thought-body">{_html.escape(reasoning)}</div>\n'
+                f'</details>\n\n'
+            )
+            rendered_content = thought_html + rendered_content
+
+        msg: dict = {"role": role, "content": rendered_content or "…"}
         if role == "user" and imgs:
-            msg["content"] = (content + "\n" if content else "") + t("🖼️ +{count} image(s)", count=len(imgs))
+            msg["content"] = (rendered_content + "\n" if rendered_content else "") + t("🖼️ +{count} image(s)", count=len(imgs))
         out.append(msg)
     return out
 
@@ -476,6 +551,8 @@ def _run_steps(history: list[dict], approve: bool | None = None):
     """
     import time as _time
 
+    state.abort.clear()
+    state.agent.abort_flag.clear()
     state.run_active.set()
     try:
         first = True
@@ -599,17 +676,184 @@ def _filter_images(paths: list[str]) -> list[str]:
     return images
 
 
+def _handle_slash_command(raw_text: str) -> tuple[bool, str | None]:
+    """Zpracuje lomítkový příkaz (/...).
+
+    Vrací:
+      (True, None)    -> vyřízeno lokálně v harnessu (bez volání LLM)
+      (False, prompt) -> transformováno do obohaceného promptu pro model
+      (False, None)   -> nerozpoznaný příkaz, poběží jako běžná zpráva
+    """
+    clean = raw_text.strip()
+    if not clean.startswith("/"):
+        return False, None
+
+    parts = clean.split(" ", 1)
+    cmd = parts[0].lower()
+    arg = parts[1].strip() if len(parts) > 1 else ""
+
+    if cmd == "/help":
+        help_md = (
+            "### 🛠️ Dostupné Slash příkazy\n\n"
+            "- **/compress** – Okamžitá komprese KV kontextu do souhrnu\n"
+            "- **/revert** – Vrácení souborů do stavu před úlohou (souborové undo)\n"
+            "- **/checkpoint [název]** – Vytvoření snapshotu stavu projektu\n"
+            "- **/search <dotaz>** – Rychlé FTS5 prohledání projektu s BM25 relevancí\n"
+            "- **/pin <cesta>** – Připnutí souboru do trvalého kontextu\n"
+            "- **/unpin <cesta>** – Odepnutí souboru z kontextu\n"
+            "- **/pins** – Seznam všech připnutých souborů\n"
+            "- **/test** – Spuštění testů a kontrol projektu\n"
+            "- **/plan <úloha>** – Vytvoření plánu před realizací\n"
+            "- **/review** – Zhodnocení posledních změn v projektu\n"
+            "- **/clear** – Začátek nové čisté konverzace\n"
+        )
+        state.session.add("user", clean)
+        state.session.add("assistant", help_md)
+        return True, None
+
+    if cmd == "/compress":
+        state.session.add("user", clean)
+        est = state.session.estimate_context_tokens()
+        rev_before = state.session.compression_rev
+        state.agent._maybe_compress(force=True)
+        if state.session.compression_rev > rev_before:
+            est2 = state.session.estimate_context_tokens()
+            msg = (
+                f"⚡ **Kontext byl úspěšně zkomprimován do souhrnu.** (~{est / 1000:.1f}k → ~{est2 / 1000:.1f}k tokenů)\n\n"
+                "Historie zůstává kompletní, model nyní pracuje z přehledného souhrnu."
+            )
+            state.session.add("assistant", msg)
+        else:
+            state.session.add("assistant", "ℹ️ **Kontext je příliš krátký pro kompresi** nebo nelze najít bezpečnou hranici.")
+        return True, None
+
+    if cmd in ("/revert", "/undo-task"):
+        state.session.add("user", clean)
+        journal = getattr(state.agent.ctx, "changes", None)
+        if journal:
+            res = journal.revert_last_task()
+            restored = res.get("restored", [])
+            errors = res.get("errors", [])
+            if restored:
+                file_list = "\n".join(f"- `{f}`" for f in restored)
+                msg = f"🔄 **Soubory projektu byly vráceny do stavu před úlohou:**\n{file_list}"
+            elif errors:
+                msg = "⚠️ **Některé soubory se nepodařilo obnovit:**\n" + "\n".join(f"- {e}" for e in errors)
+            else:
+                msg = "ℹ️ Nebyly nalezeny žádné změny v souborech k vrácení."
+        else:
+            msg = "❌ Change journal není k dispozici."
+        state.session.add("assistant", msg)
+        return True, None
+
+    if cmd == "/checkpoint":
+        label = arg or "manual"
+        journal = getattr(state.agent.ctx, "changes", None)
+        state.session.add("user", clean)
+        if journal:
+            tid = journal.create_checkpoint(label)
+            msg = f"💾 **Vytvořen záchytný bod projektu** (`{tid}`). Změny můžete kdykoliv vrátit pomocí `/revert`."
+        else:
+            msg = "❌ Change journal není k dispozici."
+        state.session.add("assistant", msg)
+        return True, None
+
+    if cmd == "/search":
+        state.session.add("user", clean)
+        if not arg:
+            state.session.add("assistant", "⚠️ Zadejte hledaný dotaz: `/search <klíčová slova>`")
+            return True, None
+        from harness.tools.search import SearchProjectTool
+        tool = SearchProjectTool()
+        results = tool.run(state.agent.ctx, arg)
+        state.session.add("assistant", results)
+        return True, None
+
+    if cmd == "/pin":
+        state.session.add("user", clean)
+        if not arg:
+            state.session.add("assistant", "⚠️ Zadejte cestu k souboru: `/pin <cesta_k_souboru>`")
+            return True, None
+        p = state.agent.ctx.resolve(arg)
+        if not p.is_file():
+            state.session.add("assistant", f"❌ Soubor nebyl nalezen: `{p}`")
+            return True, None
+        ok = state.session.pin_context_file(p)
+        if ok:
+            state.session.add("assistant", f"📌 **Soubor `{p.name}` byl připnut do trvalého kontextu.**")
+        else:
+            state.session.add("assistant", f"ℹ️ Soubor `{p.name}` již je připnutý.")
+        return True, None
+
+    if cmd == "/unpin":
+        state.session.add("user", clean)
+        if not arg:
+            state.session.add("assistant", "⚠️ Zadejte název nebo cestu souboru: `/unpin <cesta>`")
+            return True, None
+        ok = state.session.unpin_context_file(arg)
+        if ok:
+            state.session.add("assistant", f"🔓 **Soubor `{arg}` byl odepnut z trvalého kontextu.**")
+        else:
+            state.session.add("assistant", f"ℹ️ Soubor `{arg}` nebyl nalezen mezi připnutými.")
+        return True, None
+
+    if cmd == "/pins":
+        state.session.add("user", clean)
+        pins = state.session.meta.get("pinned_files") or []
+        if pins:
+            lines = "\n".join(f"- `{Path(p).name}` (`{p}`)" for p in pins)
+            state.session.add("assistant", f"📌 **Aktuálně připnuté soubory v kontextu:**\n\n{lines}")
+        else:
+            state.session.add("assistant", "ℹ️ V tomto chatu nejsou žádné připnuté soubory. Můžete soubor připnout pomocí `/pin <cesta>`.")
+        return True, None
+
+    if cmd in ("/clear", "/new"):
+        state.new_session()
+        return True, None
+
+    if cmd in ("/test", "/check"):
+        prompt = "Spusť projektové kontroly a testy (project check) a vyhodnoť výsledky."
+        if arg:
+            prompt += f" Zaměř se na: {arg}"
+        return False, prompt
+
+    if cmd == "/review":
+        prompt = "Zkontroluj poslední změny v projektu (git status / git diff), zhodnoť kvalitu kódu a navrhni případné opravy."
+        if arg:
+            prompt += f" Kontext k recenzi: {arg}"
+        return False, prompt
+
+    if cmd == "/plan":
+        task = arg or "následující kroky v projektu"
+        prompt = f"[Vytvoř nejdříve podrobný implementační plán před jakýmikoliv úpravami kódu]\n\nÚloha: {task}"
+        return False, prompt
+
+    return False, None
+
+
 def prepare_submission(message: str, files):
     """Immediately clear the composer and route the message to run or steering."""
     text = (message or "").strip()
     paths = [str(path) for path in (files or [])]
     if not text and not paths:
         return {"kind": "ignore"}, gr.update(), gr.update(value=""), gr.update(value=None)
+
+    # ---------------- SLASH COMMANDS ----------------
+    if text.startswith("/"):
+        handled, transformed_prompt = _handle_slash_command(text)
+        if handled:
+            state.run_active.clear()
+            return {"kind": "command"}, chat_view(), gr.update(value=""), gr.update(value=None)
+        elif transformed_prompt:
+            text = transformed_prompt
+
     kind = state.claim_submission(text, paths)
     if kind == "steer":
         gr.Info(t("Clarification received — finishing the current sentence and redirecting the running task."))
         return {"kind": kind}, gr.update(), gr.update(value=""), gr.update(value=None)
     try:
+        state.abort.clear()
+        state.agent.abort_flag.clear()
         cfg.data["thinking"] = state.thinking
         state.suppress_active_entry = False
         images = [Path(path) for path in _filter_images(paths)]
@@ -655,6 +899,8 @@ def send_message(message: str, files, _browser_history: list[dict]):
 def confirm(approve: bool, history: list[dict]):
     """Reakce na tlačítka Povolit/Zamítnout."""
     try:
+        state.abort.clear()
+        state.agent.abort_flag.clear()
         history = chat_view()
         if not state.agent._pending:
             # není co potvrzovat (např. po dvojkliku) - jen zavři panel
@@ -691,6 +937,8 @@ def stop_run(_history: list[dict]):
 
 
 def retry_last_answer():
+    state.abort.clear()
+    state.agent.abort_flag.clear()
     prompt = state.session.rewind_last_turn(keep_user=True)
     if prompt is None:
         gr.Warning(t("No prompt in this chat to retry."))
@@ -2002,12 +2250,17 @@ def undo_current_task():
     if journal is None:
         gr.Warning(t("Restore point is not available."))
         return refresh_task_changes()
-    result = journal.undo()
+    result = journal.revert_last_task()
     if result.get("errors"):
         gr.Warning(t("Some files could not be restored: {errors}",
                      errors="; ".join(result["errors"])))
     elif result.get("restored"):
         gr.Info(t("Restored {count} files to their pre-task state.", count=len(result["restored"])))
+        state.session.add(
+            "assistant",
+            f"🔄 **Soubory projektu byly vráceny do stavu před úlohou:**\n"
+            + "\n".join(f"- `{f}`" for f in result["restored"])
+        )
     else:
         gr.Info(t("No changes to revert in this task."))
     return refresh_task_changes()
@@ -2400,6 +2653,288 @@ button.primary:hover { filter: brightness(1.12) !important; }
 /* blikající kurzor */
 @keyframes qwen-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 .blink-cursor { animation: qwen-blink 1s step-end infinite; }
+
+/* ===== ANTIGRAVITY-STYLE THOUGHT BOX ===== */
+.thought-box {
+  margin: 6px 0 10px 0 !important;
+  border-radius: 8px !important;
+  background: rgba(22, 27, 34, 0.85) !important;
+  border: 1px solid #30363d !important;
+  border-left: 3px solid #2dd4bf !important;
+  overflow: hidden !important;
+}
+.thought-box summary.thought-summary {
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: #8b949e !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  background: rgba(33, 38, 45, 0.45) !important;
+}
+.thought-box summary.thought-summary:hover {
+  color: #2dd4bf !important;
+  background: rgba(33, 38, 45, 0.8) !important;
+}
+.thought-box[open] summary.thought-summary {
+  border-bottom: 1px solid #21262d !important;
+  color: #2dd4bf !important;
+}
+.thought-box .thought-timer {
+  font-size: 11px !important;
+  color: #7ee787 !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+}
+.thought-box .thought-body {
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  line-height: 1.55 !important;
+  color: #c9d1d9 !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  white-space: pre-wrap !important;
+  max-height: 420px !important;
+  overflow-y: auto !important;
+}
+
+/* ===== ANTIGRAVITY-STYLE TOOL BOX ===== */
+.tool-box {
+  margin: 6px 0 8px 0 !important;
+  border-radius: 7px !important;
+  background: #0d1117 !important;
+  border: 1px solid #28323f !important;
+  overflow: hidden !important;
+}
+.tool-box summary.tool-summary {
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  color: #c9d1d9 !important;
+  cursor: pointer !important;
+  user-select: none !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  background: #161c24 !important;
+}
+.tool-box summary.tool-summary:hover {
+  background: #1c2430 !important;
+  border-color: #388bfd !important;
+}
+.tool-box[open] summary.tool-summary {
+  border-bottom: 1px solid #28323f !important;
+}
+.tool-box .tool-badge {
+  font-size: 10px !important;
+  padding: 1px 6px !important;
+  border-radius: 4px !important;
+  background: #1b3527 !important;
+  color: #7ee787 !important;
+  font-weight: 500 !important;
+}
+.tool-box .tool-preview {
+  color: #8b949e !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  margin-left: auto !important;
+  max-width: 380px !important;
+}
+.tool-box .tool-output {
+  margin: 0 !important;
+  padding: 8px 12px !important;
+  background: #090d13 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  max-height: 300px !important;
+  overflow-y: auto !important;
+}
+.tool-box .tool-output code {
+  color: #a5d6ff !important;
+  font-size: 11.5px !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  white-space: pre-wrap !important;
+}
+
+/* ===== SLASH AUTOCOMPLETE MENU ===== */
+.slash-autocomplete-menu {
+  position: fixed !important;
+  z-index: 99999 !important;
+  background: #161b22 !important;
+  border: 1px solid #30363d !important;
+  border-radius: 8px !important;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.7) !important;
+  max-height: 280px !important;
+  overflow-y: auto !important;
+  font-family: inherit !important;
+}
+.slash-autocomplete-item {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 8px 12px !important;
+  cursor: pointer !important;
+  border-bottom: 1px solid #21262d !important;
+  font-size: 12.5px !important;
+  transition: background 0.15s ease !important;
+}
+.slash-autocomplete-item:last-child {
+  border-bottom: none !important;
+}
+.slash-autocomplete-item b {
+  color: #2dd4bf !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+}
+.slash-autocomplete-item span {
+  color: #8b949e !important;
+  font-size: 11.5px !important;
+  margin-left: 12px !important;
+}
+.slash-autocomplete-item:hover, .slash-autocomplete-item.active {
+  background: #1f2937 !important;
+}
+.slash-autocomplete-item.active b {
+  color: #38bdf8 !important;
+}
+"""
+
+SLASH_POPUP_HTML = """
+<div id="slash-menu" class="slash-autocomplete-menu" style="display: none;"></div>
+<script>
+(function() {
+  const COMMANDS = [
+    { cmd: "/compress", label: "/compress", desc: "Komprese KV kontextu do souhrnu" },
+    { cmd: "/revert", label: "/revert", desc: "Vrátit soubory do stavu před úlohou" },
+    { cmd: "/checkpoint", label: "/checkpoint [název]", desc: "Vytvořit snapshot projektu" },
+    { cmd: "/search", label: "/search <dotaz>", desc: "Rychlé FTS5 prohledání projektu" },
+    { cmd: "/pin", label: "/pin <cesta>", desc: "Připnout soubor do trvalého kontextu" },
+    { cmd: "/unpin", label: "/unpin <cesta>", desc: "Odepnout soubor z kontextu" },
+    { cmd: "/pins", label: "/pins", desc: "Zobrazit všechny připnuté soubory" },
+    { cmd: "/test", label: "/test", desc: "Spustit projektové testy a kontroly" },
+    { cmd: "/plan", label: "/plan <úloha>", desc: "Vytvořit plán před realizací" },
+    { cmd: "/review", label: "/review", desc: "Zkontrolovat poslední změny v projektu" },
+    { cmd: "/clear", label: "/clear", desc: "Vyčistit chat a začít novou relaci" },
+    { cmd: "/help", label: "/help", desc: "Zobrazit nápovědu ke všem příkazům" }
+  ];
+
+  let activeIndex = 0;
+  let currentMatches = [];
+
+  function getMsgTextarea() {
+    const el = document.getElementById("msg-in");
+    return el ? el.querySelector("textarea") : null;
+  }
+
+  function getMenu() {
+    let menu = document.getElementById("slash-menu");
+    if (!menu) {
+      menu = document.createElement("div");
+      menu.id = "slash-menu";
+      menu.className = "slash-autocomplete-menu";
+      document.body.appendChild(menu);
+    }
+    return menu;
+  }
+
+  function hideMenu() {
+    const menu = getMenu();
+    menu.style.display = "none";
+    currentMatches = [];
+  }
+
+  function positionMenu(ta, menu) {
+    const rect = ta.getBoundingClientRect();
+    menu.style.left = rect.left + "px";
+    menu.style.width = Math.min(rect.width, 520) + "px";
+    menu.style.bottom = (window.innerHeight - rect.top + 6) + "px";
+    menu.style.top = "auto";
+  }
+
+  function selectCommand(cmd) {
+    const ta = getMsgTextarea();
+    if (!ta) return;
+    ta.value = cmd + " ";
+    ta.focus();
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+    hideMenu();
+  }
+
+  function renderMenu(matches, ta) {
+    const menu = getMenu();
+    if (!matches.length) {
+      hideMenu();
+      return;
+    }
+    currentMatches = matches;
+    if (activeIndex >= matches.length) activeIndex = 0;
+    if (activeIndex < 0) activeIndex = matches.length - 1;
+
+    positionMenu(ta, menu);
+    menu.innerHTML = "";
+    matches.forEach((item, idx) => {
+      const row = document.createElement("div");
+      row.className = "slash-autocomplete-item" + (idx === activeIndex ? " active" : "");
+      row.innerHTML = "<b>" + item.label + "</b><span>" + item.desc + "</span>";
+      row.addEventListener("mousedown", function(e) {
+        e.preventDefault();
+        selectCommand(item.cmd);
+      });
+      menu.appendChild(row);
+    });
+    menu.style.display = "block";
+  }
+
+  function setupListener() {
+    const ta = getMsgTextarea();
+    if (!ta || ta._slash_bound) return;
+    ta._slash_bound = true;
+
+    ta.addEventListener("input", function() {
+      const val = ta.value;
+      if (val.startsWith("/")) {
+        const query = val.split(" ")[0].toLowerCase();
+        const matches = COMMANDS.filter(c => c.cmd.startsWith(query));
+        activeIndex = 0;
+        renderMenu(matches, ta);
+      } else {
+        hideMenu();
+      }
+    });
+
+    ta.addEventListener("keydown", function(e) {
+      const menu = getMenu();
+      if (menu.style.display === "none" || !currentMatches.length) return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        activeIndex = (activeIndex + 1) % currentMatches.length;
+        renderMenu(currentMatches, ta);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        activeIndex = (activeIndex - 1 + currentMatches.length) % currentMatches.length;
+        renderMenu(currentMatches, ta);
+      } else if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        if (currentMatches[activeIndex]) {
+          e.preventDefault();
+          e.stopPropagation();
+          selectCommand(currentMatches[activeIndex].cmd);
+        }
+      } else if (e.key === "Escape") {
+        hideMenu();
+      }
+    });
+
+    ta.addEventListener("blur", function() {
+      setTimeout(hideMenu, 200);
+    });
+  }
+
+  setInterval(setupListener, 800);
+  document.addEventListener("DOMContentLoaded", setupListener);
+})();
+</script>
 """
 
 
@@ -2647,8 +3182,9 @@ def build_ui() -> gr.Blocks:
 
             # ================= HLAVNÍ CHAT =================
             with gr.Column(scale=5, elem_id="main"):
+                gr.HTML(SLASH_POPUP_HTML, visible=False)
                 chat = gr.Chatbot(value=chat_view(), show_label=False, height=560,
-                                  render_markdown=True, elem_id="main-chat")
+                                  render_markdown=True, elem_id="main-chat", buttons=["copy"])
                 with gr.Row(elem_id="composer-layout", elem_classes=["gap"]):
                     with gr.Column(scale=6, min_width=0, elem_id="prompt-column"):
                         msg_in = gr.Textbox(
@@ -2993,6 +3529,7 @@ if __name__ == "__main__":
                     server_name=host,
                     server_port=port,
                     css=CUSTOM_CSS,
+                    head=SLASH_POPUP_HTML,
                     show_error=True,  # detail chyb při ladění (jen localhost)
                     inbrowser=not browser_opened and not os.environ.get("QWEN_NO_BROWSER"),
                     allowed_paths=[str(cfg.path("paths.sessions_dir"))],
