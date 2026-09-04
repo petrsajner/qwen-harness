@@ -2373,7 +2373,7 @@ def test_clickable_skills_and_clipboard_images():
         last_user = user_views[-1]
         check("chat-attached-gallery" in last_user["content"], "chat_view obsahuje galerii miniatur chat-attached-gallery")
         check("chat-msg-thumb" in last_user["content"], "chat_view obsahuje miniatury chat-msg-thumb")
-        check("/file=" in last_user["content"], "chat_view miniatury odkazují na /file= URL pro zobrazení")
+        check("/gradio_api/file=" in last_user["content"], "chat_view miniatury odkazují na /gradio_api/file= URL pro zobrazení")
     finally:
         webapp.state.session = orig_sess
         webapp.state.agent.session = orig_sess

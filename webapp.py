@@ -25,6 +25,28 @@ if sys.stdout is None or sys.stderr is None:
 
 import gradio as gr
 
+# Gradio 6 přestěhovalo souborové API pod /gradio_api/file=
+# Zpětná kompatibilita pro /file= (přesměrování na /gradio_api/file=)
+try:
+    import gradio.routes as _gr_routes
+    from starlette.responses import RedirectResponse as _RedirectResponse
+
+    _orig_create_app = _gr_routes.App.create_app
+
+    def _patched_create_app(*args, **kwargs):
+        app = _orig_create_app(*args, **kwargs)
+
+        @app.head("/file={path_or_url:path}")
+        @app.get("/file={path_or_url:path}")
+        async def _legacy_file(path_or_url: str):
+            return _RedirectResponse(f"/gradio_api/file={path_or_url}")
+
+        return app
+
+    _gr_routes.App.create_app = _patched_create_app
+except Exception:
+    pass
+
 from harness.agent import Agent, Status, build_registry
 from harness.browser import BrowserSession
 from harness.config import load_config
@@ -421,6 +443,25 @@ def _live_token_estimate() -> int:
 
 state = AppState()
 
+# Zajistit, aby demo.launch() vždy mělo v allowed_paths sessions_dir i workspace
+_orig_blocks_launch = gr.Blocks.launch
+
+def _patched_blocks_launch(self, *args, **kwargs):
+    user_allowed = list(kwargs.get("allowed_paths") or [])
+    defaults = []
+    try:
+        defaults.append(str(cfg.path("paths.sessions_dir")))
+    except Exception:
+        pass
+    try:
+        defaults.append(str(state.workspace))
+    except Exception:
+        pass
+    kwargs["allowed_paths"] = list(dict.fromkeys(user_allowed + defaults))
+    return _orig_blocks_launch(self, *args, **kwargs)
+
+gr.Blocks.launch = _patched_blocks_launch
+
 
 # ------------------------------------------------------------- render helpers
 _HIDDEN_NOTE_PREFIXES = ("[TASK PROTOCOL", "[PROGRESS UPDATE", "[FINAL SUMMARY",
@@ -503,11 +544,12 @@ def chat_view() -> list[dict]:
             for img_p in imgs:
                 try:
                     p_obj = Path(img_p)
-                    posix_p = p_obj.as_posix()
+                    import urllib.parse as _urlparse
+                    posix_p = _urlparse.quote(p_obj.as_posix(), safe="/:")
                     fname = _html.escape(p_obj.name)
                     thumbs.append(
-                        f'<a href="/file={posix_p}" target="_blank" title="{fname}" class="chat-msg-thumb-link">'
-                        f'<img src="/file={posix_p}" class="chat-msg-thumb" alt="{fname}" />'
+                        f'<a href="/gradio_api/file={posix_p}" target="_blank" title="{fname}" class="chat-msg-thumb-link">'
+                        f'<img src="/gradio_api/file={posix_p}" class="chat-msg-thumb" alt="{fname}" />'
                         f'</a>'
                     )
                 except Exception:
@@ -4147,7 +4189,7 @@ if __name__ == "__main__":
                     css=CUSTOM_CSS,
                     show_error=True,  # detail chyb při ladění (jen localhost)
                     inbrowser=not browser_opened and not os.environ.get("QWEN_NO_BROWSER"),
-                    allowed_paths=[str(cfg.path("paths.sessions_dir"))],
+                    allowed_paths=[str(cfg.path("paths.sessions_dir")), str(state.workspace)],
                 )
                 break
             except OSError:
