@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.5.2",
-          "viditelná verze aplikace odpovídá instalátoru 1.5.2")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.5.3",
+          "viditelná verze aplikace odpovídá instalátoru 1.5.3")
     invariants = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     check(all(item in invariants for item in (
         "Language servers or an LSP runtime/distribution layer",
@@ -2359,7 +2359,7 @@ def test_clickable_skills_and_clipboard_images():
     webapp.state.session = test_sess
     webapp.state.agent.session = test_sess
     try:
-        sub_res, _, msg_up, files_up, pasted_up = webapp.prepare_submission("Analyzuj tyto 2 snimky", [], pasted_json)
+        sub_res, _, msg_up, pasted_up = webapp.prepare_submission("Analyzuj tyto 2 snimky", pasted_json)
         check(sub_res.get("kind") == "run", "prepare_submission zahájí běh pro prompt s obrázky ze schránky")
         check(pasted_up.get("value") == "[]", "prepare_submission vyčistí skryté pole pro vložené obrázky")
         user_img_msgs = [m for m in test_sess.messages if m.get("images")]

@@ -916,16 +916,16 @@ def _handle_slash_command(raw_text: str) -> tuple[bool, str | None]:
     return False, None
 
 
-def prepare_submission(message: str, files, pasted_images_json: str = "[]"):
+def prepare_submission(message: str, pasted_images_json: str = "[]"):
     """Immediately clear the composer and route the message to run or steering."""
     import base64 as _base64
     import json as _json
     import uuid as _uuid
 
     text = (message or "").strip()
-    paths = [str(path) for path in (files or [])]
+    paths: list[str] = []
 
-    # Zpracování obrázků vložených ze schránky
+    # Zpracování obrázků vložených ze schránky nebo přetažených souborů
     if pasted_images_json:
         try:
             items = _json.loads(pasted_images_json)
@@ -953,21 +953,21 @@ def prepare_submission(message: str, files, pasted_images_json: str = "[]"):
             gr.Warning(f"Error processing pasted image: {e}")
 
     if not text and not paths:
-        return {"kind": "ignore"}, gr.update(), gr.update(value=""), gr.update(value=None), gr.update(value="[]")
+        return {"kind": "ignore"}, gr.update(), gr.update(value=""), gr.update(value="[]")
 
     # ---------------- SLASH COMMANDS ----------------
     if text.startswith("/"):
         handled, transformed_prompt = _handle_slash_command(text)
         if handled:
             state.run_active.clear()
-            return {"kind": "command"}, chat_view(), gr.update(value=""), gr.update(value=None), gr.update(value="[]")
+            return {"kind": "command"}, chat_view(), gr.update(value=""), gr.update(value="[]")
         elif transformed_prompt:
             text = transformed_prompt
 
     kind = state.claim_submission(text, paths)
     if kind == "steer":
         gr.Info(t("Clarification received — finishing the current sentence and redirecting the running task."))
-        return {"kind": kind}, gr.update(), gr.update(value=""), gr.update(value=None), gr.update(value="[]")
+        return {"kind": kind}, gr.update(), gr.update(value=""), gr.update(value="[]")
     try:
         state.abort.clear()
         state.agent.abort_flag.clear()
@@ -975,7 +975,7 @@ def prepare_submission(message: str, files, pasted_images_json: str = "[]"):
         state.suppress_active_entry = False
         images = [Path(path) for path in _filter_images(paths)]
         state.agent.new_task(text or "Please analyze the attached image(s).", images=images)
-        return {"kind": kind}, chat_view(), gr.update(value=""), gr.update(value=None), gr.update(value="[]")
+        return {"kind": kind}, chat_view(), gr.update(value=""), gr.update(value="[]")
     except Exception:
         state.run_active.clear()
         raise
@@ -2601,15 +2601,40 @@ def change_language(value: str):
 # ------------------------------------------------------------- UI
 CUSTOM_CSS = """
 /* === PROFESIONÁLNÍ DARK THEME (gradio .dark + akcenty) == */
-html, body, gradio-app, .gradio-container {
+html, body {
+  height: 100vh !important;
+  max-height: 100vh !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
   background: #0b0e14 !important;
 }
-body { background: #0b0e14 !important; }
+gradio-app, .gradio-container {
+  background: #0b0e14 !important;
+}
 .gradio-container {
   width: 100% !important;
-  max-width: 1600px !important; margin: 0 auto !important;
+  max-width: 1600px !important;
+  margin: 0 auto !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  overflow: hidden !important;
+  padding: 6px 12px 2px 12px !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  flex-direction: column !important;
   font-family: 'Segoe UI Variable Text','Segoe UI','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji',system-ui,sans-serif !important;
   color-scheme: dark !important;
+}
+footer, .gradio-container > footer {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 /* povrchy do tmavé škály */
 .dark, .gradio-container.dark { color-scheme: dark !important; }
@@ -2648,7 +2673,14 @@ button.primary:hover { filter: brightness(1.12) !important; }
 #btn-proj-attach button::before { content:"📂"; font-size:16px; }
 
 /* chat - inverzní: user vpravo (modrý), asistent vlevo (tmavý) */
-#main-chat { height: calc(100vh - 248px) !important; min-height: 340px !important; border-radius: 12px !important; }
+#main-chat {
+  flex: 1 1 0 !important;
+  height: 0 !important;
+  min-height: 180px !important;
+  max-height: none !important;
+  border-radius: 12px !important;
+  overflow-y: auto !important;
+}
 #main-chat .user-row, #main-chat [class*="user"] { justify-content: flex-end !important; }
 #main-chat .bot-row, #main-chat [class*="bot"] { justify-content: flex-start !important; }
 #main-chat .message { border-radius: 14px !important; padding: 10px 14px !important; }
@@ -2662,30 +2694,37 @@ button.primary:hover { filter: brightness(1.12) !important; }
   border: 1px solid #30363d !important;
 }
 /* vstup */
-#composer-layout { align-items: stretch !important; flex-wrap: nowrap !important; gap: 8px !important; }
+#composer-layout {
+  flex: 0 0 auto !important;
+  align-items: stretch !important;
+  flex-wrap: nowrap !important;
+  gap: 8px !important;
+  margin-top: 2px !important;
+}
 #prompt-column, #composer-side { gap: 6px !important; min-width: 0 !important; }
-#composer-side { flex: 0 0 150px !important; max-width: 150px !important; }
-#msg-in textarea { min-height: 72px !important; max-height: 132px !important; border-radius: 8px !important; }
+#composer-side { flex: 0 0 130px !important; max-width: 130px !important; }
+#msg-in textarea { min-height: 68px !important; max-height: 120px !important; border-radius: 8px !important; }
 #prompt-actions { width: 100% !important; gap: 6px !important; }
-#prompt-actions button { min-height: 32px !important; height: 32px !important;
+#prompt-actions button { min-height: 30px !important; height: 30px !important;
   padding: 4px 8px !important; border-radius: 6px !important; font-size: 12px !important; }
 .prompt-action { min-width: 0 !important; flex: 1 1 0 !important; width: 0 !important; }
 #composer-side button { min-height: 32px !important; height: 32px !important;
   padding: 4px 7px !important; border-radius: 6px !important; font-size: 12px !important; }
-#files-in { height: 42px !important; min-height: 42px !important; max-height: 42px !important;
-  overflow: hidden !important; border: 1px dashed #3c5162 !important;
-  border-radius: 6px !important; background: #0e151d !important; }
-#files-in > div, #files-in .wrap, #files-in [data-testid="file"] {
-  min-height: 38px !important; height: 38px !important; padding: 2px 5px !important;
-  font-size: 11px !important; overflow: hidden !important; }
-#files-in .or, #files-in [class*="or"] { display: none !important; }
-#files-in button { min-height: 28px !important; height: 28px !important; padding: 2px 5px !important;
-  font-size: 0 !important; color: transparent !important; }
-#files-in button * { display: none !important; }
-#files-in button::after { content: "＋"; font-size: 13px !important;
-  color: #c9d7e3 !important; font-weight: 600 !important; }
+.hidden-pasted-input, #pasted-images-in {
+  opacity: 0 !important;
+  position: absolute !important;
+  width: 0 !important;
+  height: 0 !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+}
 @media (max-width: 760px) {
-  #composer-side { flex-basis: 132px !important; max-width: 132px !important; }
+  #composer-side { flex-basis: 120px !important; max-width: 120px !important; }
   #prompt-actions button { font-size: 11px !important; padding: 3px 5px !important; }
 }
 /* historie - tabulka */
@@ -2702,16 +2741,29 @@ button.primary:hover { filter: brightness(1.12) !important; }
 ::-webkit-scrollbar-thumb { background: #30363d !important; border-radius: 6px; }
 ::-webkit-scrollbar-track { background: transparent !important; }
 /* ===== LAYOUT: sidebar + hlavní chat (styl ZCode/Codex) ===== */
-#app-row { gap: 10px !important; align-items: stretch !important; flex-wrap: nowrap !important; }
+#app-row {
+  height: 100% !important; max-height: 100% !important;
+  overflow: hidden !important; gap: 10px !important;
+  align-items: stretch !important; flex-wrap: nowrap !important;
+  flex: 1 1 auto !important; min-height: 0 !important;
+}
 #sidebar > * { flex-shrink: 0 !important; }
 #sidebar {
   min-width: 332px !important; max-width: 332px !important;
   background: #10141b !important; border: 1px solid #21262d !important;
   border-radius: 14px !important; padding: 14px 12px !important;
-  height: calc(100vh - 40px) !important; overflow-y: auto !important;
-  flex-wrap: nowrap !important;   /* jinak Gradio balí přebytecne potomky do sloupcu vedle sebe */
+  height: 100% !important; max-height: 100% !important;
+  overflow-y: auto !important; overflow-x: hidden !important;
+  flex-wrap: nowrap !important;
+  box-sizing: border-box !important;
 }
-#main { flex: 1 1 0 !important; min-width: 0 !important; }
+#main {
+  flex: 1 1 0 !important; min-width: 0 !important;
+  height: 100% !important; max-height: 100% !important;
+  display: flex !important; flex-direction: column !important;
+  overflow: hidden !important; box-sizing: border-box !important;
+  gap: 4px !important;
+}
 #main-chat { width: 100% !important; max-width: 100% !important; }
 #main-chat img { max-width: 100% !important; height: auto !important; }
 .side-title { margin-bottom: 2px !important; }
@@ -2811,8 +2863,7 @@ button.primary:hover { filter: brightness(1.12) !important; }
   font-size: 12.5px !important; }
 #chats-radio label:hover, #noproj-radio label:hover { background: #1c2430 !important; }
 #chats-radio label.selected, #noproj-radio label.selected { background: #14323c !important; border: 1px solid #2dd4bf55 !important; }
-#main-chat { height: calc(100vh - 234px) !important; min-height: 340px !important; border-radius: 12px !important; }
-#footer-hint { margin-top: 4px !important; }
+#footer-hint { margin-top: 2px !important; line-height: 1.2 !important; }
 /* blikající kurzor */
 @keyframes qwen-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 .blink-cursor { animation: qwen-blink 1s step-end infinite; }
@@ -3144,6 +3195,7 @@ def build_ui() -> gr.Blocks:
         for key, model in cfg.data["models"].items()
     ]
     with gr.Blocks(title=f"Marvin v{APP_VERSION}") as ui:
+        gr.HTML(f"<style>{CUSTOM_CSS}</style>")
         with gr.Row(elem_id="app-row", elem_classes=["gap"]):
             # ================= LEVÝ SIDEBAR =================
             with gr.Column(scale=0, elem_id="sidebar"):
@@ -3385,7 +3437,7 @@ def build_ui() -> gr.Blocks:
 
             # ================= HLAVNÍ CHAT =================
             with gr.Column(scale=5, elem_id="main"):
-                chat = gr.Chatbot(value=chat_view(), show_label=False, height=560,
+                chat = gr.Chatbot(value=chat_view(), show_label=False,
                                   render_markdown=True, elem_id="main-chat", buttons=["copy"])
                 with gr.Row(elem_id="composer-layout", elem_classes=["gap"]):
                     with gr.Column(scale=6, min_width=0, elem_id="prompt-column"):
@@ -3393,7 +3445,8 @@ def build_ui() -> gr.Blocks:
                             '<div id="pasted-images-preview" class="pasted-images-container" style="display:none;"></div>'
                         )
                         pasted_images_in = gr.Textbox(
-                            value="[]", visible=False, elem_id="pasted-images-in"
+                            value="[]", container=False, show_label=False,
+                            elem_id="pasted-images-in", elem_classes=["hidden-pasted-input"]
                         )
                         msg_in = gr.Textbox(
                             placeholder=t("Type a message…  (Enter / Ctrl+Enter = send, Shift+Enter = new line)"),
@@ -3406,16 +3459,15 @@ def build_ui() -> gr.Blocks:
                                 t("Undo"), size="sm", scale=1, elem_classes=["prompt-action"])
                             btn_fork = gr.Button(
                                 t("Fork"), size="sm", scale=1, elem_classes=["prompt-action"])
-                    with gr.Column(scale=1, min_width=150, elem_id="composer-side"):
+                            btn_attach = gr.Button(
+                                "📎 " + t("Attach"), size="sm", scale=1, elem_id="btn-attach-prompt",
+                                elem_classes=["prompt-action"])
+                    with gr.Column(scale=1, min_width=120, elem_id="composer-side"):
                         with gr.Row(elem_classes=["gap"]):
                             btn_send = gr.Button(
                                 t("Send"), variant="primary", size="sm", scale=1,
                                 elem_id="btn-send")
                             btn_stop_run = gr.Button("Stop", size="sm", scale=1)
-                        files_in = gr.File(
-                            label=None, show_label=False, container=False,
-                            file_count="multiple", file_types=["image"], type="filepath",
-                            elem_id="files-in")
                 submission_state = gr.State({})
                 with gr.Row(visible=False) as confirm_row:
                     gr.Markdown(t("⚠️ **Agent is waiting for action confirmation**"), scale=3)
@@ -3529,15 +3581,15 @@ def build_ui() -> gr.Blocks:
 
         # chat zprávy
         btn_send.click(
-            prepare_submission, [msg_in, files_in, pasted_images_in],
-            [submission_state, chat, msg_in, files_in, pasted_images_in], queue=False)\
+            prepare_submission, [msg_in, pasted_images_in],
+            [submission_state, chat, msg_in, pasted_images_in], queue=False)\
             .then(run_prepared_submission, [submission_state, chat],
                   [chat, confirm_row, status_box], queue=True,
                   concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         msg_in.submit(
-            prepare_submission, [msg_in, files_in, pasted_images_in],
-            [submission_state, chat, msg_in, files_in, pasted_images_in], queue=False)\
+            prepare_submission, [msg_in, pasted_images_in],
+            [submission_state, chat, msg_in, pasted_images_in], queue=False)\
             .then(run_prepared_submission, [submission_state, chat],
                   [chat, confirm_row, status_box], queue=True,
                   concurrency_id="chat-run", concurrency_limit=1)\
@@ -3817,12 +3869,13 @@ def build_ui() -> gr.Blocks:
             const hiddenBox = document.getElementById("pasted-images-in");
             const ta = hiddenBox ? (hiddenBox.querySelector("textarea") || hiddenBox.querySelector("input")) : null;
             if (ta) {
-              ta.value = JSON.stringify(window._pastedImages);
+              ta.value = JSON.stringify(window._pastedImages || []);
               ta.dispatchEvent(new Event("input", { bubbles: true }));
               ta.dispatchEvent(new Event("change", { bubbles: true }));
             }
             renderPastedPreviews();
           }
+          window.syncPastedImages = syncPastedImages;
 
           function renderPastedPreviews() {
             let container = document.getElementById("pasted-images-preview");
@@ -3881,6 +3934,8 @@ def build_ui() -> gr.Blocks:
             reader.readAsDataURL(file);
           }
 
+          window.addImageFile = addImageFile;
+
           window.addEventListener("paste", function(e) {
             const cd = e.clipboardData || (e.originalEvent && e.originalEvent.clipboardData);
             if (!cd || !cd.items) return;
@@ -3929,15 +3984,68 @@ def build_ui() -> gr.Blocks:
           setupDragDrop();
           setTimeout(setupDragDrop, 1500);
 
-          function checkPastedReset() {
-            const hiddenBox = document.getElementById("pasted-images-in");
-            const ta = hiddenBox ? (hiddenBox.querySelector("textarea") || hiddenBox.querySelector("input")) : null;
-            if (ta && ta.value === "[]" && window._pastedImages && window._pastedImages.length > 0) {
+          // Hidden file picker pro tlačítko Attach
+          let filePicker = document.getElementById("hidden-file-picker");
+          if (!filePicker) {
+            filePicker = document.createElement("input");
+            filePicker.type = "file";
+            filePicker.id = "hidden-file-picker";
+            filePicker.accept = "image/*";
+            filePicker.multiple = true;
+            filePicker.style.display = "none";
+            document.body.appendChild(filePicker);
+            filePicker.addEventListener("change", function() {
+              if (filePicker.files && filePicker.files.length) {
+                for (let i = 0; i < filePicker.files.length; i++) {
+                  addImageFile(filePicker.files[i]);
+                }
+                filePicker.value = "";
+              }
+            });
+          }
+
+          document.addEventListener("click", function(e) {
+            const attachBtn = e.target.closest("#btn-attach-prompt");
+            if (attachBtn) {
+              e.preventDefault();
+              if (filePicker) filePicker.click();
+            }
+          });
+
+          // Vyčištění lokálních miniatur po odeslání (Gradio samo vynuluje skryté pole)
+          function clearPastedImagesAfterSend() {
+            setTimeout(function() {
               window._pastedImages = [];
               renderPastedPreviews();
-            }
+            }, 600);
           }
-          setInterval(checkPastedReset, 500);
+
+          document.addEventListener("mousedown", function(e) {
+            const btn = e.target.closest("#btn-send");
+            if (btn) {
+              syncPastedImages();
+            }
+          }, true);
+
+          document.addEventListener("click", function(e) {
+            const btn = e.target.closest("#btn-send");
+            if (btn) {
+              syncPastedImages();
+              clearPastedImagesAfterSend();
+            }
+          }, true);
+
+          document.addEventListener("keydown", function(e) {
+            if (e.key === "Enter" && !e.shiftKey) {
+              const ta = e.target.closest("#msg-in textarea") || (e.target.id === "msg-in" ? e.target : null);
+              if (ta) {
+                const menu = document.getElementById("slash-command-menu");
+                if (menu && menu.style.display !== "none") return;
+                syncPastedImages();
+                clearPastedImagesAfterSend();
+              }
+            }
+          }, true);
         }
         """)
 
