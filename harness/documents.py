@@ -190,3 +190,150 @@ def _inline_markdown(text: str) -> str:
     marked = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", marked)
     marked = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<i>\1</i>", marked)
     return marked
+
+
+def _format_markdown_table(rows: list[list[str]]) -> str:
+    if not rows:
+        return ""
+    max_cols = max(len(r) for r in rows)
+    if max_cols == 0:
+        return ""
+    padded = [r + [""] * (max_cols - len(r)) for r in rows]
+    header = padded[0]
+    out = ["| " + " | ".join(header) + " |"]
+    out.append("| " + " | ".join(["---"] * max_cols) + " |")
+    for r in padded[1:]:
+        out.append("| " + " | ".join(r) + " |")
+    return "\n".join(out)
+
+
+def read_document_content(path: Path, max_chars: int = 40_000, sheet: str | None = None) -> str:
+    """Extrahuje čistý text a tabulky z dokumentů (.docx, .pdf, .xlsx, .csv)."""
+    p = Path(path).resolve()
+    if not p.is_file():
+        raise FileNotFoundError(f"Dokument nebyl nalezen: {p}")
+
+    suffix = p.suffix.lower()
+    if suffix == ".docx":
+        import docx
+        doc = docx.Document(p)
+        parts = [f"=== Word Document: {p.name} ==="]
+        for para in doc.paragraphs:
+            txt = para.text.strip()
+            if not txt:
+                continue
+            if para.style and para.style.name and para.style.name.startswith("Heading"):
+                lvl = para.style.name.replace("Heading", "").strip() or "2"
+                h_num = int(lvl) if lvl.isdigit() else 2
+                parts.append(f"{'#' * min(4, h_num)} {txt}")
+            else:
+                parts.append(txt)
+        for t in doc.tables:
+            rows = []
+            for row in t.rows:
+                rows.append([cell.text.strip().replace("\n", " ") for cell in row.cells])
+            if rows:
+                parts.append(_format_markdown_table(rows))
+        res = "\n\n".join(parts)
+
+    elif suffix == ".pdf":
+        import pypdf
+        reader = pypdf.PdfReader(p)
+        parts = [f"=== PDF Document: {p.name} ({len(reader.pages)} stran) ==="]
+        for idx, page in enumerate(reader.pages, 1):
+            txt = page.extract_text() or ""
+            if txt.strip():
+                parts.append(f"--- Strana {idx} ---\n{txt.strip()}")
+        res = "\n\n".join(parts)
+
+    elif suffix in (".xlsx", ".xlsm"):
+        import openpyxl
+        wb = openpyxl.load_workbook(p, data_only=True)
+        parts = [f"=== Excel sešit: {p.name} (listy: {', '.join(wb.sheetnames)}) ==="]
+        sheets = [sheet] if sheet and sheet in wb.sheetnames else wb.sheetnames[:5]
+        for s_name in sheets:
+            ws = wb[s_name]
+            rows = []
+            for r in ws.iter_rows(values_only=True):
+                if any(c is not None for c in r):
+                    rows.append([str(c) if c is not None else "" for c in r])
+            if rows:
+                parts.append(f"### List: `{s_name}`\n" + _format_markdown_table(rows[:100]))
+                if len(rows) > 100:
+                    parts.append(f"*... [vynecháno dalších {len(rows) - 100} řádků]*")
+            else:
+                parts.append(f"### List: `{s_name}` (prázdný)")
+        res = "\n\n".join(parts)
+
+    elif suffix == ".csv":
+        import csv
+        with open(p, "r", encoding="utf-8", errors="replace") as f:
+            rows = list(csv.reader(f))
+            parts = [f"=== CSV: {p.name} ({len(rows)} řádků) ==="]
+            if rows:
+                parts.append(_format_markdown_table(rows[:100]))
+            res = "\n\n".join(parts)
+    else:
+        res = p.read_text(encoding="utf-8", errors="replace")
+
+    if len(res) > max_chars:
+        half = max_chars // 2
+        omitted = len(res) - max_chars
+        res = res[:half] + f"\n\n... [dokument zkrácen: ~{omitted} znaků vynecháno] ...\n\n" + res[-half:]
+    return res
+
+
+def edit_spreadsheet_content(path: Path, action: str, sheet: str | None = None,
+                             data: Any = None, title: str | None = None) -> str:
+    """Vytváří a edituje Excel tabulky (.xlsx)."""
+    import openpyxl
+    p = Path(path).resolve()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    action = action.lower().strip()
+
+    if action == "create":
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        if title:
+            ws.title = title[:31]
+        if isinstance(data, list):
+            for row in data:
+                if isinstance(row, (list, tuple)):
+                    ws.append(list(row))
+        wb.save(p)
+        return f"OK: Vytvořen nový Excel sešit `{p.name}` s listem `{ws.title}`."
+
+    if not p.is_file():
+        raise FileNotFoundError(f"Excel soubor nebyl nalezen: {p}. Pro vytvoření nového zadejte action='create'.")
+
+    wb = openpyxl.load_workbook(p)
+    ws = wb[sheet] if sheet and sheet in wb.sheetnames else wb.active
+
+    if action == "list_sheets":
+        return f"Listy v sešitu `{p.name}`: " + ", ".join(f"`{s}`" for s in wb.sheetnames)
+
+    if action == "create_sheet":
+        s_title = (title or sheet or "NovyList")[:31]
+        new_ws = wb.create_sheet(title=s_title)
+        wb.save(p)
+        return f"OK: Vytvořen nový list `{new_ws.title}` v sešitu `{p.name}`."
+
+    if action == "append_rows":
+        if not isinstance(data, list):
+            raise ValueError("Pro action='append_rows' musí být data seznam řádků (list of lists).")
+        for row in data:
+            if isinstance(row, (list, tuple)):
+                ws.append(list(row))
+        wb.save(p)
+        return f"OK: Přidáno {len(data)} řádků do listu `{ws.title}`."
+
+    if action == "update_cells":
+        if not isinstance(data, dict):
+            raise ValueError("Pro action='update_cells' musí být data slovník buněk např. {'A1': 100, 'B1': '=SUM(A1:A5)'}.")
+        for cell_coord, val in data.items():
+            ws[cell_coord] = val
+        wb.save(p)
+        return f"OK: Aktualizováno {len(data)} buněk v listu `{ws.title}`."
+
+    raise ValueError(f"Neznámá akce: {action}. Dostupné akce: create, list_sheets, create_sheet, append_rows, update_cells")
+

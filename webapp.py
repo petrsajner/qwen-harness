@@ -695,6 +695,9 @@ def _handle_slash_command(raw_text: str) -> tuple[bool, str | None]:
     if cmd == "/help":
         help_md = (
             "### 🛠️ Dostupné Slash příkazy\n\n"
+            "- **/skills** – Přehled a katalog všech dostupných skillů\n"
+            "- **/skill <název>** – Okamžitá aktivace vybraného skillu do kontextu\n"
+            "- **/skill new [název]** – Návrh a vytvoření nového skillu (Skill Designer)\n"
             "- **/compress** – Okamžitá komprese KV kontextu do souhrnu\n"
             "- **/revert** – Vrácení souborů do stavu před úlohou (souborové undo)\n"
             "- **/checkpoint [název]** – Vytvoření snapshotu stavu projektu\n"
@@ -710,6 +713,73 @@ def _handle_slash_command(raw_text: str) -> tuple[bool, str | None]:
         state.session.add("user", clean)
         state.session.add("assistant", help_md)
         return True, None
+
+    if cmd == "/skills":
+        from harness.skills import SkillLibrary
+        lib = SkillLibrary(cfg, Path(state.workspace) if state.workspace else None)
+        items = lib.list()
+        state.session.add("user", clean)
+        if not items:
+            state.session.add("assistant", "ℹ️ Nejsou nainstalovány žádné skilly.")
+            return True, None
+        lines = [f"### 🤹 Dostupné skilly ({len(items)})\n"]
+        for s in items:
+            lines.append(f"- **`/skill {s.name}`** ({s.source})\n  {s.description}")
+        lines.append("\n*Tip: Napište `/skill <název>` pro aktivaci skillu nebo `/skill new <název>` pro návrh nového.*")
+        state.session.add("assistant", "\n".join(lines))
+        return True, None
+
+    if cmd == "/skill":
+        if not arg:
+            return _handle_slash_command("/skills")
+        parts_sub = arg.split(" ", 1)
+        subcmd = parts_sub[0].lower()
+        subarg = parts_sub[1].strip() if len(parts_sub) > 1 else ""
+        if subcmd in ("new", "create", "designer"):
+            skill_name = subarg or "muj-novy-skill"
+            prompt = (
+                f"[SKILL DESIGNER: Vytvoř nový uživatelský skill]\n\n"
+                f"Navrhni a vytvoř soubor `user-skills/{skill_name}/SKILL.md`.\n"
+                f"Požadavky na formát:\n"
+                f"1. Začni přesnou YAML hlavičkou:\n"
+                f"---\n"
+                f"name: {skill_name}\n"
+                f"description: <stručný jednořádkový popis účelu>\n"
+                f"---\n\n"
+                f"2. Následují strukturované sekce:\n"
+                f"   - Kdy skill použít (triggers & context)\n"
+                f"   - Pracovní postup krok za krokem\n"
+                f"   - Závazná pravidla a mantinely\n"
+                f"   - Konkrétní příklad očekávaného výstupu\n"
+                f"3. Ulož vytvořený soubor do `user-skills/{skill_name}/SKILL.md`.\n"
+                f"Pokud uživatel specifikoval téma, rovnou navrhni první kompletní verzi."
+            )
+            return False, prompt
+
+        skill_name = arg.strip().lower()
+        from harness.skills import SkillLibrary
+        lib = SkillLibrary(cfg, Path(state.workspace) if state.workspace else None)
+        try:
+            content = lib.read(skill_name)
+        except ValueError:
+            state.session.add("user", clean)
+            state.session.add("assistant", f"❌ Skill `{skill_name}` nebyl nalezen. Seznam všech skillů zobrazíte pomocí `/skills`.")
+            return True, None
+
+        state.session.add("user", clean)
+        preview = content[:1200] + ("\n..." if len(content) > 1200 else "")
+        confirmation = (
+            f"🎯 **Skill `{skill_name}` byl úspěšně aktivován do kontextu.**\n\n"
+            f"Níže jsou instrukce a pravidla tohoto postupu. Asistent se jimi bude řídit v dalších krocích.\n\n"
+            f"```markdown\n{preview}\n```"
+        )
+        state.session.add("assistant", confirmation)
+        state.session.add("user", f"[AKTIVNÍ SKILL: {skill_name}]\n{content}\n\nPři řešení následujících úloh důsledně dodržuj výše uvedený postup a pravidla.")
+        return True, None
+
+    if cmd in ("/skill-designer", "/skill_designer"):
+        skill_name = arg or "novy-skill"
+        return _handle_slash_command(f"/skill new {skill_name}")
 
     if cmd == "/compress":
         state.session.add("user", clean)
@@ -1687,8 +1757,13 @@ def skills_info_text() -> str:
     items = SkillLibrary(cfg, Path(state.workspace) if state.workspace else None).list()
     if not items:
         return t("<small>No skills available.</small>")
-    names = " · ".join(f"`{item.name}`" for item in items)
-    return t("**{count} skills available**", count=len(items)) + "\n\n" + names
+    lines = [f"**{t('{count} skills available', count=len(items))}:**\n"]
+    for item in items:
+        source_badge = f"*{item.source}*"
+        lines.append(f"- **`{item.name}`** ({source_badge})<br><small>{item.description}</small>")
+    lines.append(f"\n<small>💡 <i>Tip: zadejte <code>/skill &lt;název&gt;</code> pro aktivaci nebo <code>/skills</code> pro katalog.</i></small>")
+    return "\n".join(lines)
+
 
 
 _backup_ui_state: dict = {"process_id": None, "target": None, "operation": None}
@@ -3036,7 +3111,9 @@ def build_ui() -> gr.Blocks:
 
                         gr.Markdown(f"<small class='stack-subhead'>{t('SKILLS')}</small>", elem_classes=["hdr"])
                         skills_info = gr.Markdown(skills_info_text, elem_classes=["hdr", "stack-copy"])
-                        btn_open_skills = gr.Button(t("Open skills folder"), size="sm")
+                        with gr.Row(elem_classes=["gap"]):
+                            btn_design_skill = gr.Button(t("✨ Design new skill"), size="sm", scale=1)
+                            btn_open_skills = gr.Button(t("Open skills folder"), size="sm", scale=1)
 
                         gr.Markdown(f"<small class='stack-subhead'>{t('MANUALS')}</small>", elem_classes=["hdr"])
                         with gr.Row(elem_classes=["gap"]):
@@ -3230,6 +3307,7 @@ def build_ui() -> gr.Blocks:
         btn_pin_file.click(pin_context_file_dialog, None,
                            [context_info, btn_clear_pins], queue=False)
         btn_open_skills.click(open_skills_folder, None, None, queue=False)
+        btn_design_skill.click(lambda: "/skill new ", None, msg_in, queue=False)
         btn_manual_en.click(lambda: open_user_manual("en"), None, None, queue=False)
         btn_manual_cs.click(lambda: open_user_manual("cs"), None, None, queue=False)
         btn_export_research.click(export_research_ledger, None,
@@ -3297,6 +3375,9 @@ def build_ui() -> gr.Blocks:
 
           // ===== SLASH COMMANDS AUTOCOMPLETE =====
           const COMMANDS = [
+            { cmd: "/skills", label: "/skills", desc: "Katalog všech dostupných skillů" },
+            { cmd: "/skill", label: "/skill <název>", desc: "Aktivovat vybraný skill do kontextu" },
+            { cmd: "/skill new", label: "/skill new [název]", desc: "Navrhnout a vytvořit nový skill (Designer)" },
             { cmd: "/compress", label: "/compress", desc: "Komprese KV kontextu do souhrnu" },
             { cmd: "/revert", label: "/revert", desc: "Vrátit soubory do stavu před úlohou" },
             { cmd: "/checkpoint", label: "/checkpoint [název]", desc: "Vytvořit snapshot projektu" },

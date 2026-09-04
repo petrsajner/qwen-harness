@@ -361,6 +361,7 @@ _CS = {
     "Pin file": "Připnout soubor",
     "Unpin all": "Odepnout vše",
     "Available skills": "Dostupné skills",
+    "✨ Design new skill": "✨ Navrhnout nový skill",
     "Open skills folder": "Otevřít složku skills",
     "Help & manuals": "Nápověda a manuály",
     "English manual (PDF)": "Anglický manuál (PDF)",

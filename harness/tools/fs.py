@@ -63,6 +63,13 @@ class ReadFileTool(Tool):
         f = ctx.resolve(path)
         if not f.exists():
             return f"ERROR: File not found: {f}"
+        if f.suffix.lower() in (".docx", ".pdf", ".xlsx", ".xlsm"):
+            from harness.documents import read_document_content
+            try:
+                content = read_document_content(f)
+                return truncate(f"[Binary Document converted to text: {f.name}]\n\n{content}", limit=100_000)
+            except Exception as e:
+                return f"ERROR: Failed to read document {f}: {e}"
         try:
             text = f.read_text(encoding="utf-8", errors="replace")
         except OSError as e:

@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.5.1",
-          "viditelná verze aplikace odpovídá instalátoru 1.5.1")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.5.2",
+          "viditelná verze aplikace odpovídá instalátoru 1.5.2")
     invariants = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     check(all(item in invariants for item in (
         "Language servers or an LSP runtime/distribution layer",
@@ -484,7 +484,8 @@ def test_registry_modes() -> None:
     check(set(chat.names()) == {"read_memory", "save_memory", "web_search", "web_fetch",
                                 "context_status", "pin_context_file", "unpin_context_file",
                                 "list_project_documents", "read_project_document",
-                                "export_document", "list_skills", "read_skill",
+                                "export_document", "read_document", "edit_spreadsheet",
+                                "list_skills", "read_skill",
                                 "list_dir", "read_file", "write_file", "apply_patch",
                                 "list_task_changes", "undo_task_changes", "search_files",
                                 "find_files", "make_directory", "move_file", "delete_file",
@@ -1938,8 +1939,10 @@ def test_skill_library() -> None:
     from harness.skills import SkillLibrary
     system = SkillLibrary(load_config())
     names = [item.name for item in system.list()]
-    check({"systematic-debugging", "architecture-options", "implementation-verification"}
-          <= set(names), "systémová knihovna objeví bundlované SKILL.md")
+    check({"systematic-debugging", "architecture-options", "implementation-verification",
+           "excel-spreadsheet-craft", "word-document-craft", "pdf-generation-craft",
+           "computer-automation-craft", "web-scraping-extraction", "code-refactoring-patterns"}
+          <= set(names), "systémová knihovna objeví bundlované i nové SKILL.md")
     check("root cause" in system.read("systematic-debugging").lower(),
           "tělo skillu se načte až explicitním čtením")
 
@@ -2268,7 +2271,48 @@ def test_harness_enhancements():
     h3, p3 = webapp._handle_slash_command("/test")
     check(h3 is False and "projektové kontroly" in (p3 or ""),
           "_handle_slash_command obohatí prompt pro /test")
+    h4, p4 = webapp._handle_slash_command("/skills")
+    check(h4 is True and "Dostupné skilly" in s_cmd.messages[-1]["content"]
+          and "excel-spreadsheet-craft" in s_cmd.messages[-1]["content"],
+          "_handle_slash_command zpracuje /skills lokálně")
+    h5, p5 = webapp._handle_slash_command("/skill excel-spreadsheet-craft")
+    check(h5 is True and "byl úspěšně aktivován" in s_cmd.messages[-2]["content"]
+          and "[AKTIVNÍ SKILL" in s_cmd.messages[-1]["content"],
+          "_handle_slash_command aktivuje skill do kontextu")
+    h6, p6 = webapp._handle_slash_command("/skill new moje-analyza")
+    check(h6 is False and "SKILL DESIGNER" in (p6 or ""),
+          "_handle_slash_command spustí skill designer")
     Session.delete(cfg, s_cmd.id)
+
+    # 5b) Office and Spreadsheet tools (Excel, Word, PDF)
+    from harness.tools.documents import ReadDocumentTool, EditSpreadsheetTool
+    from harness.tools.fs import ReadFileTool
+    from harness.tools.base import AgentContext
+    tmp_doc = Path(tempfile.mkdtemp())
+    try:
+        s_doc = Session(cfg, transient=True)
+        doc_ctx = AgentContext(cfg=cfg, session=s_doc, project_workspace=tmp_doc)
+        xlsx_path = tmp_doc / "tabulka.xlsx"
+        res_create = EditSpreadsheetTool().run(
+            doc_ctx, path=str(xlsx_path), action="create", title="TestSheet",
+            data=[["Jmeno", "Mzda"], ["Petr", 50000], ["Jana", 60000]])
+        check("OK: Vytvořen nový Excel" in res_create and xlsx_path.is_file(),
+              "EditSpreadsheetTool vytvoří nový XLSX soubor")
+        res_update = EditSpreadsheetTool().run(
+            doc_ctx, path=str(xlsx_path), action="update_cells",
+            data={"C1": "Bonus", "C2": 5000, "C3": 6000})
+        check("OK: Aktualizováno 3 buněk" in res_update,
+              "EditSpreadsheetTool aktualizuje buňky")
+        res_read = ReadDocumentTool().run(doc_ctx, path=str(xlsx_path))
+        check("TestSheet" in res_read and "Petr" in res_read and "Bonus" in res_read,
+              "ReadDocumentTool extrahuje XLSX jako Markdown tabulku")
+        res_fs = ReadFileTool().run(doc_ctx, path=str(xlsx_path))
+        check("[Binary Document converted to text" in res_fs and "Jana" in res_fs,
+              "ReadFileTool automaticky převede XLSX na čitelný text")
+    finally:
+        shutil.rmtree(tmp_doc, ignore_errors=True)
+
+
 
     # 6) Detekce zacyklení
     from harness.agent import Agent, Status, build_registry
