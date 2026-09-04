@@ -2333,6 +2333,53 @@ def test_harness_enhancements():
           "Agent detekuje nekonečnou smyčku identických volání a zastaví ji")
 
 
+def test_clickable_skills_and_clipboard_images():
+    print("--- test_clickable_skills_and_clipboard_images ---")
+    import base64
+    import json
+    import webapp
+    from harness.session import Session
+    cfg = webapp.cfg
+
+    # 1) Test skills_info_text HTML výstupu
+    info_html = webapp.skills_info_text()
+    check("skills-panel-list" in info_html, "skills_info_text obsahuje kontejner skills-panel-list")
+    check("skill-chip-btn" in info_html, "skills_info_text obsahuje klikací tlačítka skill-chip-btn")
+    check("data-skill=" in info_html, "skills_info_text obsahuje data-skill atributy")
+
+    # 2) Test prepare_submission s base64 obrázky ze schránky
+    sample_png_b64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    pasted_json = json.dumps([
+        {"name": "test1.png", "data": sample_png_b64},
+        {"name": "test2.png", "data": sample_png_b64}
+    ])
+
+    orig_sess = webapp.state.session
+    test_sess = Session(cfg, transient=True)
+    webapp.state.session = test_sess
+    webapp.state.agent.session = test_sess
+    try:
+        sub_res, _, msg_up, files_up, pasted_up = webapp.prepare_submission("Analyzuj tyto 2 snimky", [], pasted_json)
+        check(sub_res.get("kind") == "run", "prepare_submission zahájí běh pro prompt s obrázky ze schránky")
+        check(pasted_up.get("value") == "[]", "prepare_submission vyčistí skryté pole pro vložené obrázky")
+        user_img_msgs = [m for m in test_sess.messages if m.get("images")]
+        check(len(user_img_msgs) == 1 and len(user_img_msgs[0]["images"]) == 2,
+              "K uživatelské zprávě byly úspěšně připojeny 2 dekódované obrázky")
+
+        # 3) Test zobrazení miniatur v chat_view
+        views = webapp.chat_view()
+        user_views = [v for v in views if v.get("role") == "user"]
+        check(len(user_views) > 0, "chat_view obsahuje uživatelskou zprávu")
+        last_user = user_views[-1]
+        check("chat-attached-gallery" in last_user["content"], "chat_view obsahuje galerii miniatur chat-attached-gallery")
+        check("chat-msg-thumb" in last_user["content"], "chat_view obsahuje miniatury chat-msg-thumb")
+        check("/file=" in last_user["content"], "chat_view miniatury odkazují na /file= URL pro zobrazení")
+    finally:
+        webapp.state.session = orig_sess
+        webapp.state.agent.session = orig_sess
+        Session.delete(cfg, test_sess.id)
+
+
 if __name__ == "__main__":
     test_config()
     test_memory_layers()
@@ -2369,5 +2416,6 @@ if __name__ == "__main__":
     test_user_manuals()
     test_thinking_and_communication()
     test_harness_enhancements()
+    test_clickable_skills_and_clipboard_images()
     print(f"\n{'=' * 40}\nVÝSLEDEK: {PASS} ✓ / {FAIL} ✗")
     sys.exit(1 if FAIL else 0)

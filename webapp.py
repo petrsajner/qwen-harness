@@ -499,7 +499,22 @@ def chat_view() -> list[dict]:
 
         msg: dict = {"role": role, "content": rendered_content or "…"}
         if role == "user" and imgs:
-            msg["content"] = (rendered_content + "\n" if rendered_content else "") + t("🖼️ +{count} image(s)", count=len(imgs))
+            thumbs = []
+            for img_p in imgs:
+                try:
+                    p_obj = Path(img_p)
+                    posix_p = p_obj.as_posix()
+                    fname = _html.escape(p_obj.name)
+                    thumbs.append(
+                        f'<a href="/file={posix_p}" target="_blank" title="{fname}" class="chat-msg-thumb-link">'
+                        f'<img src="/file={posix_p}" class="chat-msg-thumb" alt="{fname}" />'
+                        f'</a>'
+                    )
+                except Exception:
+                    pass
+            gallery_html = f'<div class="chat-attached-gallery">{"".join(thumbs)}</div>' if thumbs else ""
+            prefix = (rendered_content + "\n\n") if rendered_content else ""
+            msg["content"] = prefix + gallery_html if gallery_html else (rendered_content or "…")
         out.append(msg)
     return out
 
@@ -901,26 +916,58 @@ def _handle_slash_command(raw_text: str) -> tuple[bool, str | None]:
     return False, None
 
 
-def prepare_submission(message: str, files):
+def prepare_submission(message: str, files, pasted_images_json: str = "[]"):
     """Immediately clear the composer and route the message to run or steering."""
+    import base64 as _base64
+    import json as _json
+    import uuid as _uuid
+
     text = (message or "").strip()
     paths = [str(path) for path in (files or [])]
+
+    # Zpracování obrázků vložených ze schránky
+    if pasted_images_json:
+        try:
+            items = _json.loads(pasted_images_json)
+            if isinstance(items, list):
+                if items:
+                    if state.session.transient:
+                        state.session.persist()
+                    state.session.img_dir.mkdir(parents=True, exist_ok=True)
+                for item in items:
+                    data_url = (item.get("data") or "") if isinstance(item, dict) else ""
+                    if "," in data_url and data_url.startswith("data:image/"):
+                        header, b64 = data_url.split(",", 1)
+                        ext = ".png"
+                        if "image/jpeg" in header or "image/jpg" in header:
+                            ext = ".jpg"
+                        elif "image/webp" in header:
+                            ext = ".webp"
+                        elif "image/gif" in header:
+                            ext = ".gif"
+                        raw_bytes = _base64.b64decode(b64)
+                        dest = state.session.img_dir / f"paste-{_uuid.uuid4().hex[:8]}{ext}"
+                        dest.write_bytes(raw_bytes)
+                        paths.append(str(dest))
+        except Exception as e:
+            gr.Warning(f"Error processing pasted image: {e}")
+
     if not text and not paths:
-        return {"kind": "ignore"}, gr.update(), gr.update(value=""), gr.update(value=None)
+        return {"kind": "ignore"}, gr.update(), gr.update(value=""), gr.update(value=None), gr.update(value="[]")
 
     # ---------------- SLASH COMMANDS ----------------
     if text.startswith("/"):
         handled, transformed_prompt = _handle_slash_command(text)
         if handled:
             state.run_active.clear()
-            return {"kind": "command"}, chat_view(), gr.update(value=""), gr.update(value=None)
+            return {"kind": "command"}, chat_view(), gr.update(value=""), gr.update(value=None), gr.update(value="[]")
         elif transformed_prompt:
             text = transformed_prompt
 
     kind = state.claim_submission(text, paths)
     if kind == "steer":
         gr.Info(t("Clarification received — finishing the current sentence and redirecting the running task."))
-        return {"kind": kind}, gr.update(), gr.update(value=""), gr.update(value=None)
+        return {"kind": kind}, gr.update(), gr.update(value=""), gr.update(value=None), gr.update(value="[]")
     try:
         state.abort.clear()
         state.agent.abort_flag.clear()
@@ -928,7 +975,7 @@ def prepare_submission(message: str, files):
         state.suppress_active_entry = False
         images = [Path(path) for path in _filter_images(paths)]
         state.agent.new_task(text or "Please analyze the attached image(s).", images=images)
-        return {"kind": kind}, chat_view(), gr.update(value=""), gr.update(value=None)
+        return {"kind": kind}, chat_view(), gr.update(value=""), gr.update(value=None), gr.update(value="[]")
     except Exception:
         state.run_active.clear()
         raise
@@ -1753,15 +1800,35 @@ def open_in_editor(path: Path | str):
 
 
 def skills_info_text() -> str:
+    import html as _html
     from harness.skills import SkillLibrary
     items = SkillLibrary(cfg, Path(state.workspace) if state.workspace else None).list()
     if not items:
         return t("<small>No skills available.</small>")
-    lines = [f"**{t('{count} skills available', count=len(items))}:**\n"]
+    lines = [
+        "<div class='skills-panel-list'>",
+        f"<div class='skills-panel-count'><b>{t('{count} skills available', count=len(items))}</b></div>",
+    ]
     for item in items:
-        source_badge = f"*{item.source}*"
-        lines.append(f"- **`{item.name}`** ({source_badge})<br><small>{item.description}</small>")
-    lines.append(f"\n<small>💡 <i>Tip: zadejte <code>/skill &lt;název&gt;</code> pro aktivaci nebo <code>/skills</code> pro katalog.</i></small>")
+        source = item.source
+        title_tip = t("Click to insert /skill {name}", name=item.name)
+        safe_name = _html.escape(item.name)
+        safe_desc = _html.escape(item.description)
+        lines.append(
+            f"<div class='skill-item-card'>"
+            f"  <div class='skill-item-header'>"
+            f"    <button type='button' class='skill-chip-btn' data-skill='{safe_name}' title='{_html.escape(title_tip)}'>"
+            f"      🎯 <b>{safe_name}</b>"
+            f"    </button>"
+            f"    <span class='skill-badge skill-badge-{source}'>{source}</span>"
+            f"  </div>"
+            f"  <div class='skill-item-desc'>{safe_desc}</div>"
+            f"</div>"
+        )
+    lines.append(
+        "<div class='skills-panel-tip'><small>💡 <i>Tip: klikněte na skill pro rychlé vložení do chatu, nebo zadejte <code>/skill &lt;název&gt;</code>.</i></small></div>"
+        "</div>"
+    )
     return "\n".join(lines)
 
 
@@ -1883,15 +1950,34 @@ def clear_offline_backup_handler():
     return offline_backup_status_text()
 
 
-def open_skills_folder() -> None:
+def open_user_skills_folder() -> None:
     import os as _os
     folder = cfg.root / cfg.data.get("skills", {}).get("user_directory", "user-skills")
     try:
         folder.mkdir(parents=True, exist_ok=True)
         _os.startfile(str(folder))  # noqa: S606 - local Windows folder
-        gr.Info(t("Opening skills folder: {folder}", folder=folder))
+        gr.Info(t("Opening user skills folder: {folder}", folder=folder))
     except OSError as exc:
-        gr.Warning(t("Skills folder cannot be opened: {error}", error=exc))
+        gr.Warning(t("User skills folder cannot be opened: {error}", error=exc))
+
+
+def open_project_skills_folder() -> None:
+    import os as _os
+    if not state.workspace:
+        gr.Warning(t("No project workspace selected. Choose or attach a project first."))
+        return
+    folder = Path(state.workspace) / cfg.data.get("skills", {}).get("project_directory", ".qwen-skills")
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        _os.startfile(str(folder))  # noqa: S606 - local Windows folder
+        gr.Info(t("Opening project skills folder: {folder}", folder=folder))
+    except OSError as exc:
+        gr.Warning(t("Project skills folder cannot be opened: {error}", error=exc))
+
+
+def open_skills_folder() -> None:
+    """Alias for backwards compatibility."""
+    open_user_skills_folder()
 
 
 def open_user_manual(language: str) -> None:
@@ -2875,6 +2961,179 @@ button.primary:hover { filter: brightness(1.12) !important; }
 .slash-autocomplete-item.active b {
   color: #38bdf8 !important;
 }
+
+/* Skills panel & clickable chips */
+.skills-panel-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+  margin-top: 4px !important;
+}
+.skills-panel-count {
+  font-size: 11.5px !important;
+  color: #94a3b8 !important;
+  margin-bottom: 2px !important;
+}
+.skills-panel-tip {
+  margin-top: 6px !important;
+  color: #64748b !important;
+}
+.skill-item-card {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid #21262d !important;
+  border-radius: 8px !important;
+  padding: 7px 10px !important;
+  transition: all 0.15s ease !important;
+}
+.skill-item-card:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: #38bdf8 !important;
+}
+.skill-item-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+}
+.skill-chip-btn {
+  background: #1e293b !important;
+  color: #38bdf8 !important;
+  border: 1px solid #334155 !important;
+  border-radius: 6px !important;
+  padding: 3px 8px !important;
+  font-size: 11.5px !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  transition: all 0.15s ease !important;
+}
+.skill-chip-btn:hover {
+  background: #0284c7 !important;
+  color: #ffffff !important;
+  border-color: #38bdf8 !important;
+  transform: translateY(-1px) !important;
+}
+.skill-badge {
+  font-size: 10px !important;
+  padding: 1px 6px !important;
+  border-radius: 10px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  font-weight: 600 !important;
+}
+.skill-badge-system {
+  background: rgba(100, 116, 139, 0.2) !important;
+  color: #94a3b8 !important;
+  border: 1px solid rgba(100, 116, 139, 0.3) !important;
+}
+.skill-badge-user {
+  background: rgba(16, 185, 129, 0.2) !important;
+  color: #34d399 !important;
+  border: 1px solid rgba(16, 185, 129, 0.3) !important;
+}
+.skill-badge-project {
+  background: rgba(245, 158, 11, 0.2) !important;
+  color: #fbbf24 !important;
+  border: 1px solid rgba(245, 158, 11, 0.3) !important;
+}
+.skill-item-desc {
+  font-size: 11px !important;
+  color: #94a3b8 !important;
+  margin-top: 4px !important;
+  line-height: 1.35 !important;
+}
+
+/* Pasted / attached images preview container in composer */
+.pasted-images-container {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  padding: 8px 10px !important;
+  margin-bottom: 6px !important;
+  background: #111827 !important;
+  border: 1px dashed #374151 !important;
+  border-radius: 8px !important;
+}
+.drag-over {
+  border-color: #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.08) !important;
+}
+.pasted-thumb-item {
+  position: relative !important;
+  width: 68px !important;
+  height: 68px !important;
+  border-radius: 6px !important;
+  overflow: hidden !important;
+  border: 1px solid #374151 !important;
+  background: #000 !important;
+}
+.pasted-thumb-img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block !important;
+}
+.pasted-thumb-remove {
+  position: absolute !important;
+  top: 2px !important;
+  right: 2px !important;
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 18px !important;
+  border-radius: 50% !important;
+  background: rgba(239, 68, 68, 0.85) !important;
+  color: #fff !important;
+  border: none !important;
+  font-size: 12px !important;
+  line-height: 1 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  cursor: pointer !important;
+}
+.pasted-thumb-remove:hover {
+  background: #ef4444 !important;
+  transform: scale(1.1) !important;
+}
+.pasted-thumb-badge {
+  position: absolute !important;
+  bottom: 2px !important;
+  left: 2px !important;
+  font-size: 9px !important;
+  padding: 1px 4px !important;
+  border-radius: 4px !important;
+  background: rgba(0, 0, 0, 0.7) !important;
+  color: #e2e8f0 !important;
+}
+
+/* Chat message gallery & thumbnails */
+.chat-attached-gallery {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  margin-top: 8px !important;
+  margin-bottom: 4px !important;
+}
+.chat-msg-thumb-link {
+  display: inline-block !important;
+  text-decoration: none !important;
+}
+.chat-msg-thumb {
+  max-width: 180px !important;
+  max-height: 120px !important;
+  border-radius: 6px !important;
+  border: 1px solid #334155 !important;
+  object-fit: cover !important;
+  display: block !important;
+  background: #0f172a !important;
+  transition: transform 0.15s ease, border-color 0.15s ease !important;
+}
+.chat-msg-thumb:hover {
+  transform: scale(1.03) !important;
+  border-color: #38bdf8 !important;
+}
 """
 
 
@@ -3113,7 +3372,9 @@ def build_ui() -> gr.Blocks:
                         skills_info = gr.Markdown(skills_info_text, elem_classes=["hdr", "stack-copy"])
                         with gr.Row(elem_classes=["gap"]):
                             btn_design_skill = gr.Button(t("✨ Design new skill"), size="sm", scale=1)
-                            btn_open_skills = gr.Button(t("Open skills folder"), size="sm", scale=1)
+                        with gr.Row(elem_classes=["gap"]):
+                            btn_open_user_skills = gr.Button(t("📂 User skills"), size="sm", scale=1)
+                            btn_open_proj_skills = gr.Button(t("📂 Project skills"), size="sm", scale=1)
 
                         gr.Markdown(f"<small class='stack-subhead'>{t('MANUALS')}</small>", elem_classes=["hdr"])
                         with gr.Row(elem_classes=["gap"]):
@@ -3128,6 +3389,12 @@ def build_ui() -> gr.Blocks:
                                   render_markdown=True, elem_id="main-chat", buttons=["copy"])
                 with gr.Row(elem_id="composer-layout", elem_classes=["gap"]):
                     with gr.Column(scale=6, min_width=0, elem_id="prompt-column"):
+                        pasted_images_preview = gr.HTML(
+                            '<div id="pasted-images-preview" class="pasted-images-container" style="display:none;"></div>'
+                        )
+                        pasted_images_in = gr.Textbox(
+                            value="[]", visible=False, elem_id="pasted-images-in"
+                        )
                         msg_in = gr.Textbox(
                             placeholder=t("Type a message…  (Enter / Ctrl+Enter = send, Shift+Enter = new line)"),
                             show_label=False, container=False, lines=1, max_lines=8,
@@ -3262,15 +3529,15 @@ def build_ui() -> gr.Blocks:
 
         # chat zprávy
         btn_send.click(
-            prepare_submission, [msg_in, files_in],
-            [submission_state, chat, msg_in, files_in], queue=False)\
+            prepare_submission, [msg_in, files_in, pasted_images_in],
+            [submission_state, chat, msg_in, files_in, pasted_images_in], queue=False)\
             .then(run_prepared_submission, [submission_state, chat],
                   [chat, confirm_row, status_box], queue=True,
                   concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)
         msg_in.submit(
-            prepare_submission, [msg_in, files_in],
-            [submission_state, chat, msg_in, files_in], queue=False)\
+            prepare_submission, [msg_in, files_in, pasted_images_in],
+            [submission_state, chat, msg_in, files_in, pasted_images_in], queue=False)\
             .then(run_prepared_submission, [submission_state, chat],
                   [chat, confirm_row, status_box], queue=True,
                   concurrency_id="chat-run", concurrency_limit=1)\
@@ -3306,7 +3573,8 @@ def build_ui() -> gr.Blocks:
                              [context_info, btn_clear_pins], queue=False)
         btn_pin_file.click(pin_context_file_dialog, None,
                            [context_info, btn_clear_pins], queue=False)
-        btn_open_skills.click(open_skills_folder, None, None, queue=False)
+        btn_open_user_skills.click(open_user_skills_folder, None, None, queue=False)
+        btn_open_proj_skills.click(open_project_skills_folder, None, None, queue=False)
         btn_design_skill.click(lambda: "/skill new ", None, msg_in, queue=False)
         btn_manual_en.click(lambda: open_user_manual("en"), None, None, queue=False)
         btn_manual_cs.click(lambda: open_user_manual("cs"), None, None, queue=False)
@@ -3522,6 +3790,154 @@ def build_ui() -> gr.Blocks:
           setTimeout(setupSlashMenu, 1000);
           setTimeout(setupSlashMenu, 2500);
           setInterval(setupSlashMenu, 800);
+
+          // ===== CLICKABLE SKILL CHIPS =====
+          document.addEventListener("click", function(e) {
+            const btn = e.target.closest(".skill-chip-btn");
+            if (!btn) return;
+            e.preventDefault();
+            const bEl = btn.querySelector("b");
+            const skillName = (bEl ? bEl.textContent.trim() : "") || btn.getAttribute("data-skill") || btn.getAttribute("name") || "";
+            if (!skillName) return;
+            const ta = getMsgInput();
+            if (ta) {
+              ta.value = "/skill " + skillName + " ";
+              ta.focus();
+              ta.dispatchEvent(new Event("input", { bubbles: true }));
+              ta.dispatchEvent(new Event("change", { bubbles: true }));
+              const composer = document.getElementById("composer-layout");
+              if (composer) composer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }
+          });
+
+          // ===== CLIPBOARD IMAGE PASTE (Ctrl+V) & DRAG-DROP =====
+          window._pastedImages = window._pastedImages || [];
+
+          function syncPastedImages() {
+            const hiddenBox = document.getElementById("pasted-images-in");
+            const ta = hiddenBox ? (hiddenBox.querySelector("textarea") || hiddenBox.querySelector("input")) : null;
+            if (ta) {
+              ta.value = JSON.stringify(window._pastedImages);
+              ta.dispatchEvent(new Event("input", { bubbles: true }));
+              ta.dispatchEvent(new Event("change", { bubbles: true }));
+            }
+            renderPastedPreviews();
+          }
+
+          function renderPastedPreviews() {
+            let container = document.getElementById("pasted-images-preview");
+            if (!container) return;
+            if (!window._pastedImages || !window._pastedImages.length) {
+              container.innerHTML = "";
+              container.style.display = "none";
+              return;
+            }
+            container.style.display = "flex";
+            container.innerHTML = "";
+            window._pastedImages.forEach((img, idx) => {
+              const card = document.createElement("div");
+              card.className = "pasted-thumb-item";
+
+              const thumbImg = document.createElement("img");
+              thumbImg.src = img.data;
+              thumbImg.className = "pasted-thumb-img";
+              thumbImg.title = img.name || ("Image " + (idx + 1));
+
+              const delBtn = document.createElement("button");
+              delBtn.type = "button";
+              delBtn.className = "pasted-thumb-remove";
+              delBtn.innerHTML = "&times;";
+              delBtn.title = "Odebrat obrázek";
+              delBtn.addEventListener("click", function(ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                window._pastedImages.splice(idx, 1);
+                syncPastedImages();
+              });
+
+              const badge = document.createElement("span");
+              badge.className = "pasted-thumb-badge";
+              badge.textContent = (idx + 1).toString();
+
+              card.appendChild(thumbImg);
+              card.appendChild(delBtn);
+              card.appendChild(badge);
+              container.appendChild(card);
+            });
+          }
+
+          function addImageFile(file) {
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+              const dataUrl = evt.target.result;
+              const name = file.name || ("clipboard-image-" + (window._pastedImages.length + 1) + ".png");
+              window._pastedImages.push({
+                id: "paste-" + Date.now() + "-" + Math.random().toString(36).substring(2, 7),
+                name: name,
+                data: dataUrl
+              });
+              syncPastedImages();
+            };
+            reader.readAsDataURL(file);
+          }
+
+          window.addEventListener("paste", function(e) {
+            const cd = e.clipboardData || (e.originalEvent && e.originalEvent.clipboardData);
+            if (!cd || !cd.items) return;
+            const items = cd.items;
+            let hasImage = false;
+            for (let i = 0; i < items.length; i++) {
+              if (items[i].type && items[i].type.indexOf("image") !== -1) {
+                const file = items[i].getAsFile();
+                if (file) {
+                  hasImage = true;
+                  addImageFile(file);
+                }
+              }
+            }
+            if (hasImage) {
+              e.preventDefault();
+            }
+          });
+
+          function setupDragDrop() {
+            const target = document.getElementById("prompt-column") || document.getElementById("msg-in");
+            if (!target || target._drop_bound) return;
+            target._drop_bound = true;
+
+            target.addEventListener("dragover", function(e) {
+              e.preventDefault();
+              target.classList.add("drag-over");
+            });
+            target.addEventListener("dragleave", function(e) {
+              target.classList.remove("drag-over");
+            });
+            target.addEventListener("drop", function(e) {
+              e.preventDefault();
+              target.classList.remove("drag-over");
+              const files = e.dataTransfer && e.dataTransfer.files;
+              if (files) {
+                for (let i = 0; i < files.length; i++) {
+                  if (files[i].type && files[i].type.startsWith("image/")) {
+                    addImageFile(files[i]);
+                  }
+                }
+              }
+            });
+          }
+
+          setupDragDrop();
+          setTimeout(setupDragDrop, 1500);
+
+          function checkPastedReset() {
+            const hiddenBox = document.getElementById("pasted-images-in");
+            const ta = hiddenBox ? (hiddenBox.querySelector("textarea") || hiddenBox.querySelector("input")) : null;
+            if (ta && ta.value === "[]" && window._pastedImages && window._pastedImages.length > 0) {
+              window._pastedImages = [];
+              renderPastedPreviews();
+            }
+          }
+          setInterval(checkPastedReset, 500);
         }
         """)
 
