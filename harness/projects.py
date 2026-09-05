@@ -38,8 +38,8 @@ class Projects:
             return []
 
     def _save(self, items: list[dict]) -> None:
-        self.file.write_text(json.dumps(items, ensure_ascii=False, indent=1),
-                             encoding="utf-8")
+        from harness.changes import atomic_write_text
+        atomic_write_text(self.file, json.dumps(items, ensure_ascii=False, indent=1))
 
     # ------------------------------------------------------------------
     def list_all(self) -> list[dict]:

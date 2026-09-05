@@ -49,7 +49,13 @@ class Session:
     def add(self, role: str, content: Any, *, images: list[Path] | None = None,
             tool_calls: list[dict] | None = None, tool_call_id: str | None = None,
             name: str | None = None, reasoning: str | None = None) -> dict:
-        msg: dict[str, Any] = {"role": role, "content": content}
+        msg: dict[str, Any] = {"role": role, "content": content,
+                                "id": uuid.uuid4().hex, "created": time.time()}
+        for key in ("run_id", "step_id", "request_id"):
+            if getattr(self, key, None) is not None:
+                msg[key] = getattr(self, key)
+        if role == "tool":
+            msg["tool_status"] = getattr(content, "status", "completed")
         if reasoning:
             msg["reasoning"] = str(reasoning)
         if tool_calls:
@@ -71,6 +77,9 @@ class Session:
         self.meta["updated"] = time.time()
         self.meta["message_count"] = len(self.messages)
         self._save_meta()
+        observer = getattr(self, "on_message", None)
+        if observer:
+            observer(msg)
         return msg
 
     def _store_image(self, path: Path) -> Path:
@@ -78,7 +87,7 @@ class Session:
         if self.transient:
             self.persist()
         self.img_dir.mkdir(parents=True, exist_ok=True)
-        if self.img_dir in path.resolve().parents or path.parent == self.img_dir:
+        if self.dir.resolve() in path.resolve().parents:
             return path  # už je v session (screenshoty apod.)
         dest = self.img_dir / f"{uuid.uuid4().hex[:8]}-{path.name}"
         shutil.copy2(path, dest)
@@ -109,7 +118,8 @@ class Session:
         recent = set(image_paths[-max_images:])
         out: list[dict] = []
         for m in view:
-            m2 = {k: v for k, v in m.items() if k != "images"}
+            m2 = {k: v for k, v in m.items() if k not in
+                  ("images", "id", "created", "attachments", "request_id", "run_id", "step_id", "tool_status")}
             if "reasoning" in m2:
                 reasoning_val = m2.pop("reasoning", None)
                 if reasoning_val and "reasoning_content" not in m2:
@@ -172,6 +182,7 @@ class Session:
             total += sum(1 for p in m.get("images", []) if p in recent) * self.IMAGE_TOKENS * 4
             if m.get("tool_calls"):
                 total += len(_json.dumps(m["tool_calls"], ensure_ascii=False))
+            total += len(str(m.get("reasoning") or m.get("reasoning_content") or ""))
         if include_pins:
             total += len(self.pinned_context_block())
         # ~3.6 znaku na token (mix češtiny, kódu, JSON)
@@ -245,6 +256,7 @@ class Session:
         if not isinstance(c, str):
             c = " ".join(str(p.get("text", "")) for p in c if isinstance(p, dict))
         n = len(str(c)) * 10 // 36
+        n += len(str(m.get("reasoning") or m.get("reasoning_content") or "")) * 10 // 36
         if m.get("images"):
             n += len(m["images"]) * self.IMAGE_TOKENS
         if m.get("tool_calls"):
@@ -389,7 +401,8 @@ class Session:
                        workspace=self.meta.get("workspace"), transient=False,
                        work_mode=self.meta.get("work_mode"))
         copied: list[dict] = [fork.messages[0]] if fork.messages else []
-        for original in self.messages[1:index + 1]:
+        first = 1 if self.messages and self.messages[0].get("role") == "system" else 0
+        for original in self.messages[first:index + 1]:
             message = copy.deepcopy(original)
             if message.get("images"):
                 new_images: list[str] = []
@@ -482,19 +495,20 @@ class Session:
             return
         try:
             self.dir.mkdir(parents=True, exist_ok=True)
-            self._meta_file.write_text(
-                json.dumps(self.meta, ensure_ascii=False), encoding="utf-8")
+            from harness.changes import atomic_write_text
+            atomic_write_text(self._meta_file, json.dumps(self.meta, ensure_ascii=False))
         except OSError:
             pass
-        self._update_history_index()
+        self._update_history_index(incremental=True)
 
-    def _update_history_index(self) -> None:
+    def _update_history_index(self, incremental: bool = False) -> None:
         if self.transient or not self._jsonl.exists():
             return
         try:
             from harness.history_index import HistoryIndex
             HistoryIndex(self.cfg.path("paths.sessions_dir")).reindex(
-                self.id, self.meta, self.messages, source_mtime=self._jsonl.stat().st_mtime)
+                self.id, self.meta, self.messages, source_mtime=self._jsonl.stat().st_mtime,
+                incremental=incremental)
         except (OSError, ValueError, sqlite3.Error):
             pass
 
@@ -511,8 +525,8 @@ class Session:
     def _save_compression(self) -> None:
         if self.compression:
             self.dir.mkdir(parents=True, exist_ok=True)
-            self._compression_file.write_text(
-                json.dumps(self.compression, ensure_ascii=False), encoding="utf-8")
+            from harness.changes import atomic_write_text
+            atomic_write_text(self._compression_file, json.dumps(self.compression, ensure_ascii=False))
 
     def _load_compression(self) -> None:
         try:
@@ -529,7 +543,23 @@ class Session:
         f = s._jsonl
         if not f.exists():
             raise FileNotFoundError(f"Session {session_id} nenalezena ({f})")
-        s.messages = [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines() if line.strip()]
+        lines = f.read_text(encoding="utf-8").splitlines()
+        s.messages = []
+        for index, line in enumerate(lines):
+            if not line.strip():
+                continue
+            try:
+                message = json.loads(line)
+            except ValueError:
+                if any(rest.strip() for rest in lines[index + 1:]):
+                    raise
+                # A crash can leave only the last append incomplete. Keep it for diagnosis.
+                from harness.changes import atomic_write_text
+                atomic_write_text(s.dir / "incomplete-last-message.txt", line)
+                atomic_write_text(f, "\n".join(lines[:index]) + "\n")
+                break
+            message.setdefault("id", f"{s.id}:{index}")
+            s.messages.append(message)
         s._load_meta()
         # titulek pro starší sessions bez meta
         if not s.meta.get("title"):

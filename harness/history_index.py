@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 import sqlite3
 
 from harness.i18n import t
@@ -15,10 +16,15 @@ class HistoryIndex:
         sessions_dir.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
+    @contextmanager
     def _connect(self):
         connection = sqlite3.connect(self.path, timeout=10)
         connection.execute("PRAGMA journal_mode=WAL")
-        return connection
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _init_db(self) -> None:
         with self._connect() as connection:
@@ -30,14 +36,25 @@ class HistoryIndex:
                 "CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5("
                 "session_id UNINDEXED, role UNINDEXED, content, tokenize='unicode61')"
             )
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(sessions)")}
+            if "indexed_count" not in columns:
+                connection.execute("ALTER TABLE sessions ADD COLUMN indexed_count INTEGER DEFAULT 0")
 
     def reindex(self, session_id: str, meta: dict, messages: list[dict],
-                source_mtime: float | None = None) -> None:
+                source_mtime: float | None = None, incremental: bool = False) -> None:
         rows = []
+        start = 0
+        if incremental:
+            with self._connect() as connection:
+                previous = connection.execute("SELECT indexed_count FROM sessions WHERE session_id=?",
+                                              (session_id,)).fetchone()
+                start = int(previous[0] or 0) if previous else 0
+                if start > len(messages):
+                    start = 0
         internal = ("[TASK PROTOCOL", "[WRITING PROTOCOL", "[PROGRESS UPDATE",
                     "[FINAL SUMMARY", "[WRITING SUMMARY", "[RESEARCH PLAN",
                     "[The following image", "[Interrupted by user]")
-        for message in messages:
+        for message in messages[start:]:
             role = message.get("role")
             content = message.get("content")
             if role not in ("user", "assistant") or not isinstance(content, str):
@@ -46,7 +63,8 @@ class HistoryIndex:
                 continue
             rows.append((session_id, role, content))
         with self._connect() as connection:
-            connection.execute("DELETE FROM messages_fts WHERE session_id = ?", (session_id,))
+            if not incremental or start == 0:
+                connection.execute("DELETE FROM messages_fts WHERE session_id = ?", (session_id,))
             connection.executemany(
                 "INSERT INTO messages_fts(session_id, role, content) VALUES (?, ?, ?)", rows)
             connection.execute(
@@ -57,6 +75,8 @@ class HistoryIndex:
                 (session_id, meta.get("title") or t("(untitled)"), meta.get("workspace"),
                  float(meta.get("updated") or 0), float(source_mtime or 0)),
             )
+            connection.execute("UPDATE sessions SET indexed_count=? WHERE session_id=?",
+                               (len(messages), session_id))
 
     def remove(self, session_id: str) -> None:
         with self._connect() as connection:

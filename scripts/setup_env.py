@@ -21,7 +21,8 @@ def pip_install() -> int:
     print("=" * 60)
     print("[1/3] Installing Python dependencies (requirements.txt) ...")
     print("=" * 60)
-    return subprocess.call([sys.executable, "-m", "pip", "install", "-r", str(ROOT / "requirements.txt")])
+    from harness.dependencies import sync_dependencies
+    return sync_dependencies(ROOT / "requirements.txt", ROOT / ".venv")
 
 
 def main() -> int:

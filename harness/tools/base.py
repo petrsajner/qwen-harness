@@ -61,6 +61,15 @@ class Tool:
         }
 
 
+class ToolOutcome(str):
+    """String-compatible result with a machine-readable execution outcome."""
+    def __new__(cls, text, *, status="completed", tool=""):
+        value = super().__new__(cls, str(text))
+        value.status = status
+        value.tool = tool
+        return value
+
+
 class ToolRegistry:
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
@@ -82,14 +91,17 @@ class ToolRegistry:
         """Vykoná nástroj; výjimky zachytí a vrátí jako text (model na ně reaguje)."""
         tool = self.get(name)
         if tool is None:
-            return f"ERROR: Unknown tool '{name}'. Available: {', '.join(self.names())}"
+            return ToolOutcome(f"ERROR: Unknown tool '{name}'. Available: {', '.join(self.names())}", status="error", tool=name)
         try:
-            return tool.run(ctx, **arguments)
+            result = tool.run(ctx, **arguments)
+            if isinstance(result, ToolOutcome):
+                return result
+            return ToolOutcome(result, status="error" if str(result).startswith("ERROR") else "completed", tool=name)
         except TypeError as e:
-            return f"ERROR: Invalid arguments for {name}: {e}"
+            return ToolOutcome(f"ERROR: Invalid arguments for {name}: {e}", status="error", tool=name)
         except Exception as e:
             tb = traceback.format_exc(limit=3)
-            return f"ERROR in {name}: {type(e).__name__}: {e}\n{tb}"
+            return ToolOutcome(f"ERROR in {name}: {type(e).__name__}: {e}\n{tb}", status="error", tool=name)
 
 
 def truncate(text: str, limit: int = 20000, label: str = "output",

@@ -39,6 +39,12 @@ class ChangeJournal:
         self.task_id: str | None = None
         self._records: dict[str, dict] = {}
         self._lock = threading.RLock()
+        self._snapshot = False
+        latest = self._load_manifest(None)
+        if latest and not latest.get("undone_at"):
+            self.task_id = latest["task_id"]
+            self._records = {item["path"]: item for item in latest.get("files", [])}
+            self._snapshot = bool(latest.get("snapshot"))
 
     def set_workspace(self, workspace: Path) -> None:
         self.workspace = Path(workspace).resolve()
@@ -48,6 +54,7 @@ class ChangeJournal:
             stamp = time.strftime("%Y%m%d-%H%M%S")
             self.task_id = f"{stamp}-{uuid.uuid4().hex[:6]}"
             self._records = {}
+            self._snapshot = False
             self._write_manifest(label=label[:200])
             return self.task_id
 
@@ -135,7 +142,7 @@ class ChangeJournal:
             ],
         }
 
-    def undo(self, task_id: str | None = None) -> dict:
+    def undo(self, task_id: str | None = None, force: bool = False) -> dict:
         with self._lock:
             manifest = self._load_manifest(task_id)
             if not manifest:
@@ -146,6 +153,14 @@ class ChangeJournal:
             for record in reversed(manifest.get("files", [])):
                 path = Path(record["path"])
                 try:
+                    if record.get("kind") != "directory" and not force:
+                        current = file_sha256(path)
+                        if current == record.get("before_sha256"):
+                            restored.append(record["display_path"])
+                            continue
+                        if current != record.get("after_sha256"):
+                            errors.append(f"{record['display_path']}: changed after this task; left unchanged")
+                            continue
                     if record.get("kind") == "directory":
                         if not record["existed"] and path.is_dir():
                             path.rmdir()
@@ -160,7 +175,9 @@ class ChangeJournal:
                     restored.append(record["display_path"])
                 except OSError as exc:
                     errors.append(f"{record['display_path']}: {exc}")
-            manifest["undone_at"] = time.time()
+            if not errors:
+                manifest["undone_at"] = time.time()
+            manifest["restore_errors"] = errors
             self._atomic_json(task_dir / "manifest.json", manifest)
             return {"task_id": manifest["task_id"], "restored": restored, "errors": errors}
 
@@ -181,7 +198,34 @@ class ChangeJournal:
 
     def create_checkpoint(self, label: str = "manual") -> str:
         """Create an explicit snapshot checkpoint."""
-        return self.begin_task(label)
+        self.begin_task(label)
+        self.capture_workspace()
+        return self.task_id
+
+    def capture_workspace(self) -> None:
+        from harness.file_index import project_files
+        self._snapshot = True
+        for path in project_files(self.workspace, refresh=True):
+            if path.is_file() and not path.is_relative_to(self.base):
+                self.record_before(path)
+                self.record_after(path)
+        self._write_manifest()
+
+    def reconcile_workspace(self) -> None:
+        if not self._snapshot:
+            return
+        from harness.file_index import project_files
+        for path in project_files(self.workspace, refresh=True):
+            if path.is_relative_to(self.base):
+                continue
+            key = str(path.resolve())
+            if key not in self._records:
+                self._records[key] = {"path": key, "display_path": self._display_path(path),
+                    "existed": False, "backup": None, "before_sha256": None, "after_sha256": None}
+        for record in self._records.values():
+            if record.get("kind") != "directory":
+                record["after_sha256"] = file_sha256(Path(record["path"]))
+        self._write_manifest()
 
     def _display_path(self, path: Path) -> str:
         try:
@@ -200,6 +244,7 @@ class ChangeJournal:
             "label": previous.get("label", "") if label is None else label,
             "workspace": str(self.workspace),
             "files": list(self._records.values()),
+            "snapshot": self._snapshot,
         }
         self._atomic_json(path, manifest)
 

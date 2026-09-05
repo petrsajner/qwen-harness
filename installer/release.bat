@@ -20,6 +20,14 @@ echo ============================================================
 echo  RELEASE %VERSION%  (testy -^> exe -^> instalator)
 echo ============================================================
 
+echo [FRONTEND] Building the local workspace...
+call npm --prefix frontend ci --no-audit --no-fund
+if errorlevel 1 ( echo [ERROR] Frontend dependencies failed. & exit /b 1 )
+call npm --prefix frontend run build
+if errorlevel 1 ( echo [ERROR] Frontend build failed. & exit /b 1 )
+".venv\Scripts\python.exe" scripts\build_manuals.py
+if errorlevel 1 ( echo [ERROR] Manual build failed. & exit /b 1 )
+
 echo [1/3] Testy...
 ".venv\Scripts\python.exe" tests\test_core.py >nul 2>&1
 if errorlevel 1 (
@@ -28,6 +36,8 @@ if errorlevel 1 (
     pause & exit /b 1
 )
 echo        OK - vsechny testy prosly.
+".venv\Scripts\python.exe" -m unittest discover -s tests -p test_workspace.py
+if errorlevel 1 ( echo [ERROR] Workspace integration tests failed. & exit /b 1 )
 
 echo [2/3] Build Marvin.exe...
 call installer\build_exe.bat

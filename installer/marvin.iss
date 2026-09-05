@@ -10,7 +10,7 @@
 ; Verzi lze předefinovat z příkazové řádky: ISCC /DMyAppVersion=x.y.z
 ; (používá installer\release.bat s verzí z installer\version.txt)
 #ifndef MyAppVersion
-#define MyAppVersion "1.5.3"
+#define MyAppVersion "1.6.0"
 #endif
 
 #define MyAppName "Marvin"
@@ -42,6 +42,7 @@ ShowLanguageDialog=yes
 ; po prejmenovani produktu odstranit stare exe z predchozi instalace
 [InstallDelete]
 Type: files; Name: "{app}\QwenHarness.exe"
+Type: filesandordirs; Name: "{app}\ui_dist\assets"
 
 [Languages]
 ; First entry = default language (English base after installation).
@@ -74,6 +75,8 @@ Source: "..\tui.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\run_app.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\run_cli.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\requirements-windows-py312.lock"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\ui_dist\*"; DestDir: "{app}\ui_dist"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "version.txt"; DestDir: "{app}"; DestName: "version.txt"; Flags: ignoreversion
 Source: "..\config.yaml"; DestDir: "{app}"; Flags: ignoreversion onlyifdoesntexist
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion

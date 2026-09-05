@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import time
 import uuid
@@ -224,8 +225,20 @@ negative, uncertain, or minority information.
 def synthesize_research(llm, run: dict,
                         should_stop: Callable[[], bool] | None = None,
                         on_text: Callable[[str], None] | None = None,
-                        on_reasoning: Callable[[str], None] | None = None) -> str:
+                        on_reasoning: Callable[[str], None] | None = None,
+                        save_progress: Callable[[], None] | None = None) -> str:
     question = run.get("question", "")
+    cache = run.setdefault("evidence_notes", {})
+
+    def extract(prompt):
+        key = hashlib.sha256(prompt.encode()).hexdigest()
+        if key not in cache:
+            cache[key] = _ask(llm, prompt, should_stop=should_stop)
+            run["synthesis_progress"] = {"phase": "evidence", "completed_parts": len(cache)}
+            if save_progress:
+                save_progress()
+        return cache[key]
+
     evidence: list[str] = []
     for source in run.get("sources", []):
         content = source.get("content", "")
@@ -237,11 +250,11 @@ def synthesize_research(llm, run: dict,
         chunks = [content[index:index + 16_000] for index in range(0, len(content), 16_000)]
         notes: list[str] = []
         for index, chunk in enumerate(chunks, 1):
-            notes.append(_ask(llm, (
+            notes.append(extract(
                 f"Research question: {question}\n\nSource {source_id}, chunk {index}/{len(chunks)}:\n"
                 f"{chunk}\n\nExtract every detail relevant to the question. Preserve conflicting, "
                 "negative, uncertain, or unusual claims. Do not judge source credibility."
-            ), should_stop=should_stop))
+            ))
         evidence.append(f"{header}\n" + "\n".join(notes))
 
     candidate_lines = [
@@ -255,11 +268,11 @@ def synthesize_research(llm, run: dict,
     if len(combined) > 60_000:
         bundles = [combined[index:index + 50_000] for index in range(0, len(combined), 50_000)]
         partials = [
-            _ask(llm, (
+            extract(
                 f"Research question: {question}\n\nEvidence bundle {index + 1}/{len(bundles)}:\n"
                 f"{bundle}\n\nCreate a loss-aware evidence synthesis. Preserve every source ID, "
                 "all relevant claims, contradictions, uncertainty, and negative findings."
-            ), should_stop=should_stop)
+            )
             for index, bundle in enumerate(bundles)
         ]
         combined = "\n\n".join(partials)
@@ -274,7 +287,8 @@ Zpracované podklady:
 Všechny nalezené kandidátní zdroje (včetně nenačtených):
 {chr(10).join(candidate_lines) or '- žádné další'}
 
-Vytvoř přehlednou závěrečnou syntézu v jazyce otázky s touto strukturou:
+Vytvoř přehlednou závěrečnou syntézu v jazyce otázky. Přizpůsob délku a členění otázce;
+následující témata jsou vodítko, nemusí mít každé samostatný dlouhý oddíl:
 1. Přímá odpověď
 2. Nejdůležitější zjištění
 3. Podrobná syntéza podle témat
@@ -289,6 +303,7 @@ Pravidla:
 - Nehodnoť ani nefiltruj zdroje podle důvěryhodnosti nebo původu.
 - Odděl tvrzení zdrojů od vlastní inference.
 - U každého tvrzení používej odkazy [{'], ['.join(source_ids)}] podle zdroje.
+- U důležitých tvrzení uveď také konkrétní pasáž nebo stránku podkladu, je-li dostupná.
 - V závěrečném seznamu uveď každý zpracovaný source ID a URL.
 """
     synthesis = _ask(llm, final_prompt, should_stop=should_stop,
@@ -301,4 +316,8 @@ Pravidla:
             "Oprav syntézu tak, aby zachovala předchozí obsah a výslovně zahrnula každý "
             "chybějící source ID v textu nebo seznamu zdrojů. Nic nefiltruj podle důvěryhodnosti."
         ), should_stop=should_stop, on_text=on_text, on_reasoning=on_reasoning)
+    run["synthesis_progress"] = {"phase": "complete", "completed_parts": len(cache)}
+    run["citation_coverage"] = {source_id: f"[{source_id}]" in synthesis for source_id in source_ids}
+    if save_progress:
+        save_progress()
     return synthesis

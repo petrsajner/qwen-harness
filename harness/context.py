@@ -1,6 +1,8 @@
 """Správa kontextu - odhad tokenů, sumarizace (auto-komprese, handoff)."""
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
 from typing import Any
 
 SUMMARIZE_PROMPT = """You are creating a technical handoff summary of a work session between a user and a coding agent.
@@ -43,20 +45,54 @@ def render_messages_text(messages: list[dict], max_chars: int = 60_000) -> str:
 
 
 def summarize_messages(llm: Any, messages: list[dict], should_stop=None) -> str:
-    """Nech model vytvořit souhrn konverzace (rychle, bez thinking, bez nástrojů)."""
-    transcript = render_messages_text(messages)
-    res = llm.stream(
-        [
-            {"role": "system", "content": "You are a precise technical summarizer. Output only the summary."},
-            {"role": "user", "content": SUMMARIZE_PROMPT + transcript},
-        ],
-        sampling=llm.cfg.sampling(False),
-        thinking=False,
-        should_stop=should_stop,
-    )
-    if res.stopped:
-        raise RuntimeError("sumarizace zastavena uživatelem")
-    text = (res.content or "").strip()
-    if not text:
-        raise RuntimeError("model vrátil prázdný souhrn")
-    return text
+    """Summarize every part, retaining mode-specific facts and traceable message IDs."""
+    mode = llm.cfg.data.get("work_mode", "discussion")
+    focus = {
+        "discussion": "goals, decisions, perspectives, unresolved questions and user preferences",
+        "research": "claims, exact source IDs and URLs, contradictions, uncertainty and unanswered questions",
+        "writing": "outline, voice, style, characters, chronology, continuity and approved wording",
+        "development": "architecture, file paths, changes, test evidence, errors and next steps",
+        "computer": "application state, completed actions, file paths and next steps",
+    }.get(mode, "goals, decisions, facts and next steps")
+    prompt = (f"Create a continuation summary for {mode}. Preserve {focus}. "
+              "Keep explicit user requirements and accepted decisions, including negative constraints. "
+              "Distinguish completed work from proposals. Preserve message references and source links "
+              "so missing detail can be retrieved with read_chat_history. Be concise without losing "
+              "relevant facts. Reply in the conversation language.\n\n")
+    lines = []
+    for i, message in enumerate(messages):
+        reference = message.get("id", str(i))
+        content = render_messages_text([message], max_chars=2**63 - 1)
+        lines.append(f"[Message {reference}]\n{content}")
+    transcript = "\n\n".join(lines)
+    budget = max(8000, int(llm.cfg.context_size() * 0.45 * 3.6))
+    cache = llm.cfg.path("paths.runtime_dir") / "summary-cache"
+    cache.mkdir(parents=True, exist_ok=True)
+
+    def summarize(text):
+        if should_stop and should_stop():
+            raise RuntimeError("sumarizace zastavena uživatelem")
+        key = hashlib.sha256((mode + prompt + text).encode()).hexdigest()
+        path = cache / (key + ".md")
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+        res = llm.stream([
+            {"role": "system", "content": "Summarize faithfully; preserve requirements and references."},
+            {"role": "user", "content": prompt + text}],
+            sampling=llm.cfg.sampling(False), thinking=False, should_stop=should_stop)
+        if res.stopped:
+            raise RuntimeError("sumarizace zastavena uživatelem")
+        summary = (res.content or "").strip()
+        if not summary:
+            raise RuntimeError("model vrátil prázdný souhrn")
+        from harness.changes import atomic_write_text
+        atomic_write_text(path, summary)
+        return summary
+
+    while len(transcript) > budget:
+        merged = "\n\n".join(summarize(transcript[i:i + budget])
+                              for i in range(0, len(transcript), budget))
+        if len(merged) >= len(transcript):
+            raise RuntimeError("Souhrn nezmenšil kontext; původní podklady zůstaly uložené")
+        transcript = merged
+    return summarize(transcript)

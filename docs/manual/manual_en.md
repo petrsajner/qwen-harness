@@ -86,87 +86,73 @@ To remove everything after uninstalling, inspect and delete the remaining instal
 ```text
 py -3.12 -m venv .venv
 .venv\Scripts\python scripts\setup_env.py --model all
+npm --prefix frontend ci
+npm --prefix frontend run build
 .venv\Scripts\python qwen_app.py
 ```
 
 For terminal use, run `run_cli.bat` or `.venv\Scripts\python tui.py`.
 
+Source development requires Node.js to build the frontend. A normal Setup.exe installation already contains the built frontend and does not require Node.js.
+
 # 3. Desktop Interface Tour
 
-The application has a scrollable sidebar and the main chat area.
+The workspace has project/chat navigation on the left, the conversation in the center, and a closable detail panel on the right. The prompt stays at the bottom of the conversation. At smaller widths, the detail panel becomes a drawer.
 
-## Status panel
+## Navigation and work modes
 
-The top status panel shows:
+The project selector opens the most recent chat of that project. **No project** opens an independent chat. Selecting another chat never rebinds the task that is already running elsewhere.
 
-- Active or loading model.
-- Whether the inference server is running.
-- GPU VRAM usage.
-- KV cache precision.
-- Estimated persistent chat context usage and context limit.
-- Live generated-token estimate while the model is thinking, speaking, or preparing a tool call.
+Work modes always appear in this order: **Discussion, Research, Writing, Development, Computer**. The mode belongs to the chat. A running request retains the configuration with which it started.
 
-Red means the server is down or a switch failed. Green means the selected model is ready. Orange/red context indicators appear near the compression thresholds.
+Use **New chat** to create a conversation. Type into the title above the chat and press Enter to rename it. The chat's three-dot menu contains Move, Undo last turn, Branch, Export, and Delete. Selecting a destination moves the chat and updates its project context. Stop the chat's task before moving or deleting it.
 
-## Work mode
+The three-dot menu beside the project selector creates a new project, attaches an existing folder, or deletes the selected project and its folder. Search in the left sidebar searches saved conversations.
 
-The **Work mode** dropdown changes the model's tools and behavior for the active chat. The selected mode is saved with that chat. See the Work Modes chapter for the exact differences.
+## Prompt, Attach, and image previews
 
-## Server panel
+The visible **Attach** button is always below the prompt. It opens the disk file picker and accepts multiple files. Images can also be dragged into the workspace or pasted from the clipboard with Ctrl+V. Ordinary text pasting still works.
 
-| Control | Effect |
-|---|---|
-| Start | Loads the selected model and opens the local API server. |
-| Stop | Stops `llama-server` and releases VRAM. Chats remain saved. |
-| Restart | Stops and reloads the selected model, KV profile, and context configuration. |
+Every pending image has a real thumbnail and an individual remove button. Removing an image leaves the prompt and other attachments intact. Clicking a thumbnail enlarges the original. After sending, thumbnails belong to the user message and remain available after reopening the chat.
 
-Model and KV changes automatically request a server restart. Loading takes roughly 10-20 seconds depending on the model and disk cache.
+PDF, DOCX, XLSX, CSV, Markdown, and text files can also be attached. The model receives their file paths and uses the document tools to read them. A text-only model cannot inspect image content; choose a vision-capable model when required. Draft text and uploaded attachments are retained when a request is rejected.
 
-## Sidebar organization
+Enter and Ctrl+Enter send; Shift+Enter inserts a new line. The composer clears after the service accepts the identified message. Draft text is stored per conversation.
 
-The sidebar follows the normal working order instead of presenting every feature as a separate panel:
+## Running tasks and the message queue
 
-- **Workspace** keeps the compact server bar, project selector, active-chat controls, and one collapsible chat browser near the top.
-- **Current task** combines the persistent plan, changed files, rollback, and resume state in one section.
-- **Context** combines context statistics, pins, compression, and handoff.
-- **Research progress** appears only in Research mode.
-- **Runtime** combines background processes and the isolated browser session.
-- **Settings & help** contains project setup, chat import/export, model behavior, memory, skills, and both manuals.
+While a task is active, choose **Clarify now** to steer it or **After completion** to queue a separate request. A task in a different chat keeps running; a new request waits for the single model worker. Queued text can be edited, and queued messages can be cancelled.
 
-Current task, Context, Runtime, and Settings share one visual surface with row separators. They are collapsed by default to keep navigation compact.
+**Stop task** works during prompt processing, reasoning, visible text, tool preparation, and synchronous actions. It may finish the current visible sentence briefly; it does not wait for a whole reasoning block. Already completed work and visible partial text are retained. Stop also pauses the pending queue; **Resume queued messages** starts it again. **Continue** resumes the interrupted task.
 
-## Project and chat area
+Refreshing or reconnecting the browser does not own or cancel the model run. After a full application restart, interrupted work is available to continue. If a tool result was not saved before a crash, the model is told to inspect the actual outcome instead of blindly replaying the action.
 
-The project dropdown selects a project or **No project**. Separate lists show chats belonging to the selected project and chats without a project. **Search all chats** searches all persistent chat text.
+## Results, Progress, and Context
 
-The highlighted active-chat panel contains:
+**Results** lists created documents and changed files, actual recorded checks, research exports, and restore points. Open a file to preview it, open its folder, or download it. HTML results can be previewed as a local application; supported programs also offer **Run**.
 
-- **New chat**.
-- **Delete** with a second-click confirmation.
-- Rename field; type the name and press Enter.
-- **Move chat to...** dropdown; selection moves immediately.
-- Chat export/import controls.
+**Progress** shows the task plan, durable operational notices, changed files, background processes and their output, and the isolated browser state. Background processes are stopped separately when appropriate.
 
-## Main chat and composer
+**Context** shows the estimated current input size and physical context limit, measured usage from the last completed model request when available, three active memory layers, pinned files, and loaded skills. Pin or unpin individual files, clear pins, compress earlier context, or hand off to a new conversation.
 
-The main area displays the complete user-visible history, including old messages that may already be compressed out of the model's active context.
+During generation, the activity line distinguishes preparation, thinking, writing, tool-call preparation, and execution. It includes elapsed time and an explicitly approximate live token count.
 
-The composer contains:
+## Settings
 
-- A multiline prompt field.
-- **Send** and **Stop**.
-- **Attachment** for image files.
-- **Retry**, **Undo**, and **Fork** beneath the prompt.
+Click the settings icon or the model status in the top bar. Settings are grouped into:
 
-Keyboard behavior:
+- **Model and device**: model, KV profile, vision capability, GPU memory choice, runtime diagnostics, Start / Stop / Restart.
+- **Behavior**: autonomy and default handling of messages sent during work.
+- **Memory and skills**: edit global, mode, and project memory; read or use a skill; design a skill; open user and project skill folders.
+- **Data and backups**: export/import a complete project, import chat JSONL, create/select/verify the local runtime backup, and monitor maintenance operations.
+- **Appearance and language**: dark, light, or system appearance; spacing; English or Czech.
+- **Help and manuals**: both PDF manuals and the slash command reference.
 
-| Key | Result |
-|---|---|
-| Enter | Send the prompt. |
-| Ctrl+Enter | Send the prompt. |
-| Shift+Enter | Insert a new line. |
+Thinking depth also stays beside the prompt because it can change between questions. Model settings selected while a request runs apply to subsequent requests. Language and theme changes update the interface without discarding the conversation.
 
-The composer clears immediately after sending, even while the model continues working.
+## Project decisions
+
+**Project decisions** holds proposed, accepted, and retired decisions. Add or edit a decision, choose its status, and open its originating conversation. Only accepted decisions are included automatically in project context. They supplement the three memory layers; a proposal is not silently treated as an accepted fact.
 
 # 4. Models, KV Cache, Context, and Thinking
 
@@ -179,6 +165,9 @@ The composer clears immediately after sending, even while the model continues wo
 | Ornith 1.5 35B-A3B Abliterated Q5 | Very fast optional reasoning MoE | Q5 | Q8 fixed | Q8 128k |
 
 The default new-installation profile is Qwen Q5 with Q8 KV and a 192k context. The application remembers the last selected model and each model's KV choice.
+
+
+Additional configured model profiles include Qwen IQ3 for smaller GPUs and Nemotron Q4/Q5. Nemotron is text-only. The model list shows whether each file is installed, and the KV dropdown shows the profiles configured for that model. These are configuration choices, not a claim that every profile has been benchmarked on every PC.
 
 ## Choosing Qwen Q5 or Q4
 
@@ -212,7 +201,7 @@ Changing KV precision restarts the server. It does not delete or reset the chat.
 
 For Qwen, `xhigh`, `medium`, and `low` are sent through the model's native reasoning-effort control. `off` disables the thinking block. The setting can be changed between prompts in the same chat.
 
-Reasoning tokens consume generation time and temporary context while the response is being produced. The UI shows a live estimate. Internal reasoning is not saved in full as persistent visible history; after completion the persistent context grows mainly by the final response and tool messages.
+Reasoning tokens consume generation time and temporary context while the response is being produced. The UI shows a live estimate. Reasoning is saved with the answer and can be expanded in history. Persistent context estimates include reasoning sent back to the model; measured usage refers to the last completed request.
 
 ## No artificial task or output limit
 
@@ -228,7 +217,7 @@ For best results, state the result you want, important constraints, and how comp
 
 ## Image attachment
 
-Use **Attachment** to add one or more images. Supported formats are BMP, GIF, JPEG, PNG, and WebP. The most recent images remain in active context; older image references stay in history but may be omitted from later API requests.
+Use **Attach**, drag and drop, or Ctrl+V to add one or more images. Supported formats are BMP, GIF, JPEG, PNG, and WebP. The most recent images remain in active context; older image references stay in history but may be omitted from later API requests.
 
 Images can be photographs, diagrams, screenshots, UI references, error messages, or visual source material. Qwen and Ornith use their matching vision projector automatically.
 
@@ -246,7 +235,7 @@ Use steering for corrections such as "keep the existing camera behavior", "do no
 
 ## Stop
 
-**Stop** bypasses the normal Gradio queue. It requests a graceful generation stop and normally allows the nearest sentence to finish. It also cancels the currently awaited browser operation or synchronous `run_command`, terminating that command's process tree. Finished partial text and captured command output are retained. A new prompt starts cleanly afterward.
+**Stop** directly signals the independent run controller, including while no stream bytes arrive. It requests a graceful generation stop and normally allows the nearest sentence to finish. It also cancels the currently awaited browser operation or synchronous `run_command`, terminating that command's process tree. Finished partial text and captured command output are retained. A new prompt starts cleanly afterward.
 
 Long-running operating-system processes have their own termination control in **Long-running operations**. Stopping generation does not necessarily stop a background process that was already launched; use the process panel when required.
 
@@ -296,7 +285,7 @@ Choose **No project** for conversations that should not access a project folder.
 
 ## Creating a managed project
 
-1. Open **Project management**.
+1. Open the three-dot project menu.
 2. Choose **New**.
 3. Enter a project name and confirm.
 
@@ -316,12 +305,12 @@ A project can contain any number of chats. Each chat has independent history, wo
 
 ## Moving a chat
 
-In the active-chat panel, open **Move chat to...** and select a target project or **No project**. The move happens immediately. The chat's workspace, project memory, document library, and model context are reconfigured to the target.
+In the chat's three-dot menu, open **Move to project** and select a target project or **No project**. The move happens immediately. The chat's workspace, project memory, document library, and model context are reconfigured to the target.
 
 ## Deleting a project
 
 1. Select the project.
-2. Open **Project management**.
+2. Open the three-dot project menu.
 3. Click **Delete project + folder**.
 4. Read the exact path shown.
 5. Click again within eight seconds to confirm.
@@ -374,13 +363,13 @@ Import never overwrites the original session. Its system prompt is refreshed to 
 
 ## Handoff to a new chat
 
-Use **Context & handoff > Hand off** for a long conversation that should continue in a fresh chat. The model summarizes essential goals, decisions, state, findings, and next steps; a new chat is created with that summary while the old history remains intact.
+Use **Context > Hand off** for a long conversation that should continue in a fresh chat. The model summarizes essential goals, decisions, state, findings, and next steps; a new chat is created with that summary while the old history remains intact.
 
 # 9. Context, Compression, and Pinned Files
 
 ## Context indicator
 
-The status and **What the model currently sees** panel show estimated tokens, visible versus total messages, images, compression state, and pinned files. The detailed breakdown separates conversation/attachments, current project context, and tool definitions, so the displayed total includes tool-schema overhead.
+The status and **Context** panel show estimated tokens, visible versus total messages, images, compression state, and pinned files. The detailed breakdown separates conversation/attachments, current project context, and tool definitions, so the displayed total includes tool-schema overhead.
 
 ## Automatic project snapshot
 
@@ -392,7 +381,7 @@ The harness also discovers `AGENTS.md`, `QWEN.md`, and `CLAUDE.md` from the proj
 
 ## Pinning a file
 
-Open **What the model currently sees** and choose **Pin file**, or tell the model to pin a path. The complete text is refreshed into the context at the start of subsequent tasks in that chat.
+Open **Context** and choose **Pin file**, or tell the model to pin a path. The complete text is refreshed into the context at the start of subsequent tasks in that chat.
 
 Good pinned files include architecture decisions, an active specification, a handoff, or project rules that matter throughout the conversation.
 
@@ -408,7 +397,7 @@ Do not pin ordinary source files that the model can read on demand, large logs, 
 
 At approximately 85% of the selected model context, the harness summarizes older messages. The visible chat history is never deleted; only the model's request view changes to system prompt + summary + recent messages.
 
-Use **Context & handoff > Compress** to compress earlier. If the model reports an overflow, the agent performs one automatic compression-and-retry cycle. A second overflow is reported instead of looping forever.
+Use **Context > Compress** to compress earlier. If the model reports an overflow, the agent performs one automatic compression-and-retry cycle. A second overflow is reported instead of looping forever.
 
 # 10. Three-Layer Memory
 
@@ -432,7 +421,7 @@ memory\modes\computer.md
 <project>\QWEN_MEMORY.md
 ```
 
-Open the active memory files in **Settings > Memory**. You can edit them directly or say, for example:
+Open the active memory files in **Settings > Memory and skills**. You can edit them directly or say, for example:
 
 ```text
 Remember globally that I prefer concise Czech summaries.
@@ -466,7 +455,7 @@ A higher layer with the same `name` replaces the lower one.
 
 ## Adding a user skill
 
-Open **Available skills > Open skills folder** and create:
+Open **Settings > Memory and skills > User skills** and create:
 
 ```text
 user-skills\my-skill\SKILL.md
@@ -727,7 +716,7 @@ Back up at least:
 - `user-skills`.
 - `projects.json`.
 
-The application can also create a complete reusable installation backup from files that are already present on this computer. Open **Settings & help > Offline backup** and select **Create backup**. Choose a parent directory on another disk when possible. The application creates a timestamped `QwenHarness-Offline-Backup-*` folder containing:
+The application can also create a complete reusable installation backup from files that are already present on this computer. Open **Settings > Data and backups** and select **Create backup**. Choose a parent directory on another disk when possible. The application creates a timestamped `QwenHarness-Offline-Backup-*` folder containing:
 
 - Every complete model and vision-projector file currently in `runtime\models`.
 - The installed `llama.cpp` and CUDA runtime from `runtime\llama`.
@@ -822,7 +811,7 @@ The project list marks missing directories. Reattach the correct folder, move af
 
 ## Language did not fully change
 
-Choose **Settings > Language**. The interface reloads and preserves the current session. If a native launcher message remains in the old language, restart the desktop application. The saved UI choice takes precedence over the installer-language file.
+Choose **Settings > Appearance and language**. The interface updates in place and preserves the current session. If a native launcher message remains in the old language, restart the desktop application. The saved UI choice takes precedence over the installer-language file.
 
 # 20. User-Facing Tool Reference
 
@@ -949,3 +938,33 @@ These items do not belong to Marvin. They are not deferred roadmap work.
 - Public skills should be reviewed before installation. Skill text guides the model and can influence its actions.
 - Git commit is local unless the user explicitly asks for a push and the environment permits it.
 - The application is a personal local tool. Maintain backups of irreplaceable project and session data.
+
+# 23. Extended Workspace Operations
+
+## Reading full documents
+
+Ask for a specific PDF page, DOCX block, Excel sheet/cell range, or CSV row range. The document reader returns continuation coordinates so the next part can be read explicitly instead of stopping at the first hundred rows. Excel can expose cached values or formulas; the reader does not recalculate Excel formulas.
+
+Scanned PDF pages and diagrams can be rendered with `view_document_page` and inspected by the current vision-capable model. Existing Word documents can be changed through `edit_word_document`, retaining paragraphs, tables, and run styling.
+
+## Recovering original context
+
+Compression is adapted to Discussion, Research, Writing, Development, or Computer. All input chunks are processed, and intermediate summaries are cached. The original messages remain available through `search_chat_history` and `read_chat_history`, including content no longer in the active model context.
+
+Research saves intermediate evidence notes. Interrupted synthesis can reuse those notes. Citation buttons open the original source text, while found but unloaded candidates remain visible without a credibility filter.
+
+## Restore points
+
+Open **Results > Restore points** or use `/checkpoint name`. A restore point captures working files while excluding generated dependencies and model/runtime directories. Task snapshots also reconcile file changes made through model commands. **Restore** reports later conflicting edits instead of silently overwriting them, and a partial failure is not marked fully restored.
+
+## Portable projects
+
+Use **Settings > Data and backups > Export project**. The ZIP contains project files, project memory and skills, conversation history, attachments, and decision references. **Import project** creates a new project directory and new chat IDs, remapping stored attachment paths and source-chat links.
+
+This project archive is separate from the model/runtime backup. The latter still acts as an online-first fallback and can be used explicitly for offline setup.
+
+## Source development and releases
+
+End users install Python 3.12 and the normal Setup.exe; Node.js is not a runtime prerequisite. Source developers build the frontend with `npm --prefix frontend ci` and `npm --prefix frontend run build`. Python serves the compiled `ui_dist` directory. Windows package versions are fixed in `requirements-windows-py312.lock`.
+
+The old Gradio surface remains available for compatibility diagnostics with `MARVIN_LEGACY_UI=1`; the new workspace is the default.

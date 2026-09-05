@@ -263,6 +263,11 @@ class Agent:
             instructions = self.ctx.repo_index.instruction_context(self._active_context_paths)
             if instructions:
                 blocks.append("## ACTIVE PROJECT INSTRUCTIONS\n" + instructions)
+        if self.ctx.project_workspace:
+            from harness.decisions import DecisionStore
+            decisions = DecisionStore(self.ctx.project_workspace).context()
+            if decisions:
+                blocks.append(decisions)
         if self.tools_enabled and self.ctx.task_plan:
             blocks.append("## OPERATIONAL TASK STATE\n" + self.ctx.task_plan.context_block())
         pinned = self.session.pinned_context_block()
@@ -395,11 +400,13 @@ class Agent:
                 parse_error = f"ERROR: {e}"
             else:
                 parse_error = None
-            self.emit("tool_start", (name, args))
             prepared.append((call, name, args, parse_error))
 
         def execute_one(item):
             _, name, args, parse_error = item
+            if self.abort_flag.is_set():
+                return "Interrupted before execution; no action performed."
+            self.emit("tool_start", (name, args))
             return parse_error if parse_error is not None else self.registry.execute(name, args, self.ctx)
 
         can_parallel = len(prepared) > 1 and all(
@@ -420,6 +427,11 @@ class Agent:
             trace.append((name, args, result))
             self.emit("tool_result", (name, result))
             self.session.add("tool", result, tool_call_id=call["id"], name=name)
+            if name == "read_skill" and args and not str(result).startswith("ERROR"):
+                loaded = self.session.meta.setdefault("active_skills", [])
+                if args.get("name") and args["name"] not in loaded:
+                    loaded.append(args["name"])
+                    self.session._save_meta()
             self._observe_context_paths(args)
             if self.ctx.task_plan:
                 self.ctx.task_plan.observe_tool(
@@ -427,6 +439,9 @@ class Agent:
             if (self.ctx.code_index and name in
                     {"write_file", "apply_patch", "move_file", "delete_file"}):
                 self.ctx.code_index.invalidate()
+            if name in {"write_file", "apply_patch", "move_file", "delete_file", "make_directory", "run_command"}:
+                from harness.file_index import invalidate_project_files
+                invalidate_project_files(self.ctx.workspace)
         # obrázky vytvořené nástroji (screenshot, view_image) přilož jako user zprávu
         if self.ctx.pending_images:
             imgs = list(self.ctx.pending_images)
@@ -608,6 +623,11 @@ class Agent:
 
         self._steps += 1
 
+        if getattr(res, "usage", None):
+            self.session.meta["last_usage"] = res.usage
+            self.session._save_meta()
+            self.emit("usage", res.usage)
+
         if res.stopped:
             if (res.content or "").strip():
                 self.session.add("assistant", res.content, reasoning=res.reasoning)
@@ -623,25 +643,12 @@ class Agent:
             )
             self._tool_call_history.append(call_sig)
 
-            # Detekce zacyklení: 5x identické volání nástrojů za sebou
-            if (len(self._tool_call_history) >= 5
-                    and len(set(self._tool_call_history[-5:])) == 1):
-                self.session.add("assistant", res.content, reasoning=res.reasoning)
-                first_name = res.tool_calls[0]["function"]["name"]
-                loop_msg = (
-                    f"Zastaveno: Detekováno zacyklení nástrojů ({first_name}). "
-                    "Stejná akce byla opakována 5× bez posunu."
-                )
-                self.session.add("user", f"[LOOP DETECTED] {loop_msg}")
-                self._save_task_state("complete", result=loop_msg)
-                return StepResult(Status.FINAL, text=loop_msg, reasoning=res.reasoning)
-
             loop_warning = None
             if len(self._tool_call_history) >= 2 and self._tool_call_history[-1] == self._tool_call_history[-2]:
                 loop_warning = (
                     "[LOOP WARNING] You just repeated the exact same tool call as in the previous step. "
-                    "If it failed or did not achieve your goal, do NOT repeat it again. "
-                    "Change your approach or explain the problem."
+                    "Compare its result with the previous result. Polling an active process may be useful; "
+                    "if nothing is progressing, consider a different approach and explain the situation."
                 )
 
             risky = []
@@ -694,7 +701,8 @@ class Agent:
                     res.content = synthesize_research(
                         self.llm, run, should_stop=self.abort_flag.is_set,
                         on_text=lambda text: self.emit("text", text),
-                        on_reasoning=lambda text: self.emit("reasoning", text))
+                        on_reasoning=lambda text: self.emit("reasoning", text),
+                        save_progress=self.ctx.research._save)
                     self.ctx.research.complete(res.content)
                 except GenerationStopped as exc:
                     if exc.text:
@@ -785,10 +793,11 @@ def build_registry(mode: str, work_mode: str | None = None) -> ToolRegistry:
     výzkum/diskuze potřebují číst zdroje a ukládat výsledky na disk.
     Coding navíc (repo přehled, Git, shell) jen Vývoj a Počítač.
     """
-    from harness.tools import browser, code, computer, context, documents, fs, git, memory, search, shell, skills, task, vision, web
+    from harness.tools import browser, code, computer, context, documents, fs, git, history, memory, search, shell, skills, task, vision, web
     selected = normalize_work_mode(work_mode, mode)
     reg = ToolRegistry()
     memory.register_memory_tools(reg)  # chat má alespoň paměť
+    history.register_history_tools(reg)
     web.register_web_tools(reg)        # internet: web_search + web_fetch (všude)
     search.register_search_tools(reg)  # FTS5 fulltext: search_project (všude)
     context.register_context_tools(reg)

@@ -23,6 +23,11 @@ if sys.stdout is None or sys.stderr is None:
     sys.stdout = _lf
     sys.stderr = _lf
 
+if __name__ == "__main__" and os.environ.get("MARVIN_LEGACY_UI") != "1":
+    from harness.web_api import main as run_workspace
+    run_workspace()
+    raise SystemExit(0)
+
 import gradio as gr
 
 # Gradio 6 přestěhovalo souborové API pod /gradio_api/file=
@@ -1587,39 +1592,108 @@ def current_project_name() -> str:
 
 
 def set_project_handler(name: str):
-    """Výběr projektu v dropdownu → nastav workspace (volba žádný projekt = bez projektu)."""
+    """Výběr projektu v dropdownu → nastav workspace a načti nejnovější chat daného projektu (nebo vytvoř nový)."""
     try:
-        if name == NOPROJ_NAME:
+        target_ws = None
+        proj_display_name = NOPROJ_NAME
+        if name and name != NOPROJ_NAME:
+            proj = next((p for p in _projects().list_all() if p["name"] == name), None)
+            if not proj:
+                r1, r2, ds = update_chats_radio()
+                return (gr.update(), chat_view(), gr.update(visible=False), refresh_status(),
+                        r1, r2, ds, gr.update(value=state.work_mode))
+            if proj.get("missing"):
+                gr.Warning(t("Project folder does not exist: {path}", path=proj["path"]))
+                r1, r2, ds = update_chats_radio()
+                return (gr.update(), chat_view(), gr.update(visible=False), refresh_status(),
+                        r1, r2, ds, gr.update(value=state.work_mode))
+            target_ws = proj["path"]
+            proj_display_name = proj["name"]
+
+        # Nastavení workspace
+        if target_ws:
+            state.set_workspace(target_ws)
+        else:
             state.clear_workspace()
-            gr.Info(t("∅ No project — new chats will have no project"))
-            return gr.update(choices=project_choices(), value=NOPROJ_NAME)
-        proj = next((p for p in _projects().list_all() if p["name"] == name), None)
-        if not proj:
-            return gr.update()
-        if proj.get("missing"):
-            gr.Warning(t("Project folder does not exist: {path}", path=proj["path"]))
-            return gr.update()
-        state.set_workspace(proj["path"])
-        gr.Info(t("📁 Project: {name}", name=proj["name"]))
-        return gr.update(choices=project_choices(), value=proj["name"])
+
+        current_ws = state.session.meta.get("workspace") if getattr(state, "session", None) else None
+        need_switch = (current_ws != target_ws)
+
+        if need_switch:
+            all_sessions = Session.list_sessions(cfg, limit=200)
+            if target_ws:
+                matching = [s for s in all_sessions if s.get("workspace") == target_ws]
+            else:
+                matching = [s for s in all_sessions if not s.get("workspace")]
+            matching.sort(key=lambda s: s.get("updated", 0), reverse=True)
+
+            if matching:
+                latest_sid = matching[0]["id"]
+                state.session = Session.load(cfg, latest_sid, state._system_prompt())
+                state._adopt_session_work_mode()
+                state.rebuild_agent()
+                state._refresh_system_prompt()
+                state.suppress_active_entry = False
+                title = str(state.session.meta.get("title", latest_sid)[:40])
+                gr.Info(t("📁 Project: {name} · Chat: {chat}", name=proj_display_name, chat=title))
+            else:
+                state.new_session()
+                state.suppress_active_entry = False
+                gr.Info(t("📁 Project: {name} · New chat started", name=proj_display_name))
+
+            state.save_ui_state()
+        else:
+            gr.Info(t("📁 Project: {name}", name=proj_display_name))
+
+        r1, r2, ds = update_chats_radio()
+        return (
+            gr.update(choices=project_choices(), value=proj_display_name),
+            chat_view(),
+            gr.update(visible=False),
+            refresh_status(),
+            r1,
+            r2,
+            ds,
+            gr.update(value=state.work_mode)
+        )
     except Exception as e:
         gr.Warning(f"❌ {e}")
-        return gr.update()
+        r1, r2, ds = update_chats_radio()
+        return (gr.update(), chat_view(), gr.update(visible=False), refresh_status(),
+                r1, r2, ds, gr.update(value=state.work_mode))
 
 
 def attach_project_handler():
     """📂 Připoj existující složku jako projekt (název dle složky)."""
     path = pick_directory_dialog()
     if not path:
-        return gr.update(), gr.update(visible=False)
+        r1, r2, ds = update_chats_radio()
+        return (gr.update(), gr.update(visible=False), chat_view(), gr.update(visible=False),
+                refresh_status(), r1, r2, ds, gr.update(value=state.work_mode))
     try:
         proj = _projects().attach_folder(path)
         state.set_workspace(proj["path"])
+        all_sessions = [s for s in Session.list_sessions(cfg, limit=200) if s.get("workspace") == proj["path"]]
+        all_sessions.sort(key=lambda s: s.get("updated", 0), reverse=True)
+        if all_sessions:
+            state.session = Session.load(cfg, all_sessions[0]["id"], state._system_prompt())
+            state._adopt_session_work_mode()
+            state.rebuild_agent()
+            state._refresh_system_prompt()
+            state.suppress_active_entry = False
+        else:
+            state.new_session()
+            state.suppress_active_entry = False
+        state.save_ui_state()
         gr.Info(t("📁 Project attached: {name}", name=proj["name"]))
-        return gr.update(choices=project_choices(), value=proj["name"]), gr.update(visible=False)
+        r1, r2, ds = update_chats_radio()
+        return (gr.update(choices=project_choices(), value=proj["name"]), gr.update(visible=False),
+                chat_view(), gr.update(visible=False), refresh_status(), r1, r2, ds, gr.update(value=state.work_mode))
     except Exception as e:
         gr.Warning(f"❌ {e}")
-        return gr.update(), gr.update(visible=False)
+        r1, r2, ds = update_chats_radio()
+        return (gr.update(), gr.update(visible=False), chat_view(), gr.update(visible=False),
+                refresh_status(), r1, r2, ds, gr.update(value=state.work_mode))
 
 
 def create_project_handler(name: str):
@@ -1628,14 +1702,23 @@ def create_project_handler(name: str):
         name = (name or "").strip()
         if not name:
             gr.Warning(t("Enter a project name."))
-            return gr.update(), gr.update(visible=False), ""
+            r1, r2, ds = update_chats_radio()
+            return (gr.update(), gr.update(visible=False), "", chat_view(), gr.update(visible=False),
+                    refresh_status(), r1, r2, ds, gr.update(value=state.work_mode))
         proj = _projects().create_new(name)
         state.set_workspace(proj["path"])
+        state.new_session()
+        state.suppress_active_entry = False
+        state.save_ui_state()
         gr.Info(t("📁 Project created {name} → {path}", name=proj["name"], path=proj["path"]))
-        return gr.update(choices=project_choices(), value=proj["name"]), gr.update(visible=False), ""
+        r1, r2, ds = update_chats_radio()
+        return (gr.update(choices=project_choices(), value=proj["name"]), gr.update(visible=False), "",
+                chat_view(), gr.update(visible=False), refresh_status(), r1, r2, ds, gr.update(value=state.work_mode))
     except Exception as e:
         gr.Warning(f"❌ {e}")
-        return gr.update(), gr.update(visible=False), ""
+        r1, r2, ds = update_chats_radio()
+        return (gr.update(), gr.update(visible=False), "", chat_view(), gr.update(visible=False),
+                refresh_status(), r1, r2, ds, gr.update(value=state.work_mode))
 
 
 def delete_project_handler(name: str):
@@ -2669,6 +2752,35 @@ gradio-app, .gradio-container {
   font-family: 'Segoe UI Variable Text','Segoe UI','Segoe UI Emoji','Segoe UI Symbol','Noto Color Emoji',system-ui,sans-serif !important;
   color-scheme: dark !important;
 }
+
+/* Skrytí style kontejneru pro nulovou ztrátu vertikálního prostoru */
+#custom-css-holder {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+/* Gradio vnitřní containery - plná výška bez přetečení za spodní okraj */
+.gradio-container .main,
+.gradio-container .wrap,
+.gradio-container main.contain,
+.gradio-container main.contain > div.column {
+  height: 100% !important;
+  max-height: 100% !important;
+  min-height: 0 !important;
+  flex: 1 1 0 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-sizing: border-box !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
 footer, .gradio-container > footer {
   display: none !important;
   height: 0 !important;
@@ -2717,11 +2829,23 @@ button.primary:hover { filter: brightness(1.12) !important; }
 /* chat - inverzní: user vpravo (modrý), asistent vlevo (tmavý) */
 #main-chat {
   flex: 1 1 0 !important;
+  min-height: 0 !important;
   height: 0 !important;
-  min-height: 180px !important;
   max-height: none !important;
   border-radius: 12px !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+#main-chat .wrapper,
+#main-chat [data-testid="chatbot"],
+#main-chat .bubble-wrap {
+  height: 100% !important;
+  max-height: 100% !important;
+  min-height: 0 !important;
   overflow-y: auto !important;
+  box-sizing: border-box !important;
 }
 #main-chat .user-row, #main-chat [class*="user"] { justify-content: flex-end !important; }
 #main-chat .bot-row, #main-chat [class*="bot"] { justify-content: flex-start !important; }
@@ -2784,29 +2908,67 @@ button.primary:hover { filter: brightness(1.12) !important; }
 ::-webkit-scrollbar-track { background: transparent !important; }
 /* ===== LAYOUT: sidebar + hlavní chat (styl ZCode/Codex) ===== */
 #app-row {
-  height: 100% !important; max-height: 100% !important;
-  overflow: hidden !important; gap: 10px !important;
-  align-items: stretch !important; flex-wrap: nowrap !important;
-  flex: 1 1 auto !important; min-height: 0 !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+  gap: 10px !important;
+  align-items: stretch !important;
+  flex-wrap: nowrap !important;
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  box-sizing: border-box !important;
 }
 #sidebar > * { flex-shrink: 0 !important; }
 #sidebar {
-  min-width: 332px !important; max-width: 332px !important;
-  background: #10141b !important; border: 1px solid #21262d !important;
-  border-radius: 14px !important; padding: 14px 12px !important;
-  height: 100% !important; max-height: 100% !important;
-  overflow-y: auto !important; overflow-x: hidden !important;
+  min-width: 332px !important;
+  max-width: 332px !important;
+  flex: 0 0 332px !important;
+  background: #10141b !important;
+  border: 1px solid #21262d !important;
+  border-radius: 14px !important;
+  padding: 12px 12px 8px 12px !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
   flex-wrap: nowrap !important;
   box-sizing: border-box !important;
 }
 #main {
-  flex: 1 1 0 !important; min-width: 0 !important;
-  height: 100% !important; max-height: 100% !important;
-  display: flex !important; flex-direction: column !important;
-  overflow: hidden !important; box-sizing: border-box !important;
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
   gap: 4px !important;
 }
-#main-chat { width: 100% !important; max-width: 100% !important; }
+#composer-layout {
+  flex: 0 0 auto !important;
+  align-items: stretch !important;
+  flex-wrap: nowrap !important;
+  gap: 8px !important;
+  margin-top: 2px !important;
+  box-sizing: border-box !important;
+}
+#confirm-row {
+  flex: 0 0 auto !important;
+  box-sizing: border-box !important;
+}
+#footer-hint {
+  flex: 0 0 auto !important;
+  margin: 2px 0 0 0 !important;
+  padding: 1px 0 !important;
+}
+#footer-hint p, #footer-hint small {
+  margin: 0 !important;
+  font-size: 11px !important;
+  color: #64748b !important;
+}
 #main-chat img { max-width: 100% !important; height: auto !important; }
 .side-title { margin-bottom: 2px !important; }
 .app-version { color: #8b949e; font-size: 12px; font-weight: 500; }
@@ -3237,7 +3399,7 @@ def build_ui() -> gr.Blocks:
         for key, model in cfg.data["models"].items()
     ]
     with gr.Blocks(title=f"Marvin v{APP_VERSION}") as ui:
-        gr.HTML(f"<style>{CUSTOM_CSS}</style>")
+        gr.HTML(f"<style>{CUSTOM_CSS}</style>", elem_id="custom-css-holder")
         with gr.Row(elem_id="app-row", elem_classes=["gap"]):
             # ================= LEVÝ SIDEBAR =================
             with gr.Column(scale=0, elem_id="sidebar"):
@@ -3511,32 +3673,38 @@ def build_ui() -> gr.Blocks:
                                 elem_id="btn-send")
                             btn_stop_run = gr.Button("Stop", size="sm", scale=1)
                 submission_state = gr.State({})
-                with gr.Row(visible=False) as confirm_row:
+                with gr.Row(visible=False, elem_id="confirm-row") as confirm_row:
                     gr.Markdown(t("⚠️ **Agent is waiting for action confirmation**"), scale=3)
                     btn_yes = gr.Button(t("Allow"), variant="primary", size="sm", scale=1)
                     btn_no = gr.Button(t("Deny"), variant="stop", size="sm", scale=1)
 
         # ---------------- události ----------------
         # projekty
-        proj_dd.change(set_project_handler, proj_dd, proj_dd, queue=True,
-                       concurrency_id="chat-run", concurrency_limit=1)\
-            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)\
-            .then(lambda: gr.update(value=state.work_mode), None, work_mode_dd, queue=False)\
+        proj_dd.change(
+            set_project_handler, proj_dd,
+            [proj_dd, chat, confirm_row, status_box, chats_radio, noproj_radio, del_state, work_mode_dd],
+            queue=True, concurrency_id="chat-run", concurrency_limit=1)\
             .then(work_mode_panel_updates, None,
-                  [changes_panel, process_panel, research_panel], queue=False)\
+                  [changes_panel, task_plan_panel, process_panel, browser_panel, research_panel], queue=False)\
             .then(memory_info_updates, None,
                   [mem_g_info, mem_mode_info, mem_p_info], queue=False)
-        btn_proj_attach.click(attach_project_handler, None,
-                              [proj_dd, proj_new_row], queue=True,
-                              concurrency_id="chat-run", concurrency_limit=1)\
-            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)\
+        btn_proj_attach.click(
+            attach_project_handler, None,
+            [proj_dd, proj_new_row, chat, confirm_row, status_box,
+             chats_radio, noproj_radio, del_state, work_mode_dd],
+            queue=True, concurrency_id="chat-run", concurrency_limit=1)\
+            .then(work_mode_panel_updates, None,
+                  [changes_panel, task_plan_panel, process_panel, browser_panel, research_panel], queue=False)\
             .then(memory_info_updates, None,
                   [mem_g_info, mem_mode_info, mem_p_info], queue=False)
         btn_proj_new.click(lambda: gr.update(visible=True), None, proj_new_row, queue=False)
-        btn_proj_create.click(create_project_handler, proj_new_tb,
-                              [proj_dd, proj_new_row, proj_new_tb], queue=True,
-                              concurrency_id="chat-run", concurrency_limit=1)\
-            .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)\
+        btn_proj_create.click(
+            create_project_handler, proj_new_tb,
+            [proj_dd, proj_new_row, proj_new_tb, chat, confirm_row, status_box,
+             chats_radio, noproj_radio, del_state, work_mode_dd],
+            queue=True, concurrency_id="chat-run", concurrency_limit=1)\
+            .then(work_mode_panel_updates, None,
+                  [changes_panel, task_plan_panel, process_panel, browser_panel, research_panel], queue=False)\
             .then(memory_info_updates, None,
                   [mem_g_info, mem_mode_info, mem_p_info], queue=False)
         btn_proj_delete.click(
@@ -3561,7 +3729,7 @@ def build_ui() -> gr.Blocks:
                            concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)\
             .then(work_mode_panel_updates, None,
-                  [changes_panel, process_panel, research_panel], queue=False)\
+                  [changes_panel, task_plan_panel, process_panel, browser_panel, research_panel], queue=False)\
             .then(memory_info_updates, None,
                   [mem_g_info, mem_mode_info, mem_p_info], queue=False)
         noproj_radio.input(load_session_handler, noproj_radio,
@@ -3569,7 +3737,7 @@ def build_ui() -> gr.Blocks:
                             concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)\
             .then(work_mode_panel_updates, None,
-                  [changes_panel, process_panel, research_panel], queue=False)\
+                  [changes_panel, task_plan_panel, process_panel, browser_panel, research_panel], queue=False)\
             .then(memory_info_updates, None,
                   [mem_g_info, mem_mode_info, mem_p_info], queue=False)
         btn_history_search.click(search_chat_history, history_query, history_results, queue=False)
@@ -3579,7 +3747,7 @@ def build_ui() -> gr.Blocks:
                               concurrency_id="chat-run", concurrency_limit=1)\
             .then(update_chats_radio, None, [chats_radio, noproj_radio, del_state], queue=False)\
             .then(work_mode_panel_updates, None,
-                  [changes_panel, process_panel, research_panel], queue=False)\
+                  [changes_panel, task_plan_panel, process_panel, browser_panel, research_panel], queue=False)\
             .then(memory_info_updates, None,
                   [mem_g_info, mem_mode_info, mem_p_info], queue=False)
         btn_new.click(new_chat, None, [chat, confirm_row, status_box], queue=True,

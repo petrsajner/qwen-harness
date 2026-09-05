@@ -181,6 +181,9 @@ def create_backup(root: Path, output: Path) -> dict[str, Any]:
         if not requirements.is_file():
             raise FileNotFoundError(f"Missing requirements.txt: {requirements}")
         shutil.copy2(requirements, building / "requirements.txt")
+        lock = root / "requirements-windows-py312.lock"
+        if lock.is_file():
+            shutil.copy2(lock, building / lock.name)
         _write_readme(building / "README-OFFLINE.txt")
         print(f"[BACKUP] Copying {len(sources)} runtime files ({runtime_bytes / 2**30:.1f} GiB)")
         for index, (source, relative, component) in enumerate(sources, 1):
@@ -214,6 +217,7 @@ def create_backup(root: Path, output: Path) -> dict[str, Any]:
             "python_major_minor": f"{sys.version_info.major}.{sys.version_info.minor}",
             "python_architecture": platform.architecture()[0],
             "requirements_sha256": sha256_file(requirements),
+            "lock_sha256": sha256_file(lock) if lock.is_file() else None,
             "files": records,
         }
         (building / MANIFEST_NAME).write_text(
@@ -303,11 +307,13 @@ def _restore_dependencies(root: Path, backup: Path, manifest: dict[str, Any]) ->
     current_python = f"{sys.version_info.major}.{sys.version_info.minor}"
     current_arch = platform.architecture()[0]
     requirements = root / "requirements.txt"
+    lock = root / "requirements-windows-py312.lock"
     compatible = (
         current_python == manifest.get("python_major_minor")
         and current_arch == manifest.get("python_architecture")
         and requirements.is_file()
         and sha256_file(requirements) == manifest.get("requirements_sha256")
+        and (sha256_file(lock) if lock.is_file() else None) == manifest.get("lock_sha256")
     )
     dependency_item = next((item for item in manifest["files"]
                             if item.get("component") == "python-dependencies"), None)
@@ -333,7 +339,10 @@ def _restore_dependencies(root: Path, backup: Path, manifest: dict[str, Any]) ->
         site_packages.mkdir(parents=True, exist_ok=True)
         shutil.copytree(temporary, site_packages, dirs_exist_ok=True)
         marker = venv / ".requirements.sha256"
-        marker.write_text(str(manifest["requirements_sha256"]) + "\n", encoding="ascii")
+        source = requirements.read_bytes()
+        if lock.is_file():
+            source += b"\nLOCK\n" + lock.read_bytes()
+        marker.write_text(hashlib.sha256(source).hexdigest() + "\n", encoding="ascii")
         (venv / ".deps.ok").unlink(missing_ok=True)
     finally:
         shutil.rmtree(temporary, ignore_errors=True)

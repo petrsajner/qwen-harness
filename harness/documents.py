@@ -207,76 +207,98 @@ def _format_markdown_table(rows: list[list[str]]) -> str:
     return "\n".join(out)
 
 
-def read_document_content(path: Path, max_chars: int = 40_000, sheet: str | None = None) -> str:
+def read_document_content(path: Path, max_chars: int = 40_000, sheet: str | None = None,
+                          start: int = 1, count: int = 100, cell_range: str | None = None,
+                          formulas: bool = False) -> str:
     """Extrahuje čistý text a tabulky z dokumentů (.docx, .pdf, .xlsx, .csv)."""
     p = Path(path).resolve()
     if not p.is_file():
         raise FileNotFoundError(f"Dokument nebyl nalezen: {p}")
 
     suffix = p.suffix.lower()
+    start = max(1, int(start))
+    count = max(1, int(count))
     if suffix == ".docx":
         import docx
         doc = docx.Document(p)
         parts = [f"=== Word Document: {p.name} ==="]
-        for para in doc.paragraphs:
-            txt = para.text.strip()
-            if not txt:
-                continue
-            if para.style and para.style.name and para.style.name.startswith("Heading"):
-                lvl = para.style.name.replace("Heading", "").strip() or "2"
-                h_num = int(lvl) if lvl.isdigit() else 2
-                parts.append(f"{'#' * min(4, h_num)} {txt}")
+        from docx.text.paragraph import Paragraph
+        blocks = list(doc.iter_inner_content())
+        for index, block in enumerate(blocks[start - 1:start - 1 + count], start):
+            if isinstance(block, Paragraph):
+                parts.append(f"[Block {index}] {block.text}")
             else:
-                parts.append(txt)
-        for t in doc.tables:
-            rows = []
-            for row in t.rows:
-                rows.append([cell.text.strip().replace("\n", " ") for cell in row.cells])
-            if rows:
-                parts.append(_format_markdown_table(rows))
+                rows = [[cell.text.strip().replace("\n", " ") for cell in row.cells] for row in block.rows]
+                parts.append(f"[Block {index}: table]\n" + _format_markdown_table(rows))
+        if start - 1 + count < len(blocks):
+            parts.append(f"[More blocks: read_document start={start + count}, count={count}]")
         res = "\n\n".join(parts)
 
     elif suffix == ".pdf":
         import pypdf
         reader = pypdf.PdfReader(p)
         parts = [f"=== PDF Document: {p.name} ({len(reader.pages)} stran) ==="]
-        for idx, page in enumerate(reader.pages, 1):
+        for idx, page in enumerate(reader.pages[start - 1:start - 1 + count], start):
             txt = page.extract_text() or ""
             if txt.strip():
                 parts.append(f"--- Strana {idx} ---\n{txt.strip()}")
+            else:
+                parts.append(f"--- Page {idx}: no text layer; use view_document_page for vision ---")
+        if start - 1 + count < len(reader.pages):
+            parts.append(f"[More pages: read_document start={start + count}, count={count}]")
         res = "\n\n".join(parts)
 
     elif suffix in (".xlsx", ".xlsm"):
         import openpyxl
-        wb = openpyxl.load_workbook(p, data_only=True)
+        wb = openpyxl.load_workbook(p, data_only=not formulas, read_only=True)
         parts = [f"=== Excel sešit: {p.name} (listy: {', '.join(wb.sheetnames)}) ==="]
-        sheets = [sheet] if sheet and sheet in wb.sheetnames else wb.sheetnames[:5]
+        if sheet and sheet not in wb.sheetnames:
+            wb.close()
+            raise ValueError(f"Unknown sheet: {sheet}")
+        sheets = [sheet] if sheet else wb.sheetnames
         for s_name in sheets:
             ws = wb[s_name]
             rows = []
-            for r in ws.iter_rows(values_only=True):
+            min_row, max_row, min_col, max_col = start, start + count - 1, 1, ws.max_column
+            if cell_range:
+                from openpyxl.utils.cell import range_boundaries
+                min_col, min_row, max_col, max_row = range_boundaries(cell_range)
+            for r in ws.iter_rows(min_row=min_row, max_row=min(max_row, ws.max_row),
+                                  min_col=min_col, max_col=max_col, values_only=True):
                 if any(c is not None for c in r):
                     rows.append([str(c) if c is not None else "" for c in r])
             if rows:
-                parts.append(f"### List: `{s_name}`\n" + _format_markdown_table(rows[:100]))
-                if len(rows) > 100:
-                    parts.append(f"*... [vynecháno dalších {len(rows) - 100} řádků]*")
+                parts.append(f"### List: `{s_name}`; rows {min_row}-{min(max_row, ws.max_row)}\n" + _format_markdown_table(rows))
+                if max_row < ws.max_row:
+                    parts.append(f"[More rows: read_document sheet={s_name!r}, start={max_row + 1}, count={count}]")
             else:
                 parts.append(f"### List: `{s_name}` (prázdný)")
+        wb.close()
+        parts.append("[Formulas are shown literally; cached values may be absent until Excel recalculates.]" if formulas
+                     else "[Values are cached Excel values. Use formulas=true to inspect formulas.]")
         res = "\n\n".join(parts)
 
     elif suffix == ".csv":
         import csv
+        import itertools
         with open(p, "r", encoding="utf-8", errors="replace") as f:
-            rows = list(csv.reader(f))
-            parts = [f"=== CSV: {p.name} ({len(rows)} řádků) ==="]
+            sample = f.read(4096)
+            f.seek(0)
+            try:
+                dialect = csv.Sniffer().sniff(sample)
+            except csv.Error:
+                dialect = csv.excel
+            rows = list(itertools.islice(csv.reader(f, dialect), start - 1, start + count))
+            parts = [f"=== CSV: {p.name}; start={start} ==="]
             if rows:
-                parts.append(_format_markdown_table(rows[:100]))
+                parts.append(_format_markdown_table(rows[:count]))
+            if len(rows) > count:
+                parts.append(f"[More rows: read_document start={start + count}, count={count}]")
             res = "\n\n".join(parts)
     else:
         res = p.read_text(encoding="utf-8", errors="replace")
 
-    if len(res) > max_chars:
+    if max_chars > 0 and len(res) > max_chars:
         half = max_chars // 2
         omitted = len(res) - max_chars
         res = res[:half] + f"\n\n... [dokument zkrácen: ~{omitted} znaků vynecháno] ...\n\n" + res[-half:]
@@ -336,4 +358,3 @@ def edit_spreadsheet_content(path: Path, action: str, sheet: str | None = None,
         return f"OK: Aktualizováno {len(data)} buněk v listu `{ws.title}`."
 
     raise ValueError(f"Neznámá akce: {action}. Dostupné akce: create, list_sheets, create_sheet, append_rows, update_cells")
-

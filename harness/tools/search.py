@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import re
 import sqlite3
 from pathlib import Path
@@ -79,37 +80,13 @@ class SearchProjectTool(Tool):
         if not clean_query:
             return "ERROR: Query contains no searchable words."
 
-        files = _collect_files(workspace)
-        if not files:
-            return f"No searchable text files found in workspace {workspace}."
-
-        con = sqlite3.connect(":memory:")
         try:
-            con.execute("CREATE VIRTUAL TABLE project_fts USING fts5(path, content, tokenize='unicode61');")
-            rows = []
-            for p in files:
-                try:
-                    rel = str(p.relative_to(workspace))
-                    text = p.read_text(encoding="utf-8", errors="replace")
-                    rows.append((rel, text))
-                except (OSError, ValueError):
-                    continue
-
-            con.executemany("INSERT INTO project_fts (path, content) VALUES (?, ?);", rows)
-
-            cursor = con.execute(
-                """
-                SELECT path, snippet(project_fts, 1, '**', '**', '…', 20), bm25(project_fts)
-                FROM project_fts
-                WHERE project_fts MATCH ?
-                ORDER BY bm25(project_fts)
-                LIMIT ?;
-                """,
-                (clean_query, max(1, min(max_results, 50))),
-            )
-            hits = cursor.fetchall()
+            from harness.file_index import search_index
+            key = hashlib.sha256(str(workspace.resolve()).encode()).hexdigest()[:24]
+            database = ctx.cfg.path("paths.runtime_dir") / "indexes" / f"{key}.sqlite3"
+            hits, file_count = search_index(workspace, database, clean_query, TEXT_EXTENSIONS, max_results)
             if not hits:
-                return f"No matches found for '{query}' across {len(rows)} project files."
+                return f"No matches found for '{query}' across {file_count} project files."
 
             out = [f"Found {len(hits)} matching files for '{query}':\n"]
             for rel_path, snippet_text, score in hits:
@@ -119,10 +96,7 @@ class SearchProjectTool(Tool):
             return truncate("".join(out), limit=30_000, label="search results")
         except Exception as e:
             return f"ERROR during project search: {e}"
-        finally:
-            con.close()
 
 
 def register_search_tools(registry) -> None:
     registry.register(SearchProjectTool())
-

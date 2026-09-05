@@ -17,3 +17,7 @@ pypdf>=5.0
 python-docx>=1.1
 reportlab>=4.0
 openpyxl>=3.1
+pypdfium2>=4.30
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.18

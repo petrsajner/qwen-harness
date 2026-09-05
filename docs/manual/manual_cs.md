@@ -79,63 +79,73 @@ Chcete-li odstranit úplně vše, zkontrolujte a smažte zbývající instalačn
 ```text
 py -3.12 -m venv .venv
 .venv\Scripts\python scripts\setup_env.py --model all
+npm --prefix frontend ci
+npm --prefix frontend run build
 .venv\Scripts\python qwen_app.py
 ```
 
 Pro terminál použijte `run_cli.bat` nebo `.venv\Scripts\python tui.py`.
 
+Při práci ze zdrojů je potřeba Node.js pro sestavení frontendu. Běžná instalace Setup.exe už sestavený frontend obsahuje a Node.js nevyžaduje.
+
 # 3. Prohlídka desktopového rozhraní
 
-Aplikace má rolovací levý sidebar a hlavní chatovací plochu.
+Vlevo je navigace projektů a chatů, uprostřed konverzace a vpravo zavíratelný panel detailů. Prompt zůstává dole pod konverzací. V menším okně se detail otevírá jako zásuvka.
 
-## Stavový panel
+## Navigace a pracovní režimy
 
-Horní stavový panel zobrazuje aktivní/načítaný model, stav serveru, GPU VRAM, přesnost KV cache, odhad kontextu a živý odhad generovaných tokenů. Červená znamená zastavený server nebo chybu, zelená připravený model. U kontextu se poblíž limitu objeví varování.
+Výběr projektu otevře jeho nejnovější chat. **Bez projektu** otevře samostatnou konverzaci. Přepnutí pohledu nepřesune ani nepřenastaví úlohu, která právě běží v jiném chatu.
 
-## Pracovní režim
+Režimy mají vždy pořadí **Diskuze, Výzkum, Psaní, Vývoj, Počítač**. Režim patří konkrétnímu chatu. Probíhající požadavek si zachová konfiguraci, se kterou začal.
 
-Dropdown **Pracovní režim** mění nástroje a chování modelu pro aktivní chat. Režim se ukládá s konkrétním chatem.
+Tlačítko **Nový chat** vytvoří konverzaci. Název nad chatem přejmenujete zadáním textu a Enterem. Třítečkové menu chatu obsahuje přesun, vrácení posledního kola, větev, export a smazání. Výběr cílového projektu chat přesune a přepočítá jeho projektový kontext. Před přesunem nebo smazáním zastavte úlohu tohoto chatu.
 
-## Panel SERVER
+Menu vedle výběru projektu vytvoří nový projekt, připojí existující složku nebo smaže projekt i jeho adresář. Vyhledávání vlevo prohledává uložené konverzace.
 
-| Ovladač | Výsledek |
-|---|---|
-| start | Načte vybraný model a otevře lokální API server. |
-| stop | Zastaví `llama-server` a uvolní VRAM. Chaty zůstanou uložené. |
-| restart | Znovu načte model, KV profil a kontext. |
+## Prompt, Attach a náhledy obrázků
 
-Změna modelu nebo KV cache automaticky vyžádá restart. Načítání obvykle trvá 10-20 sekund.
+Viditelné tlačítko **Attach** zůstává dole u promptu. Otevře výběr z disku a dovoluje vybrat více souborů. Obrázky lze také přetáhnout do pracovní plochy nebo vložit ze schránky přes Ctrl+V. Běžné vložení textu funguje dál.
 
-## Uspořádání sidebaru
+Každý připravený obrázek má skutečný náhled a vlastní křížek pro odebrání. Odebráním jednoho obrázku nezmizí text ani ostatní přílohy. Kliknutí zvětší originál. Po odeslání jsou náhledy součástí uživatelské zprávy a zůstanou dostupné i po opětovném otevření chatu.
 
-Sidebar odpovídá běžnému pořadí práce a nezobrazuje každou funkci jako samostatný panel:
+Přiložit lze také PDF, DOCX, XLSX, CSV, Markdown a text. Model dostane cesty k dokumentům a přečte je příslušnými nástroji. Textový model neumí obsah obrázku; pro obrazové vstupy zvolte model s vision. Při odmítnutém požadavku zůstanou text i přílohy v draftu.
 
-- **Pracovní prostor** drží nahoře kompaktní server, projekt, ovládání aktivního chatu a jeden sbalitelný seznam chatů.
-- **Aktuální úloha** spojuje plán, změněné soubory, rollback a obnovení práce.
-- **Kontext** spojuje statistiky, pins, kompresi a předání.
-- **Průběh výzkumu** se objeví jen v režimu Výzkum.
-- **Provoz** spojuje procesy na pozadí a izolovaný browser.
-- **Nastavení a nápověda** obsahuje správu projektů, import/export chatu, model, paměť, skills a oba manuály.
+Enter a Ctrl+Enter odešlou zprávu, Shift+Enter vloží nový řádek. Composer se vyčistí po přijetí identifikované zprávy službou. Rozepsaný text se ukládá pro každý chat zvlášť.
 
-Aktuální úloha, Kontext, Provoz a Nastavení sdílejí jeden povrch s jemnými oddělovači a jsou standardně sbalené.
+## Běžící úloha a fronta zpráv
 
-## Projekty a chaty
+Během práce zvolte **Upřesnit nyní** pro steering nebo **Po dokončení** pro samostatný další požadavek. Úloha v jiném chatu pokračuje a nová zpráva čeká na jediný modelový worker. Text ve frontě lze upravit a čekající zprávu zrušit.
 
-Projektový dropdown vybírá projekt nebo **žádný projekt**. Oddělené seznamy zobrazují chaty vybraného projektu a chaty bez projektu. Fulltextové hledání pokrývá všechny uložené chaty.
+**Zastavit úlohu** funguje při zpracování promptu, přemýšlení, psaní, přípravě nástroje i synchronní akci. U viditelného textu může krátce dokončit větu; nečeká na dokončení celého reasoning bloku. Hotová práce i částečný text zůstanou zachované. Stop pozastaví také čekající frontu; **Spustit zprávy ve frontě** ji opět spustí. **Pokračovat** obnoví přerušenou úlohu.
 
-Zvýrazněný panel aktivního chatu obsahuje **Nový chat**, **Smazat**, přejmenování Enterem, okamžitý dropdown **Přesunout chat...** a export/import.
+Reload a obnovení spojení prohlížeče neruší běžící modelovou úlohu. Po restartu celé aplikace lze přerušenou práci obnovit. Když před pádem nebyl uložen výsledek nástroje, model dostane informaci, aby ověřil skutečný stav místo slepého opakování akce.
 
-## Chat a zadávací pole
+## Výsledky, Průběh a Kontext
 
-Hlavní plocha zobrazuje úplnou viditelnou historii, i když model už pracuje jen se souhrnem starších částí. Zadávací oblast obsahuje vyšší víceřádkový prompt, **Odeslat**, **Stop**, **Příloha** a akce **Znovu**, **Vrátit**, **Větev**.
+**Výsledky** ukazují vytvořené dokumenty a změněné soubory, skutečně zaznamenané kontroly, výzkumné exporty a body obnovy. Soubor můžete prohlédnout, otevřít jeho složku nebo stáhnout. HTML výsledek lze zobrazit jako aplikaci a podporované programy mají také akci **Spustit**.
 
-| Klávesa | Výsledek |
-|---|---|
-| Enter | Odeslat prompt. |
-| Ctrl+Enter | Odeslat prompt. |
-| Shift+Enter | Vložit nový řádek. |
+**Průběh** spojuje plán, trvale uložené provozní události, změny souborů, procesy na pozadí s výstupem a stav izolovaného browseru. Samostatné procesy podle potřeby zastavujete zvlášť.
 
-Prompt se vyčistí okamžitě po odeslání.
+**Kontext** zobrazuje odhad obsazení a fyzický limit, naměřenou spotřebu posledního dokončeného požadavku, pokud je dostupná, tři paměťové vrstvy, pins a načtené skilly. Můžete připnout či odepnout jednotlivé soubory, zrušit všechny pins, komprimovat kontext nebo předat práci novému chatu.
+
+Při generování stavový řádek rozlišuje přípravu, uvažování, psaní odpovědi, přípravu nástroje a provádění. Ukazuje také uplynulý čas a výslovně přibližný počet právě generovaných tokenů.
+
+## Nastavení
+
+Klikněte na ikonu nastavení nebo stav modelu nahoře. Nastavení je rozdělené do kategorií:
+
+- **Model a zařízení**: model, KV profil, vision, paměť GPU, provozní diagnostika a Start / Stop / Restart.
+- **Chování**: autonomie a výchozí zacházení se zprávou přidanou během práce.
+- **Paměť a skilly**: úprava globální, režimové a projektové paměti; čtení, použití a návrh skillu; otevření uživatelské i projektové složky skillů.
+- **Data a zálohy**: export/import celého projektu, import JSONL chatu, vytvoření/výběr/kontrola lokální zálohy prostředí a stav údržby.
+- **Vzhled a jazyk**: tmavý, světlý nebo systémový vzhled, rozestupy, angličtina a čeština.
+- **Nápověda a manuály**: oba PDF manuály a reference lomítkových příkazů.
+
+Myšlení zůstává také u promptu, protože ho můžete měnit mezi otázkami. Nastavení zvolené za běhu platí pro následující požadavky. Přepnutí jazyka a vzhledu nezahazuje konverzaci.
+
+## Projektová rozhodnutí
+
+**Přijatá rozhodnutí** evidují navržená, přijatá i neplatná rozhodnutí. Rozhodnutí lze přidat, upravit, změnit jeho stav a otevřít původní konverzaci. Do projektového kontextu automaticky vstupují jen přijaté položky. Doplňují tři paměti; návrh se sám nemění na závazný fakt.
 
 # 4. Modely, KV cache, kontext a thinking
 
@@ -149,6 +159,9 @@ Výchozí profil nové instalace je Qwen Q5/Q8/192k. Aplikace si pamatuje posled
 
 Q5 používejte pro náročný vývoj, architekturu a finální kvalitu. Q4 je vhodný pro vyšší rychlost nebo kontext 256k. Ornith je extrémně rychlý, ale při reálném vývoji může být slabší než dense Qwen.
 
+
+Další nakonfigurované modely zahrnují Qwen IQ3 pro menší GPU a Nemotron Q4/Q5. Nemotron je pouze textový. Nabídka modelů ukazuje dostupnost souboru a KV nabídka profily konkrétního modelu. Jde o konfiguraci, nikoli tvrzení, že každý profil byl změřen na každém počítači.
+
 ## Přesnost KV
 
 F16 dává nejvyšší přesnost attention cache, ale menší kontext. Q8 výrazně šetří VRAM a přibližně zdvojnásobuje kontext za cenu malého kompromisu. Změna KV restartuje server, nikoli chat.
@@ -157,7 +170,7 @@ F16 dává nejvyšší přesnost attention cache, ale menší kontext. Q8 výraz
 
 U Qwenu jsou `xhigh`, `medium`, `low` nativní reasoning effort a `off` thinking vypíná. U Ornithu je nativní pouze on/off: `xhigh` a `medium` jsou promptové vodítko, `low` běžné thinking chování a `off` vypnutí.
 
-Reasoning tokeny používají čas a dočasný kontext; UI je živě odhaduje. Celý interní reasoning se neukládá do viditelné historie.
+Reasoning tokeny používají čas i kontext; UI je živě odhaduje. Uložené uvažování lze rozbalit u odpovědi. Odhad persistentního kontextu zahrnuje i uvažování předávané zpět modelu.
 
 Produkční agent nemá limit kroků ani aplikační limit výstupních tokenů.
 
@@ -165,7 +178,7 @@ Produkční agent nemá limit kroků ani aplikační limit výstupních tokenů.
 
 ## Prompt a přílohy
 
-Pište přirozeným jazykem a uveďte požadovaný výsledek, omezení a způsob ověření. Pomocí **Příloha** lze přidat BMP, GIF, JPEG, PNG nebo WebP: fotografie, diagramy, screenshoty, UI reference i chyby.
+Pište přirozeným jazykem a uveďte požadovaný výsledek, omezení a způsob ověření. Pomocí **Attach**, přetažení nebo Ctrl+V lze přidat BMP, GIF, JPEG, PNG nebo WebP: fotografie, diagramy, screenshoty, UI reference i chyby.
 
 ## Steering
 
@@ -173,7 +186,7 @@ Další zpráva během práce modelu přesměruje aktivní úlohu: přijme se ok
 
 ## Stop
 
-**Stop** obchází běžnou frontu a měkce ukončí generování po nejbližší větě. Současně zruší právě čekající browser operaci nebo synchronní `run_command` a ukončí jeho procesní strom. Samostatný proces spuštěný na pozadí zastavte zvlášť v **Dlouhé operace**.
+**Stop** obchází běžnou frontu a měkce ukončí generování po nejbližší větě. Současně zruší právě čekající browser operaci nebo synchronní `run_command` a ukončí jeho procesní strom. Samostatný proces spuštěný na pozadí zastavte zvlášť v **Průběh > Procesy**.
 
 ## Živý průběh
 
@@ -195,24 +208,24 @@ Každý chat si pamatuje vlastní režim. Režimy jsou profily schopností stejn
 
 ## Vytvoření a připojení
 
-V **Správa projektů** vytvořte spravovaný projekt tlačítkem **Nový**, nebo pomocí **Připojit** zaregistrujte existující adresář bez kopírování.
+V třítečkovém menu vedle projektu vytvořte spravovaný projekt nebo pomocí **Připojit existující složku** zaregistrujte adresář bez kopírování.
 
 Projekt může mít libovolný počet chatů. Každý má vlastní historii, režim, kompresi, pins, research a task state; sdílejí složku a projektovou paměť.
 
 ## Bez projektu a přesun chatu
 
-**žádný projekt** používá chat bez workspace; exporty jdou do relace. Dropdown **Přesunout chat...** okamžitě změní projekt, workspace, projektovou paměť a knihovnu dokumentů.
+**Bez projektu** používá samostatný chat; exporty jdou do relace. V třítečkovém menu chatu zvolte cílový projekt. Přesun přenastaví workspace, projektovou paměť a knihovnu dokumentů.
 
 ## Smazání projektu
 
-Klikněte **Smazat projekt i složku**, ověřte zobrazenou cestu a potvrďte druhým kliknutím do osmi sekund. Smaže se registrace, všechny chaty projektu, složka i veškerý obsah.
+Klikněte **Smazat projekt i složku**, ověřte zobrazenou cestu a potvrďte v dialogu. Smaže se registrace, všechny chaty projektu, složka i veškerý obsah.
 
 > VAROVÁNÍ: Potvrzením se smaže i připojená externí složka. Nejde o odpojení. Kritické systémové cesty jsou blokované, ale cestu vždy zkontrolujte.
 
 # 8. Správa chatů
 
 - **Nový chat** vytvoří transientní relaci, která se uloží po první zprávě.
-- **Smazat** vyžaduje druhé kliknutí do šesti sekund a odstraní relaci včetně příloh, research a session exportů; projektové soubory zůstanou.
+- **Smazat chat** vyžaduje potvrzení v dialogu a odstraní relaci včetně příloh, research a session exportů; projektové soubory zůstanou.
 - Přejmenování se potvrzuje Enterem.
 - **Znovu** zopakuje odpověď na poslední prompt.
 - **Vrátit** odstraní poslední konverzační kolo, nikoli souborové změny.
@@ -223,7 +236,7 @@ Klikněte **Smazat projekt i složku**, ověřte zobrazenou cestu a potvrďte dr
 
 # 9. Kontext, komprese a pins
 
-Panel **Co model právě používá** ukazuje odhad tokenů, viditelné/celkové zprávy, obrázky, stav komprese a pins. Rozpad zvlášť uvádí konverzaci/přílohy, aktuální projektový kontext a definice nástrojů. Celkový údaj proto zahrnuje i režii tool schemas.
+Panel **Kontext** ukazuje odhad tokenů, viditelné/celkové zprávy, obrázky, stav komprese a pins. Rozpad zvlášť uvádí konverzaci/přílohy, aktuální projektový kontext a definice nástrojů. Celkový údaj proto zahrnuje i režii tool schemas.
 
 Ve Vývoji model dostává kompaktní repo snapshot; ostatní režimy katalog dokumentů. Snapshot, pins a aktivní projektové instrukce se skládají jen pro aktuální request a neukládají se jako stále nové kopie do historie.
 
@@ -231,7 +244,7 @@ Harness automaticky hledá `AGENTS.md`, `QWEN.md` a `CLAUDE.md` od kořene proje
 
 **Připnout soubor** vloží text vybraného souboru do následujících úloh tohoto chatu. Vhodné jsou architektura, specifikace, handoff a projektová pravidla. Limit je 10 souborů a asi 40 000 znaků. Větev pins kopíruje, nový chat ne.
 
-Při 85 % kontextu se starší část automaticky shrne. Viditelná historie se nemaže. Ruční komprese je v **Kontext a předání > Komprimovat**. Při overflow agent jednou automaticky komprimuje a request zopakuje.
+Při 85 % kontextu se starší část automaticky shrne. Viditelná historie se nemaže. Ruční komprese je v **Kontext > Komprimovat**. Při overflow agent jednou automaticky komprimuje a request zopakuje.
 
 # 10. Tři vrstvy paměti
 
@@ -241,7 +254,7 @@ Při 85 % kontextu se starší část automaticky shrne. Viditelná historie se 
 | Režimová | Všechny chaty daného režimu | `memory\MEMORY.md` nebo `memory\modes\*.md` |
 | Projektová | Jeden workspace | `<projekt>\QWEN_MEMORY.md` |
 
-Paměti otevřete v **Nastavení > Paměť** nebo řekněte modelu "zapamatuj si globálně", "pro Výzkum" či "pro tento projekt". Přesun chatu přepne projektovou paměť.
+Paměti otevřete v **Nastavení > Paměť a skilly** nebo řekněte modelu "zapamatuj si globálně", "pro Výzkum" či "pro tento projekt". Přesun chatu přepne projektovou paměť.
 
 # 11. Volitelné skills
 
@@ -257,7 +270,7 @@ Priorita je projektový `.qwen-skills`, potom `user-skills`, potom distribuovan�
 | `performance-investigation` | Měřením řízená analýza výkonu. |
 | `research-synthesis` | Úplná syntéza se zachováním rozporů. |
 
-Vlastní skill vytvořte přes **Dostupné skills > Otevřít složku skills** jako `user-skills\nazev\SKILL.md`:
+Vlastní skill vytvořte přes **Nastavení > Paměť a skilly > Uživatelské skilly** jako `user-skills\nazev\SKILL.md`:
 
 ```markdown
 ---
@@ -466,7 +479,7 @@ Zálohujte projektové adresáře, `sessions`, `memory`, `user-skills` a `projec
 
 ## Kompletní offline záloha instalace
 
-Aplikace umí vytvořit přenosnou instalační zálohu přímo ze souborů, které už jsou na tomto počítači. Otevřete **Nastavení a nápověda > Offline záloha**, zvolte **Vytvořit zálohu** a vyberte nadřazený adresář, ideálně na jiném disku. Vznikne časově označená složka `QwenHarness-Offline-Backup-*`, která obsahuje:
+Aplikace umí vytvořit přenosnou instalační zálohu přímo ze souborů, které už jsou na tomto počítači. Otevřete **Nastavení > Data a zálohy**, zvolte **Vytvořit zálohu** a vyberte nadřazený adresář, ideálně na jiném disku. Vznikne časově označená složka `QwenHarness-Offline-Backup-*`, která obsahuje:
 
 - Všechny kompletní modely a vision projektory z `runtime\models`.
 - Nainstalované `llama.cpp` a CUDA runtime z `runtime\llama`.
@@ -519,7 +532,7 @@ Zkontrolujte kontext, použijte Q5/Q8 192k nebo Q4/Q8 256k, ručně komprimujte,
 
 ## UI vypadá zamrzle
 
-Sledujte živou aktivitu: model může přemýšlet, generovat tool call, zapisovat soubor nebo čekat na proces. Stop ukončí model; proces na pozadí ukončete v **Dlouhé operace**.
+Sledujte živou aktivitu: model může přemýšlet, generovat tool call, zapisovat soubor nebo čekat na proces. Stop ukončí model; proces na pozadí ukončete v **Průběh > Procesy**.
 
 ## Izolovaný browser nestartuje
 
@@ -537,7 +550,7 @@ S projektem v `<projekt>\exports`, bez projektu v `sessions\<id>\exports`. Resea
 
 ## Jazyk se nezměnil celý
 
-Použijte **Nastavení > Jazyk**. UI se reloaduje se zachováním chatu. Nativní launcher může vyžadovat restart. Uložená UI volba má přednost před jazykem instalátoru.
+Použijte **Nastavení > Vzhled a jazyk**. UI se přepne přímo a zachová chat. Nativní launcher může vyžadovat restart. Uložená UI volba má přednost před jazykem instalátoru.
 
 # 20. Reference nástrojů
 
@@ -643,3 +656,33 @@ Tyto body do Marvin nepatří. Nejsou odloženým roadmap backlogem.
 - Veřejné skills před instalací zkontrolujte, protože ovlivňují postup modelu.
 - Git commit zůstává lokální bez výslovného požadavku na push.
 - Pravidelně zálohujte nenahraditelné projekty a relace.
+
+# 23. Rozšířené pracovní operace
+
+## Čtení celých dokumentů
+
+Modelu můžete zadat konkrétní stránku PDF, blok DOCX, list a oblast Excelu nebo rozsah řádků CSV. Čtecí nástroj vrací také údaj pro navazující část, takže se práce nemusí zastavit na prvních sto řádcích. Excel umí zobrazit uložené hodnoty nebo vzorce; čtecí nástroj sám nepřepočítává vzorce.
+
+Skenované stránky PDF a diagramy lze přes `view_document_page` vykreslit a prohlédnout aktivním modelem s vision. Existující Word soubor upravuje `edit_word_document` se zachováním odstavců, tabulek a stylů textových úseků.
+
+## Dohledání původního kontextu
+
+Komprese odpovídá režimu Diskuze, Výzkum, Psaní, Vývoj nebo Počítač. Zpracují se všechny části vstupu a mezisouhrny se ukládají. Původní zprávy lze dohledat přes `search_chat_history` a `read_chat_history`, i když už nejsou v aktivním kontextu.
+
+Výzkum ukládá průběžné poznámky k důkazům. Po přerušení je syntéza může znovu použít. Citace otevře text původního zdroje; nalezené, ale nenačtené položky zůstávají viditelné bez filtru důvěryhodnosti.
+
+## Body obnovy
+
+Otevřete **Výsledky > Body obnovy** nebo použijte `/checkpoint název`. Bod zachytí pracovní soubory, nikoli generované závislosti nebo modely a runtime. Úlohový snapshot eviduje také změny provedené příkazy modelu. **Obnovit** oznámí konflikt s pozdější úpravou a nepřepíše ji tiše. Částečné selhání se neoznačí za kompletní obnovení.
+
+## Přenos projektu
+
+Použijte **Nastavení > Data a zálohy > Exportovat projekt**. ZIP zahrnuje projektové soubory, projektovou paměť a skilly, historii chatů, přílohy a odkazy na rozhodnutí. **Importovat projekt** vytvoří nový adresář a nové identifikátory chatů a upraví uložené cesty příloh i odkazy na původní konverzace.
+
+Projektový archiv je oddělený od zálohy modelů a runtime. Ta nadále funguje jako pojistka po selhání internetového zdroje; lze ji zvolit i přímo pro offline instalaci.
+
+## Vývoj ze zdrojů a vydání
+
+Běžný uživatel potřebuje Python 3.12 a standardní Setup.exe; Node.js není nutný pro provoz aplikace. Vývojář sestaví frontend příkazy `npm --prefix frontend ci` a `npm --prefix frontend run build`. Python obsluhuje výsledný adresář `ui_dist`. Ověřené Windows verze balíčků drží `requirements-windows-py312.lock`.
+
+Původní Gradio rozhraní zůstává pro diagnostiku kompatibility s `MARVIN_LEGACY_UI=1`; standardně se spouští nová pracovní plocha.

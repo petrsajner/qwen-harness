@@ -16,7 +16,7 @@ The UI language is **English by default**; the installer offers a language choic
 - [Český uživatelský manuál](output/pdf/Marvin-Manual-CS.pdf)
 
 Both manuals are also installed with the application and can be opened from
-**Help & manuals** in the left sidebar.
+**Settings > Help and manuals**.
 
 ## Permanent product boundaries
 
@@ -47,7 +47,7 @@ These are product decisions, not postponed roadmap items.
 - 🛡️ **Three autonomy levels** — supervised / semi / auto (switchable anytime);
   read-only commands (`ls`, `cat`, `grep`, `git log`…) need no confirmation even
   in supervised mode
-- 🖥️ **Two UIs** — terminal (TUI) + web interface (Gradio, 127.0.0.1 only)
+- 🖥️ **Web-first workspace** with a terminal fallback (127.0.0.1 only)
   — compact grouped sidebar; web UI: Ctrl+Enter sends, errors render in the chat
 - 💾 **Session history** — JSONL persistence, images stored on disk
 - ↩️ **Restore point per task** — atomic patching, a change overview and one-click
@@ -83,35 +83,45 @@ These are product decisions, not postponed roadmap items.
 
 ## Interface
 
-The compact web-first sidebar puts project/chat navigation before technical controls.
-Current task, Context, Runtime, and Settings & help share one unified control surface,
-while most of the window remains dedicated to the conversation and prompt composer.
+The 1.6 workspace keeps project and chat navigation on the left, a persistent
+conversation/composer in the center, and Results, Progress and Context on the
+right. Settings have their own categorized dialog. Work modes retain their order:
+Discussion, Research, Writing, Development, Computer.
 
-![Marvin main workspace](docs/images/qwen-harness-overview.jpg)
-
-| Settings, memory and guidance | Task and context |
-|---|---|
-| Project setup, model behavior, all memory layers, skills and manuals live in one setup surface. | Follow the task plan and changed files, inspect context, manage pins, compress, or hand off. |
-| ![Marvin settings and memory](docs/images/qwen-harness-settings-memory.jpg) | ![Marvin context inspector and manuals](docs/images/qwen-harness-context-manuals.jpg) |
+- **Attach**, drag/drop and clipboard paste accept multiple images and documents.
+  Real thumbnails remain in both the draft and sent message.
+- **Clarify now / After completion** routes messages to steering or a durable queue.
+- Refreshing the browser reconnects to the same run; Stop works during reasoning,
+  tool preparation and transport waits. Drafts and partial answers are preserved.
+- Result previews, exports, named restore points and portable project archives are
+  available from the UI. Accepted decisions retain links to their source chats.
+- PDF page vision, DOCX edits that preserve structure, and spreadsheet/page ranges
+  extend the existing document tools.
 
 ## Architecture
 
+```text
+Desktop WebView2 / browser
+       |
+Static React + TypeScript workspace (ui_dist)
+       | HTTP actions + replayable server events
+Local FastAPI / ApplicationService
+       | one model worker; immutable run configuration
+Agent + existing tools + JSONL sessions / SQLite indexes
+       |
+llama.cpp (one selected local model)
 ```
-runtime/  (gitignored)                harness/  (Python)
-┌──────────────────────────┐         ┌────────────────────────────────┐
-│ llama-server.exe         │◄──API───│ CORE                           │
-│ (llama.cpp b10549        │  OpenAI │ • LLM client (streaming+tools) │
-│  CUDA 13.3, Blackwell)   │         │ • agent loop (step/resume)     │
-│ Qwen3.8-27B GGUF         │         │ • tools: fs/shell/vision/      │
-│ Q4: F16 128k / Q8 256k   │         │   computer-use                 │
-│ Q5: F16 96k / Q8 192k    │         │ • safety layer (autonomy)      │
-│ Ornith Abliterated Q5 (128k)│      │                                │
-│ mmproj-F16 (vision, 0.9 GB)│       │ • sessions (JSONL + images)    │
-└──────────────────────────┘         ├────────────────────────────────┤
-                                     │ UI: tui.py (terminal)          │
-                                     │     webapp.py (browser)        │
-                                     └────────────────────────────────┘
-```
+
+The model worker belongs to the application, not to a browser connection or the
+selected chat. Identified requests avoid duplicate submissions. Message events,
+queue state and partial text survive reconnects. Indexes update incrementally.
+Context summaries use the work mode and process every input segment.
+
+Python remains the backend and Windows/Python 3.12 package versions are locked in
+`requirements-windows-py312.lock`. Node.js is needed only by source developers to
+build the frontend; the installer ships the compiled assets. The previous Gradio
+surface remains available for compatibility diagnostics through
+`MARVIN_LEGACY_UI=1`.
 
 ## Installation (one time)
 
@@ -123,6 +133,8 @@ environment, but it does not bundle the Python interpreter itself.
 ```bash
 py -3.12 -m venv .venv
 .venv/Scripts/python scripts/setup_env.py --model all
+npm --prefix frontend ci
+npm --prefix frontend run build
 ```
 
 Downloads and prepares everything: pip dependencies, llama.cpp CUDA binaries
@@ -170,7 +182,7 @@ installer/build_installer.bat     # builds dist/Marvin-Setup-<version>.exe
   optional desktop icon, standard Windows uninstall
 - **Language choice during setup** — English is the default; the wizard also offers
   Czech. The selected language is written to `runtime\ui-language.txt` and the app
-  starts in it. You can switch later in the web UI (Settings → Language).
+  starts in it. You can switch later in the web UI (Settings → Appearance and language).
 - **First launch** (via the `run_app.bat` shortcut) automatically: creates the venv,
   downloads dependencies, llama.cpp (~540 MB) and models (~59 GiB) — afterwards it
   just opens the app. Python 3.12 must already be installed; Setup.exe does not

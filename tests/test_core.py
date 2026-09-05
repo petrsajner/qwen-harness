@@ -118,8 +118,8 @@ def test_config() -> None:
     version_files = [p for p in _version_candidates() if p.exists()]
     installer_version = (version_files[0].read_text(encoding="utf-8").strip()
                          if version_files else "")
-    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.5.3",
-          "viditelná verze aplikace odpovídá instalátoru 1.5.3")
+    check(bool(installer_version) and APP_VERSION == installer_version and APP_VERSION == "1.6.0",
+          "viditelná verze aplikace odpovídá instalátoru 1.6.0")
     invariants = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     check(all(item in invariants for item in (
         "Language servers or an LSP runtime/distribution layer",
@@ -489,7 +489,8 @@ def test_registry_modes() -> None:
                                 "list_dir", "read_file", "write_file", "apply_patch",
                                 "list_task_changes", "undo_task_changes", "search_files",
                                 "find_files", "make_directory", "move_file", "delete_file",
-                                "view_image", "search_project"},
+                                "view_image", "search_project", "search_chat_history", "read_chat_history",
+                                "edit_word_document", "view_document_page", "project_decisions"},
           f"chat režim: memory + web + context + disk nástroje ({len(chat.names())})")
     check({"list_dir", "run_command", "view_image"} <= set(agent.names()),
           f"agent režim: fs+patch+shell+vision ({len(agent.names())})")
@@ -782,14 +783,14 @@ def test_reasoning_effort_kwargs() -> None:
                 "create": staticmethod(lambda **_kwargs: closable)})(),
         })(),
     })()
-    checks = {"count": 0}
+    import threading
+    stop_requested = threading.Event()
 
     def request_stop():
-        checks["count"] += 1
-        return checks["count"] >= 2
+        return stop_requested.is_set()
 
     stopped = llm.stream([{"role": "user", "content": "test stop"}],
-                         should_stop=request_stop)
+                         should_stop=request_stop, on_text=lambda _text: stop_requested.set())
     check(stopped.stopped and stopped.content == "Začátek dokončené věty."
           and closable.closed,
           "graceful Stop dokončí větu, zavře stream a nepokračuje dál")
@@ -1140,10 +1141,13 @@ def test_resume_task_and_process_after_restart() -> None:
                       for message in session.messages if message.get("role") == "assistant"),
               "obnovené potvrzení dokončí tool call a zachová průběh")
         completed = Agent(
-            cfg, LLMStub([AssistantResult(content="hotovo")]), session,
+            cfg, LLMStub([AssistantResult(content="hotovo"), AssistantResult(content="ověřeno, hotovo")]), session,
             build_registry("agent", "development"), SafetyPolicy("supervised"),
             mode="agent", work_mode="development")
-        check(completed.has_resumable_task and completed.step().status is Status.FINAL
+        resumed = completed.has_resumable_task
+        first_result = completed.step()
+        final_result = completed.step() if first_result.status is Status.CONTINUE else first_result
+        check(resumed and final_result.status is Status.FINAL
               and session.load_task_state()["status"] == "complete",
               "running úloha po restartu pokračuje do FINAL")
 
@@ -2103,10 +2107,10 @@ def test_user_manuals() -> None:
 
     expected = {
         "Marvin-Manual-EN.pdf": (
-            15, ("1.5.0", "Python 3.12", "Offline backup", "Work Modes",
+            15, ("1.6.0", "Python 3.12", "Installing from the offline backup", "Work Modes",
                  "User-Facing Tool Reference", "Troubleshooting")),
         "Marvin-Manual-CS.pdf": (
-            10, ("1.5.0", "Python 3.12", "offline zálohy", "Pracovní režimy",
+            10, ("1.6.0", "Python 3.12", "offline zálohy", "Pracovní režimy",
                  "Reference nástrojů", "Řešení problémů")),
     }
     for filename, (minimum_pages, required_text) in expected.items():
@@ -2329,8 +2333,9 @@ def test_harness_enhancements():
         if r.status is Status.FINAL:
             loop_res = r
             break
-    check(loop_res is not None and "Detekováno zacyklení" in loop_res.text,
-          "Agent detekuje nekonečnou smyčku identických volání a zastaví ji")
+    check(loop_res is None and r.status is Status.CONTINUE
+          and s_loop.load_task_state().get("status") == "running",
+          "Opakovaná volání jsou doporučením k vyhodnocení postupu, nikoli falešným dokončením")
 
 
 def test_clickable_skills_and_clipboard_images():

@@ -11,7 +11,11 @@ LEGACY_MARKER_NAME = ".deps.ok"
 
 
 def requirements_digest(requirements: Path) -> str:
-    return hashlib.sha256(requirements.read_bytes()).hexdigest()
+    lock = requirements.with_name("requirements-windows-py312.lock")
+    content = requirements.read_bytes()
+    if lock.is_file():
+        content += b"\nLOCK\n" + lock.read_bytes()
+    return hashlib.sha256(content).hexdigest()
 
 
 def dependency_marker(venv_dir: Path) -> Path:
@@ -51,7 +55,9 @@ def sync_dependencies(requirements: Path, venv_dir: Path, *, force: bool = False
         print(f"[CHYBA] Soubor zavislosti nenalezen: {requirements}")
         return 1
 
-    rc = subprocess.call([str(python), "-m", "pip", "install", "-r", str(requirements)])
+    lock = requirements.with_name("requirements-windows-py312.lock")
+    source = lock if lock.is_file() else requirements
+    rc = subprocess.call([str(python), "-m", "pip", "install", "-r", str(source)])
     if rc == 0:
         mark_dependencies_current(requirements, venv_dir)
     return rc

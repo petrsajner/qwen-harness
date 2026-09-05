@@ -57,16 +57,22 @@ class ReadDocumentTool(Tool):
         "path": {"type": "string", "description": "Document path (relative to workspace or absolute)"},
         "max_chars": {"type": "integer", "description": "Maximum characters to extract (default 40000)"},
         "sheet": {"type": "string", "description": "Optional sheet name for Excel spreadsheets"},
+        "start": {"type": "integer", "description": "First PDF page, DOCX block or spreadsheet/CSV row (1-based)"},
+        "count": {"type": "integer", "description": "Number of pages, blocks or rows to read; returned next range allows continuation"},
+        "cell_range": {"type": "string", "description": "Excel cell range, for example B120:F170"},
+        "formulas": {"type": "boolean", "description": "Read Excel formulas instead of cached values"},
     }
     required = ["path"]
     risk = Risk.SAFE
 
-    def run(self, ctx: AgentContext, path: str, max_chars: int = 40_000, sheet: str | None = None) -> str:
+    def run(self, ctx: AgentContext, path: str, max_chars: int = 40_000, sheet: str | None = None,
+            start: int = 1, count: int = 100, cell_range: str | None = None, formulas: bool = False) -> str:
         f = ctx.resolve(path)
         if not f.exists():
             return f"ERROR: Document not found: {f}"
         try:
-            return read_document_content(f, max_chars=max_chars, sheet=sheet)
+            return read_document_content(f, max_chars=max_chars, sheet=sheet, start=start,
+                                         count=count, cell_range=cell_range, formulas=formulas)
         except Exception as exc:
             return f"ERROR: Failed to read document {f.name}: {exc}"
 
@@ -111,6 +117,8 @@ class EditSpreadsheetTool(Tool):
 
 
 def register_document_tools(registry) -> None:
+    from harness.tools.document_edit import register_document_edit_tools
+    register_document_edit_tools(registry)
     registry.register(ExportDocumentTool())
     registry.register(ReadDocumentTool())
     registry.register(EditSpreadsheetTool())

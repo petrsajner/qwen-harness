@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import json
 import re
+import queue
+import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -16,6 +19,7 @@ class AssistantResult:
     reasoning: str = ""
     tool_calls: list[dict] = field(default_factory=list)
     stopped: bool = False
+    usage: dict = field(default_factory=dict)
 
     @property
     def has_tool_calls(self) -> bool:
@@ -140,6 +144,7 @@ class LLMClient:
         # místo výchozích 600s celkových - zaseknutý stream umře dřív
         self.client = OpenAI(
             base_url=cfg.base_url + "/v1", api_key="local",
+            max_retries=0,
             timeout=httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=30.0),
         )
         self.model_name = "local-model"  # llama-server akceptuje cokoliv
@@ -165,6 +170,7 @@ class LLMClient:
             "model": self.model_name,
             "messages": messages,
             "stream": True,
+            "stream_options": {"include_usage": True},
             **s,
         }
         if tools:
@@ -176,13 +182,76 @@ class LLMClient:
         text_parts: list[str] = []
         reasoning_parts: list[str] = []
         tc_acc: dict[int, dict] = {}
-        stop_requested = False
-        chars_after_stop = 0
+        stop_started = None
         parser = ThinkStreamParser(on_text=on_text, on_reasoning=on_reasoning)
+        if should_stop and should_stop():
+            res.stopped = True
+            return res
+        inbox = queue.Queue(maxsize=32)
+        cancelled = threading.Event()
+        stream_box = {}
 
-        stream = self.client.chat.completions.create(**params)
+        def publish(kind, value):
+            while not cancelled.is_set():
+                try:
+                    inbox.put((kind, value), timeout=0.1)
+                    return
+                except queue.Full:
+                    pass
+
+        def receive():
+            try:
+                stream = self.client.chat.completions.create(**params)
+                stream_box["stream"] = stream
+                if not cancelled.is_set():
+                    for chunk in stream:
+                        if cancelled.is_set():
+                            break
+                        publish("chunk", chunk)
+                publish("done", None)
+            except Exception as exc:
+                publish("error", exc)
+            finally:
+                close = getattr(stream_box.get("stream"), "close", None)
+                if callable(close):
+                    close()
+
+        worker = threading.Thread(target=receive, name="llm-transport", daemon=True)
+        worker.start()
+        last_chunk_at = time.monotonic()
+        last_probe_at = 0.0
+        idle_probes = 0
         try:
-            for chunk in stream:
+            while True:
+                if should_stop and should_stop():
+                    stop_started = stop_started or time.monotonic()
+                    visible = "".join(text_parts)
+                    if (not visible or parser.in_think or tc_acc
+                            or SENTENCE_END_RE.search(visible)
+                            or time.monotonic() - stop_started >= 0.75):
+                        res.stopped = True
+                        break
+                now = time.monotonic()
+                if now - last_chunk_at > 90 and now - last_probe_at > 10:
+                    from harness.servermgmt import slots_processing
+                    last_probe_at = now
+                    idle_probes = idle_probes + 1 if slots_processing(self.cfg) is False else 0
+                    if idle_probes >= 2:
+                        raise RuntimeError("Model connection stalled: the server is idle and no output arrived")
+                try:
+                    kind, chunk = inbox.get(timeout=0.05)
+                except queue.Empty:
+                    continue
+                if kind == "done":
+                    res.stopped = stop_started is not None
+                    break
+                if kind == "error":
+                    raise chunk
+                last_chunk_at = time.monotonic()
+                idle_probes = 0
+                usage = getattr(chunk, "usage", None)
+                if usage:
+                    res.usage = usage.model_dump() if hasattr(usage, "model_dump") else dict(usage)
                 if not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
@@ -215,16 +284,6 @@ class LLMClient:
                         if on_tool_delta and (tc.function.name or tc.function.arguments):
                             on_tool_delta(tc.function.name or "", tc.function.arguments or "")
 
-                if should_stop and should_stop():
-                    if not stop_requested:
-                        stop_requested = True
-                    if delta.content:
-                        chars_after_stop += len(delta.content)
-                    visible = "".join(text_parts)
-                    # Zastavit při větě jen pokud máme viditelný text nebo po 240 znacích
-                    if (visible and SENTENCE_END_RE.search(visible)) or chars_after_stop >= 240:
-                        res.stopped = True
-                        break
             # Flush parsing buffer na konci streamu
             ftp, frp = parser.flush()
             if ftp:
@@ -232,10 +291,13 @@ class LLMClient:
             if frp:
                 reasoning_parts.extend(frp)
         finally:
-            if res.stopped:
-                close = getattr(stream, "close", None)
-                if callable(close):
-                    close()
+            cancelled.set()
+            close = getattr(stream_box.get("stream"), "close", None)
+            if callable(close):
+                closer = threading.Thread(target=close, name="llm-close", daemon=True)
+                closer.start()
+                closer.join(timeout=0.2)
+            worker.join(timeout=0.2)
 
         res.content = "".join(text_parts)
         res.reasoning = "".join(reasoning_parts)
@@ -247,6 +309,7 @@ class LLMClient:
             }
             for i, slot in sorted(tc_acc.items())
         ]
+        self.last_usage = res.usage
         return res
 
     # ------------------------------------------------------------------

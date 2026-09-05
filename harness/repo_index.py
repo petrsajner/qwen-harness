@@ -10,7 +10,7 @@ from pathlib import Path
 IGNORED = {".git", ".venv", "venv", "node_modules", "runtime", "sessions",
            "dist", "build", "__pycache__", ".idea", ".vscode"}
 DOCUMENT_EXTENSIONS = {".md", ".txt", ".rst", ".csv", ".json", ".yaml", ".yml",
-                       ".pdf", ".docx"}
+                       ".pdf", ".docx", ".xlsx", ".xlsm"}
 INSTRUCTION_FILENAMES = ("AGENTS.md", "QWEN.md", "CLAUDE.md")
 
 
@@ -101,66 +101,26 @@ class RepoIndex:
         if not path.is_file() or path.suffix.lower() not in DOCUMENT_EXTENSIONS:
             raise FileNotFoundError(f"Unsupported or missing project document: {relative_path}")
         suffix = path.suffix.lower()
-        if suffix == ".pdf":
-            from pypdf import PdfReader
-            text = "\n\n".join(page.extract_text() or "" for page in PdfReader(str(path)).pages)
-        elif suffix == ".docx":
-            from docx import Document
-            document = Document(str(path))
-            text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+        if suffix in (".pdf", ".docx", ".xlsx", ".xlsm", ".csv"):
+            from harness.documents import read_document_content
+            text = read_document_content(path, max_chars=max_chars)
         else:
             text = path.read_text(encoding="utf-8", errors="replace")
         return path, text[:max(1, max_chars)]
 
     def _current_signature(self) -> tuple:
-        try:
-            stat = self.workspace.stat()
-            git_index = self.workspace / ".git" / "index"
-            git_state = ""
-            if git_index.exists():
-                proc = subprocess.run(
-                    ["git", "status", "--porcelain"], cwd=self.workspace,
-                    capture_output=True, text=True, encoding="utf-8", errors="replace",
-                    timeout=5, creationflags=0x08000000,
-                )
-                git_state = proc.stdout
-            else:
-                latest_mtime = 0
-                file_count = 0
-                for path in self.workspace.rglob("*"):
-                    if file_count >= 1500:
-                        break
-                    if not path.is_file() or any(part in IGNORED for part in path.parts):
-                        continue
-                    file_count += 1
-                    try:
-                        latest_mtime = max(latest_mtime, path.stat().st_mtime_ns)
-                    except OSError:
-                        continue
-                git_state = f"non-git:{file_count}:{latest_mtime}"
-            return (stat.st_mtime_ns, git_index.stat().st_mtime_ns if git_index.exists() else 0,
-                    git_state)
-        except (OSError, subprocess.TimeoutExpired):
-            return (0, 0)
+        signature = []
+        for path in self._files():
+            try:
+                stat = path.stat()
+                signature.append((str(path), stat.st_mtime_ns, stat.st_size))
+            except OSError:
+                continue
+        return tuple(signature)
 
     def _files(self) -> list[Path]:
-        try:
-            proc = subprocess.run(
-                ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
-                cwd=self.workspace, capture_output=True, text=True, encoding="utf-8",
-                errors="replace", timeout=10, creationflags=0x08000000,
-            )
-            if proc.returncode == 0:
-                return [self.workspace / line for line in proc.stdout.splitlines() if line][:1500]
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-        files: list[Path] = []
-        for path in self.workspace.rglob("*"):
-            if len(files) >= 1500:
-                break
-            if path.is_file() and not any(part in IGNORED for part in path.parts):
-                files.append(path)
-        return files
+        from harness.file_index import project_files
+        return project_files(self.workspace)
 
     def _build(self) -> str:
         files = self._files()
